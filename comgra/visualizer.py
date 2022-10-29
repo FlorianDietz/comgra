@@ -96,6 +96,8 @@ class Visualization:
         # TODO
         #  -a function that updates the graph display, to be triggered whenever a node is expanded or closed
         #  -it always creates a left-to-right layout and adjusts all heights and widths dynamically to fit the whole size
+        #  -note that modules & tensors can be nested within other modules.
+        #    should collapsing a module always hide all tensors inside it, or can it be useful to investigate the hidden ones some times?
         #  -the layout is: left to right. Always alternating between tensors and modules. --> How do I make this as compact as possible?
         #    have a look at a practical example, first.
         #    also google for "graph layouting logic"
