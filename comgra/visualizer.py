@@ -98,3 +98,8 @@ class Visualization:
         #  -it always creates a left-to-right layout and adjusts all heights and widths dynamically to fit the whole size
         #  -the layout is: left to right. Always alternating between tensors and modules. --> How do I make this as compact as possible?
         #    have a look at a practical example, first.
+        #    also google for "graph layouting logic"
+        #  -think about how to make the recording work concurrently with many trials in parallel AND in sequence
+        #    note that the graph in particular will end up having multiple different variants depending on parameters
+        #    it should be possible to explicitly list which variant of the graph a particular trial run is recording.
+        #    then it will run sanity checks comparing to that version, but not other versions.
