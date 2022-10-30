@@ -44,13 +44,18 @@ import plotly.express as px
 import pandas as pd
 import torch
 
-from comgra.objects import DirectedAcyclicGraph, ModuleRepresentation, ParameterRepresentation, TensorRepresentation
+from comgra.objects import DirectedAcyclicGraph, GlobalStatus, ModuleRepresentation, ParameterRepresentation, TensorRepresentation
 
 
 @dataclass
 class VisualizationParameters:
     total_display_width = 1800
     total_display_height = 600
+    padding_left = 50
+    padding_right = 50
+    padding_top = 50
+    padding_bottom = 50
+    ratio_of_space_between_nodes_to_node_size = 2.0
 
 
 vp = VisualizationParameters()
@@ -95,30 +100,38 @@ class Visualization:
             Input('refresh-button', 'n_clicks'),
         )
         def reload_graph(n_clicks):
+            with open(self.path / 'globals.json') as f:
+                globals_json = json.load(f)
+                globals_json['tensor_representations'] = [TensorRepresentation(**a) for a in globals_json['tensor_representations']]
+                global_status = GlobalStatus(**globals_json)
             with open(self.path / 'graph.json') as f:
                 graph_json = json.load(f)
-                print(graph_json)
                 graph = DirectedAcyclicGraph(**graph_json)
-                print(graph.build_dag_format())
-            children = [html.Div(id='main_area', style={
-                    'width': f'100px',
-                    'height': f'100px',
-                    'backgroundColor': 'white',
-                    'position': 'absolute',
-                    'left': '50px',
-                    'top': '100px',
-                    'border': '1px solid black',
-                })]
+                print(graph.dag_format)
+            highest_number_of_nodes = max(len(a) for a in graph.dag_format)
+            height_per_box = int((vp.total_display_height - vp.padding_top - vp.padding_bottom) / (highest_number_of_nodes + (highest_number_of_nodes - 1) * vp.ratio_of_space_between_nodes_to_node_size))
+            width_per_box = int((vp.total_display_width - vp.padding_left - vp.padding_right) / (len(graph.dag_format) + (len(graph.dag_format) - 1) * vp.ratio_of_space_between_nodes_to_node_size))
+            children = []
+            for i, nodes in enumerate(graph.dag_format):
+                for j, node in enumerate(nodes):
+                    children.append(html.Div(id='main_area', style={
+                        'width': f'{width_per_box}px',
+                        'height': f'{height_per_box}px',
+                        'backgroundColor': 'white',
+                        'position': 'absolute',
+                        'left': f'{int(vp.padding_left + i * (1 + vp.ratio_of_space_between_nodes_to_node_size) * width_per_box)}px',
+                        'top': f'{int(vp.padding_top + j * (1 + vp.ratio_of_space_between_nodes_to_node_size) * height_per_box)}px',
+                        'border': '1px solid black',
+                    }, children=[
+                        f'{node}'
+                    ]))
+            # TODO
+            #  *make the nodes have a tooltip
+            #  *color coding
+            #  *details that show up when you select a node
+            #  *selecting a node OR mouseover on it highlights the node as well as all connections to and from it
             return children
         # TODO
-        #  -it always creates a left-to-right layout and adjusts all heights and widths dynamically to fit the whole size
-        #  -note that modules & tensors can be nested within other modules.
-        #    should collapsing a module always hide all tensors inside it,
-        #    or can it be useful to investigate the hidden ones some times?
-        #  -the layout is: left to right. Always alternating between tensors and modules.
-        #  --> How do I make this as compact as possible?
-        #    have a look at a practical example, first.
-        #    also google for "graph layouting logic"
         #  -think about how to make the recording work concurrently with many trials in parallel AND in sequence
         #    note that the graph in particular will end up having multiple different variants depending on parameters
         #    it should be possible to explicitly list which variant of the graph a particular trial run is recording.

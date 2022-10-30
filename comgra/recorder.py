@@ -6,18 +6,19 @@ from typing import List, Dict
 import torch
 from torch import nn as torch_nn
 
-from comgra.objects import DirectedAcyclicGraph, ModuleRepresentation, ParameterRepresentation, TensorRepresentation
+from comgra.objects import DirectedAcyclicGraph, GlobalStatus, ModuleRepresentation, ParameterRepresentation, TensorRepresentation
 
 
 class ComgraRecorder:
 
-    def __init__(self, comgra_root_path, group, trial_id):
+    def __init__(self, comgra_root_path, group, trial_id, prefixes_for_grouping_module_parameters):
         comgra_root_path = Path(comgra_root_path)
         assert comgra_root_path.exists()
         self.trial_id = trial_id
         self.group_path = comgra_root_path / group
         self.trial_path = self.group_path / trial_id
-        print(self.trial_path)
+        self.prefixes_for_grouping_module_parameters = prefixes_for_grouping_module_parameters
+        assert all(isinstance(a, str) for a in prefixes_for_grouping_module_parameters)
         self.trial_path.mkdir(parents=True, exist_ok=True)
         self._warning_messages_cache = {}
         self.set_of_modules = {}
@@ -196,7 +197,16 @@ class ComgraRecorder:
             print(k)
             print(v)
         #
-        # Construct a graph format from this and save it.
+        # Save global status information
+        #
+        global_status = GlobalStatus(
+            prefixes_for_grouping_module_parameters=self.prefixes_for_grouping_module_parameters,
+            tensor_representations=list(self.tensor_name_to_representation.values()),
+        )
+        with open(self.group_path / 'globals.json', 'w') as f:
+            json.dump(dataclasses.asdict(global_status), f)
+        #
+        # Construct a graph format and save it.
         #
         nodes = list(self.tensor_name_to_representation.keys())
         connections = [
@@ -208,6 +218,7 @@ class ComgraRecorder:
             nodes=nodes,
             connections=connections,
         )
+        graph.build_dag_format(global_status)
         with open(self.group_path / 'graph.json', 'w') as f:
             json.dump(dataclasses.asdict(graph), f)
         #
