@@ -22,4 +22,4 @@ class TensorRepresentation:
     full_unique_name: str
     role: str
     shape: List[int]
-    is_a_source_for: List[str] = dataclasses.field(default_factory=list)
+    is_a_dependency_of: List[str] = dataclasses.field(default_factory=list)

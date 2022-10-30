@@ -171,8 +171,8 @@ class ComgraRecorder:
                 name_of_this_tensor = self.tensor_to_name[t]
                 tensor_representation = self.tensor_name_to_representation[name_of_this_tensor]
                 if last_encountered_named_tensor is not None and \
-                        last_encountered_named_tensor not in tensor_representation.is_a_source_for:
-                    tensor_representation.is_a_source_for.append(last_encountered_named_tensor)
+                        last_encountered_named_tensor not in tensor_representation.is_a_dependency_of:
+                    tensor_representation.is_a_dependency_of.append(last_encountered_named_tensor)
                 last_encountered_named_tensor = name_of_this_tensor
                 if tensor_representation.role == 'input':
                     # TODO: think of a way to make multi-iteration tracking possible.
@@ -197,13 +197,18 @@ class ComgraRecorder:
             print(v)
         # TODO decide what the graph format should look like.
         #  keep it simple. Dump the data.
+        #  issue: the arrows should go from the input to the module, then from the module to the output
+        #    rule for this:
+        #      -module hook. Determine which module an intermediate tensor belongs to.
+        #      -while building the graph, differentiate between different usages of the same tensor.
+        #      -
         #
         # Construct a graph format from this and populate it with data.
         # Draw modules around the different computation steps based on the first/last time a parameter
         # from that module is encountered.
         # Note that it can happen that a module is used twice, with different modules being used in between.
         # This needs to be handled by verifying the sequence of Parameters in the module.
-        # (Each Parameter should only be used once per module call, and they should be in order)
+        # (Each Parameter should only be used once per module call, and they should be in order.)
         #  # TODO think. Neither of these two conditions has to be true.
         #
         pass
