@@ -1,10 +1,12 @@
+import dataclasses
+import json
 from pathlib import Path
 from typing import List, Dict
 
 import torch
 from torch import nn as torch_nn
 
-from comgra.objects import ModuleRepresentation, ParameterRepresentation, TensorRepresentation
+from comgra.objects import DirectedAcyclicGraph, ModuleRepresentation, ParameterRepresentation, TensorRepresentation
 
 
 class ComgraRecorder:
@@ -152,7 +154,6 @@ class ComgraRecorder:
         # Go backwards through the computation graph, starting from outputs, targets, and losses.
         # Go back until you encounter an input, or you can't go back anymore.
         #
-        computation_steps_encountered = {}
 
         def traverse_graph_backwards(step, last_encountered_named_tensor):
             if step is None:
@@ -165,7 +166,8 @@ class ComgraRecorder:
                 t = self.computation_step_to_tensor[step]
             if hasattr(step, 'variable'):
                 t = step.variable
-                if t in self.parameter_to_representation:
+                # Register parameters in the graph the first time you encounter them.
+                if t in self.parameter_to_representation and t not in self.tensor_to_name:
                     self.register_tensor(self.parameter_to_representation[t].full_unique_name, t, is_parameter=True)
             if t is not None:
                 name_of_this_tensor = self.tensor_to_name[t]
@@ -181,38 +183,43 @@ class ComgraRecorder:
                     #  Calculate this by tracking SOME of the variables in this class on a per-iteraion basis.
                     #  also, finish_iteration() will need to be split into finish_iteration() and finish_tracking()
                     return  # Do not track the graph beyond the inputs, which might go into the previous iteration.
-            if step in computation_steps_encountered:
-                return
-            computation_steps_encountered[step] = True
             for predecessor, other in step.next_functions:
                 traverse_graph_backwards(predecessor, last_encountered_named_tensor)
         final_tensors = [t for t, n in self.tensor_to_name.items() if self.tensor_name_to_representation[n].role in ['output', 'target', 'loss']]
         for tensor in final_tensors:
             traverse_graph_backwards(tensor.grad_fn, None)
-        assert len(computation_steps_encountered) > 0, \
+        assert sum([len(a.is_a_dependency_of) for a in self.tensor_name_to_representation.values()]) > 0, \
             "No computational graph could be constructed. " \
             "The most common error that could cause this is that gradient computations are turned off."
+        print("-----------")
         for k, v in self.tensor_name_to_representation.items():
             print(k)
             print(v)
-        # TODO decide what the graph format should look like.
-        #  keep it simple. Dump the data.
-        #  issue: the arrows should go from the input to the module, then from the module to the output
-        #    rule for this:
-        #      -module hook. Determine which module an intermediate tensor belongs to.
-        #      -while building the graph, differentiate between different usages of the same tensor.
-        #      -
         #
-        # Construct a graph format from this and populate it with data.
-        # Draw modules around the different computation steps based on the first/last time a parameter
-        # from that module is encountered.
-        # Note that it can happen that a module is used twice, with different modules being used in between.
-        # This needs to be handled by verifying the sequence of Parameters in the module.
-        # (Each Parameter should only be used once per module call, and they should be in order.)
-        #  # TODO think. Neither of these two conditions has to be true.
+        # Construct a graph format from this and save it.
+        #
+        nodes = list(self.tensor_name_to_representation.keys())
+        connections = [
+            [dependency, dependent]
+            for dependency, rep in self.tensor_name_to_representation.items()
+            for dependent in rep.is_a_dependency_of
+        ]
+        graph = DirectedAcyclicGraph(
+            nodes=nodes,
+            connections=connections,
+        )
+        with open(self.group_path / 'graph.json', 'w') as f:
+            json.dump(dataclasses.asdict(graph), f)
+        #
+        # Store metadata about the graph nodes that should always be the same regardless of parameters
+        # and can be visualized.
+        # TODO first decide how to handle two runs that use different intermediate nodes.
+        #   it should be possible to make meaningful comparisons between them as far as is possible to achieve.
+        #   otherwise causality analysis will not work at all.
         #
         pass
         #
         # Verify that the result is identical to previous results.
+        # For both the graph and the metadata.
         #
         pass

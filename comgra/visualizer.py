@@ -44,6 +44,8 @@ import plotly.express as px
 import pandas as pd
 import torch
 
+from comgra.objects import DirectedAcyclicGraph, ModuleRepresentation, ParameterRepresentation, TensorRepresentation
+
 
 @dataclass
 class VisualizationParameters:
@@ -66,7 +68,7 @@ class Visualization:
 
     def run_server(self):
         self.create_visualization()
-        self.app.run_server()
+        self.app.run_server(debug=True)
 
     def create_visualization(self):
         app = self.app
@@ -81,7 +83,24 @@ class Visualization:
                 'height': f'{vp.total_display_height}px',
                 'border': '1px solid black',
             }, children=[
-                html.Div(id='main_area', style={
+
+            ]),
+            html.Div(id='controls_container', children=[
+                html.Button('Refresh', id='refresh-button', n_clicks=0),
+            ]),
+        ])
+
+        @app.callback(
+            Output('graph_container', 'children'),
+            Input('refresh-button', 'n_clicks'),
+        )
+        def reload_graph(n_clicks):
+            with open(self.path / 'graph.json') as f:
+                graph_json = json.load(f)
+                print(graph_json)
+                graph = DirectedAcyclicGraph(**graph_json)
+                print(graph.build_dag_format())
+            children = [html.Div(id='main_area', style={
                     'width': f'100px',
                     'height': f'100px',
                     'backgroundColor': 'white',
@@ -89,16 +108,15 @@ class Visualization:
                     'left': '50px',
                     'top': '100px',
                     'border': '1px solid black',
-                }),
-            ]),
-            html.Div(id='controls_container'),
-        ])
+                })]
+            return children
         # TODO
-        #  -a function that updates the graph display, to be triggered whenever a node is expanded or closed
         #  -it always creates a left-to-right layout and adjusts all heights and widths dynamically to fit the whole size
         #  -note that modules & tensors can be nested within other modules.
-        #    should collapsing a module always hide all tensors inside it, or can it be useful to investigate the hidden ones some times?
-        #  -the layout is: left to right. Always alternating between tensors and modules. --> How do I make this as compact as possible?
+        #    should collapsing a module always hide all tensors inside it,
+        #    or can it be useful to investigate the hidden ones some times?
+        #  -the layout is: left to right. Always alternating between tensors and modules.
+        #  --> How do I make this as compact as possible?
         #    have a look at a practical example, first.
         #    also google for "graph layouting logic"
         #  -think about how to make the recording work concurrently with many trials in parallel AND in sequence
