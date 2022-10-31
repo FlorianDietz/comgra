@@ -11,17 +11,21 @@ from comgra.objects import DirectedAcyclicGraph, GlobalStatus, ModuleRepresentat
 
 class ComgraRecorder:
 
-    def __init__(self, comgra_root_path, group, trial_id, prefixes_for_grouping_module_parameters):
+    def __init__(
+            self, comgra_root_path, group, trial_id, prefixes_for_grouping_module_parameters, parameters_of_trial
+    ):
         comgra_root_path = Path(comgra_root_path)
         assert comgra_root_path.exists()
         self.trial_id = trial_id
         self.group_path = comgra_root_path / group
-        self.trial_path = self.group_path / trial_id
+        self.trial_path = self.group_path / 'trials' / trial_id
         self.prefixes_for_grouping_module_parameters = list(prefixes_for_grouping_module_parameters)
         assert all(isinstance(a, str) for a in prefixes_for_grouping_module_parameters)
+        self.parameters_of_trial = parameters_of_trial
         self.trial_path.mkdir(parents=True, exist_ok=True)
         self._warning_messages_cache = {}
         self.set_of_modules = {}
+        self.computational_graph_layout_and_global_data_have_been_recorded = False
         self.unique_module_names = {}
         self.unique_parameter_names = {}
         self.parameter_to_representation = {}
@@ -155,82 +159,77 @@ class ComgraRecorder:
         # Go backwards through the computation graph, starting from outputs, targets, and losses.
         # Go back until you encounter an input, or you can't go back anymore.
         #
-
-        def traverse_graph_backwards(step, last_encountered_named_tensor):
-            if step is None:
-                return
-            t = None
-            if step in self.computation_step_to_tensor:
-                assert not hasattr(step, 'variable'), \
-                    "This shouldn't be possible. hasattr(step, 'variable') is True if it's a leaf, " \
-                    "while computation_step_to_tensor is used for intermediate values."
-                t = self.computation_step_to_tensor[step]
-            if hasattr(step, 'variable'):
-                t = step.variable
-                # Register parameters in the graph the first time you encounter them.
-                if t in self.parameter_to_representation and t not in self.tensor_to_name:
-                    self.register_tensor(self.parameter_to_representation[t].full_unique_name, t, is_parameter=True)
-            if t is not None:
-                name_of_this_tensor = self.tensor_to_name[t]
-                tensor_representation = self.tensor_name_to_representation[name_of_this_tensor]
-                if last_encountered_named_tensor is not None and \
-                        last_encountered_named_tensor not in tensor_representation.is_a_dependency_of:
-                    tensor_representation.is_a_dependency_of.append(last_encountered_named_tensor)
-                last_encountered_named_tensor = name_of_this_tensor
-                if tensor_representation.role == 'input':
-                    # TODO: think of a way to make multi-iteration tracking possible.
-                    #  it should create separate statistics for the tensors of each iteration
-                    #  and the generated graph should be the same for each iteration.
-                    #  Calculate this by tracking SOME of the variables in this class on a per-iteraion basis.
-                    #  also, finish_iteration() will need to be split into finish_iteration() and finish_tracking()
-                    return  # Do not track the graph beyond the inputs, which might go into the previous iteration.
-            for predecessor, other in step.next_functions:
-                traverse_graph_backwards(predecessor, last_encountered_named_tensor)
-        final_tensors = [t for t, n in self.tensor_to_name.items() if self.tensor_name_to_representation[n].role in ['output', 'target', 'loss']]
-        for tensor in final_tensors:
-            traverse_graph_backwards(tensor.grad_fn, None)
-        assert sum([len(a.is_a_dependency_of) for a in self.tensor_name_to_representation.values()]) > 0, \
-            "No computational graph could be constructed. " \
-            "The most common error that could cause this is that gradient computations are turned off."
-        print("-----------")
-        for k, v in self.tensor_name_to_representation.items():
-            print(k)
-            print(v)
+        if not self.computational_graph_layout_and_global_data_have_been_recorded:
+            def traverse_graph_backwards(step, last_encountered_named_tensor):
+                if step is None:
+                    return
+                t = None
+                if step in self.computation_step_to_tensor:
+                    assert not hasattr(step, 'variable'), \
+                        "This shouldn't be possible. hasattr(step, 'variable') is True if it's a leaf, " \
+                        "while computation_step_to_tensor is used for intermediate values."
+                    t = self.computation_step_to_tensor[step]
+                if hasattr(step, 'variable'):
+                    t = step.variable
+                    # Register parameters in the graph the first time you encounter them.
+                    if t in self.parameter_to_representation and t not in self.tensor_to_name:
+                        self.register_tensor(self.parameter_to_representation[t].full_unique_name, t, is_parameter=True)
+                if t is not None:
+                    name_of_this_tensor = self.tensor_to_name[t]
+                    tensor_representation = self.tensor_name_to_representation[name_of_this_tensor]
+                    if last_encountered_named_tensor is not None and \
+                            last_encountered_named_tensor not in tensor_representation.is_a_dependency_of:
+                        tensor_representation.is_a_dependency_of.append(last_encountered_named_tensor)
+                    last_encountered_named_tensor = name_of_this_tensor
+                    if tensor_representation.role == 'input':
+                        return  # Do not track the graph beyond the inputs, which might go into the previous iteration.
+                for predecessor, other in step.next_functions:
+                    traverse_graph_backwards(predecessor, last_encountered_named_tensor)
+            final_tensors = [t for t, n in self.tensor_to_name.items() if self.tensor_name_to_representation[n].role in ['output', 'target', 'loss']]
+            for tensor in final_tensors:
+                traverse_graph_backwards(tensor.grad_fn, None)
+            assert sum([len(a.is_a_dependency_of) for a in self.tensor_name_to_representation.values()]) > 0, \
+                "No computational graph could be constructed. " \
+                "The most common error that could cause this is that gradient computations are turned off."
+            print("-----------")
+            for k, v in self.tensor_name_to_representation.items():
+                print(k)
+                print(v)
+            #
+            # Save global status information
+            #
+            global_status = GlobalStatus(
+                prefixes_for_grouping_module_parameters=list(self.prefixes_for_grouping_module_parameters),
+                tensor_representations=dict(self.tensor_name_to_representation),
+            )
+            with open(self.group_path / 'globals.json', 'w') as f:
+                json.dump(dataclasses.asdict(global_status), f)
+            #
+            # Construct a graph format and save it.
+            #
+            nodes = list(self.tensor_name_to_representation.keys())
+            connections = [
+                [dependency, dependent]
+                for dependency, rep in self.tensor_name_to_representation.items()
+                for dependent in rep.is_a_dependency_of
+            ]
+            graph = DirectedAcyclicGraph(
+                nodes=nodes,
+                connections=connections,
+            )
+            graph.build_dag_format(global_status)
+            with open(self.group_path / 'graph.json', 'w') as f:
+                json.dump(dataclasses.asdict(graph), f)
+            # Make sure this is only done once
+            self.computational_graph_layout_and_global_data_have_been_recorded = True
         #
-        # Save global status information
+        # Save trial information
         #
-        global_status = GlobalStatus(
-            prefixes_for_grouping_module_parameters=list(self.prefixes_for_grouping_module_parameters),
-            tensor_representations=dict(self.tensor_name_to_representation),
-        )
-        with open(self.group_path / 'globals.json', 'w') as f:
-            json.dump(dataclasses.asdict(global_status), f)
-        #
-        # Construct a graph format and save it.
-        #
-        nodes = list(self.tensor_name_to_representation.keys())
-        connections = [
-            [dependency, dependent]
-            for dependency, rep in self.tensor_name_to_representation.items()
-            for dependent in rep.is_a_dependency_of
-        ]
-        graph = DirectedAcyclicGraph(
-            nodes=nodes,
-            connections=connections,
-        )
-        graph.build_dag_format(global_status)
-        with open(self.group_path / 'graph.json', 'w') as f:
-            json.dump(dataclasses.asdict(graph), f)
-        #
-        # Store metadata about the graph nodes that should always be the same regardless of parameters
-        # and can be visualized.
-        # TODO first decide how to handle two runs that use different intermediate nodes.
-        #   it should be possible to make meaningful comparisons between them as far as is possible to achieve.
-        #   otherwise causality analysis will not work at all.
-        #
-        pass
+        with open(self.trial_path / 'parameters.json', 'w') as f:
+            json.dump(self.parameters_of_trial, f)
         #
         # Verify that the result is identical to previous results.
         # For both the graph and the metadata.
+        # TODO
         #
         pass

@@ -78,7 +78,7 @@ class Visualization:
     """
     def __init__(self, path):
         super().__init__()
-        self.path = path
+        self.path: Path = path
         assert path.exists(), path
         assets_path = Path(__file__).absolute().parent.parent / 'assets'
         assert assets_path.exists(), "If this fails, files have been moved."
@@ -179,10 +179,25 @@ class Visualization:
             dcc.Tooltip(id="graph-tooltip"),
             html.Div(id='controls-container', children=[
                 html.Button('Refresh', id='refresh-button', n_clicks=0),
+                dcc.Dropdown(
+                    id='trials-dropdown',
+                    options=[],
+                    value=None,
+                ),
             ]),
             html.Div(id='selected-item-details-container', children=[
             ]),
         ])
+
+        @app.callback([Output('trials-dropdown', 'options'),
+                       Output('trials-dropdown', 'value')],
+                      [Input('refresh-button', 'n_clicks')])
+        def update_trials_list(n_clicks):
+            trials_folder = self.path / 'trials'
+            subfolders = [a for a in trials_folder.iterdir() if a.is_dir()]
+            options = [{'label': a.name, 'value': a.name} for a in subfolders]
+            return options, options[0]['value']
+        update_trials_list(0)
 
         @app.callback(Output('dummy-for-selecting-a-node', 'className'),
                       [Input(self._node_name_to_dash_id(node), 'n_clicks_timestamp') for node
