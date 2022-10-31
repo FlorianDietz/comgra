@@ -80,7 +80,9 @@ class Visualization:
         super().__init__()
         self.path = path
         assert path.exists(), path
-        self.app = dash.Dash(__name__)
+        assets_path = Path(__file__).absolute().parent.parent / 'assets'
+        assert assets_path.exists(), "If this fails, files have been moved."
+        self.app = dash.Dash(__name__, assets_folder=str(assets_path))
         self._sanity_check_cache_to_avoid_duplicates = {}
 
     def _node_name_to_dash_id(self, node_name):
@@ -117,7 +119,6 @@ class Visualization:
                     'position': 'absolute',
                     'left': f'{left}px',
                     'top': f'{top}px',
-                    'border': '1px solid black',
                     'background': vp.node_type_to_color[global_status.tensor_representations[node].role]
                 }, title=node, children=[
                     f'{node}'
@@ -201,8 +202,7 @@ class Visualization:
 
         @app.callback(
             ([Output('selected-item-details-container', 'children')] +
-             [Output(con, 'stroke') for con in connection_names_to_source_and_target] +
-             [Output(con, 'strokeWidth') for con in connection_names_to_source_and_target]),
+             [Output(self._node_name_to_dash_id(n), 'className') for n in global_status.tensor_representations]),
             Input('dummy-for-selecting-a-node', 'className')
         )
         def select_node(node_name):
@@ -212,17 +212,9 @@ class Visualization:
                 html.P(node.role),
                 html.P(f"[{', '.join([str(a) for a in node.shape])}]"),
             ]
-            connection_displays = [
-                (vp.color_for_highlighting, 4) if source == node_name or target == node_name else
-                (vp.node_type_to_color[global_status.tensor_representations[source].role], 2)
-                for con, (source, target) in connection_names_to_source_and_target.items()
+            connected_node_names = {a[0] for a in graph.connections if a[1] == node_name} | {a[1] for a in graph.connections if a[0] == node_name}
+            classes_for_nodes = [
+                "node selected" if n == node_name else "node highlighted" if n in connected_node_names else "node"
+                for n in global_status.tensor_representations
             ]
-            connection_displays_stroke, connection_displays_stroke_width = tuple(zip(*connection_displays))
-            return [children] + list(connection_displays_stroke) + list(connection_displays_stroke_width)
-        # TODO
-        #  *selecting a node OR mouseover on it highlights the node as well as all connections to and from it
-        # TODO
-        #  -think about how to make the recording work concurrently with many trials in parallel AND in sequence
-        #    note that the graph in particular will end up having multiple different variants depending on parameters
-        #    it should be possible to explicitly list which variant of the graph a particular trial run is recording.
-        #    then it will run sanity checks comparing to that version, but not other versions.
+            return [children] + classes_for_nodes
