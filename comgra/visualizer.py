@@ -39,6 +39,7 @@ import dash
 from dash import dcc, html, no_update
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
+import dash_svg
 import numpy as np
 import plotly.express as px
 import pandas as pd
@@ -64,6 +65,8 @@ class VisualizationParameters:
         'intermediate': '#a29fc9',
         'parameter': '#cfc100',
     }
+    color_for_highlighting_primary = '#ff1700'
+    color_for_highlighting_secondary = '#db8468'
 
 
 vp = VisualizationParameters()
@@ -89,31 +92,61 @@ class Visualization:
         self._sanity_check_cache_to_avoid_duplicates[conversion] = node_name
         return conversion
 
+    def _nodes_to_connection_dash_id(self, source, target):
+        return f"connection__{self._node_name_to_dash_id(source)}__{self._node_name_to_dash_id(target)}"
+
     def run_server(self):
         self.create_visualization()
         self.app.run_server(debug=True)
 
-    def create_nodes(self, global_status: GlobalStatus, graph: DirectedAcyclicGraph):
+    def create_nodes_and_arrows(self, global_status: GlobalStatus, graph: DirectedAcyclicGraph):
         highest_number_of_nodes = max(len(a) for a in graph.dag_format)
         height_per_box = int((vp.total_display_height - vp.padding_top - vp.padding_bottom) / (highest_number_of_nodes + (highest_number_of_nodes - 1) * vp.ratio_of_space_between_nodes_to_node_size))
         width_per_box = int((vp.total_display_width - vp.padding_left - vp.padding_right) / (len(graph.dag_format) + (len(graph.dag_format) - 1) * vp.ratio_of_space_between_nodes_to_node_size))
         elements_of_the_graph = []
+        node_to_top_left_corner = {}
         for i, nodes in enumerate(graph.dag_format):
             for j, node in enumerate(nodes):
+                left = int(vp.padding_left + i * (1 + vp.ratio_of_space_between_nodes_to_node_size) * width_per_box)
+                top = int(vp.padding_top + j * (1 + vp.ratio_of_space_between_nodes_to_node_size) * height_per_box)
+                node_to_top_left_corner[node] = (left, top)
                 elements_of_the_graph.append(html.Div(id=self._node_name_to_dash_id(node), style={
-                    'title': node,
                     'width': f'{width_per_box}px',
                     'height': f'{height_per_box}px',
                     'backgroundColor': 'white',
                     'position': 'absolute',
-                    'left': f'{int(vp.padding_left + i * (1 + vp.ratio_of_space_between_nodes_to_node_size) * width_per_box)}px',
-                    'top': f'{int(vp.padding_top + j * (1 + vp.ratio_of_space_between_nodes_to_node_size) * height_per_box)}px',
+                    'left': f'{left}px',
+                    'top': f'{top}px',
                     'border': '1px solid black',
                     'background': vp.node_type_to_color[global_status.tensor_representations[node].role]
                 }, title=node, children=[
                     f'{node}'
                 ]))
-        return elements_of_the_graph
+        connection_names_to_source_and_target = {}
+        node_to_incoming_and_outgoing_lines = {n: ([], []) for n in graph.nodes}
+        svg_connection_lines = []
+        for connection in graph.connections:
+            source, target = tuple(connection)
+            source_left, source_top = node_to_top_left_corner[source]
+            target_left, target_top = node_to_top_left_corner[target]
+            source_x = int(source_left + width_per_box)
+            source_y = int(source_top + 0.5 * height_per_box)
+            target_x = int(target_left)
+            target_y = int(target_top + 0.5 * height_per_box)
+            connection_name = self._nodes_to_connection_dash_id(source, target)
+            svg_connection_lines.append(dash_svg.Line(
+                id=connection_name,
+                x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
+                stroke=vp.node_type_to_color[global_status.tensor_representations[source].role],
+                strokeWidth=1,
+            ))
+            connection_names_to_source_and_target[connection_name] = (source, target)
+            node_to_incoming_and_outgoing_lines[source][1].append(connection_name)
+            node_to_incoming_and_outgoing_lines[target][0].append(connection_name)
+        # Note: "9" here is the offset of the viewport from the top left corner of the screen.
+        # This is 1 from the border plus 8 from the padding.
+        elements_of_the_graph.append(dash_svg.Svg(svg_connection_lines, viewBox=f'9 9 {vp.total_display_width} {vp.total_display_height}'))
+        return elements_of_the_graph, connection_names_to_source_and_target, node_to_incoming_and_outgoing_lines
 
     def create_visualization(self):
         app = self.app
@@ -127,7 +160,8 @@ class Visualization:
             graph = DirectedAcyclicGraph(**graph_json)
             print(graph.dag_format)
 
-        elements_of_the_graph = self.create_nodes(global_status, graph)
+        elements_of_the_graph, connection_names_to_source_and_target, node_to_incoming_and_outgoing_lines = \
+            self.create_nodes_and_arrows(global_status, graph)
 
         # Define the Layout of the App
         app.layout = html.Div(style={
@@ -166,7 +200,9 @@ class Visualization:
             return name_of_selected_item
 
         @app.callback(
-            Output('selected-item-details-container', 'children'),
+            ([Output('selected-item-details-container', 'children')] +
+             [Output(con, 'stroke') for con in connection_names_to_source_and_target] +
+             [Output(con, 'strokeWidth') for con in connection_names_to_source_and_target]),
             Input('dummy-for-selecting-a-node', 'className')
         )
         def select_node(node_name):
@@ -176,7 +212,13 @@ class Visualization:
                 html.P(node.role),
                 html.P(f"[{', '.join([str(a) for a in node.shape])}]"),
             ]
-            return children
+            connection_displays = [
+                (vp.color_for_highlighting, 4) if source == node_name or target == node_name else
+                (vp.node_type_to_color[global_status.tensor_representations[source].role], 2)
+                for con, (source, target) in connection_names_to_source_and_target.items()
+            ]
+            connection_displays_stroke, connection_displays_stroke_width = tuple(zip(*connection_displays))
+            return [children] + list(connection_displays_stroke) + list(connection_displays_stroke_width)
         # TODO
         #  *selecting a node OR mouseover on it highlights the node as well as all connections to and from it
         # TODO
