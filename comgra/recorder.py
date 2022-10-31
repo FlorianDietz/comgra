@@ -17,7 +17,7 @@ class ComgraRecorder:
         self.trial_id = trial_id
         self.group_path = comgra_root_path / group
         self.trial_path = self.group_path / trial_id
-        self.prefixes_for_grouping_module_parameters = prefixes_for_grouping_module_parameters
+        self.prefixes_for_grouping_module_parameters = list(prefixes_for_grouping_module_parameters)
         assert all(isinstance(a, str) for a in prefixes_for_grouping_module_parameters)
         self.trial_path.mkdir(parents=True, exist_ok=True)
         self._warning_messages_cache = {}
@@ -200,8 +200,8 @@ class ComgraRecorder:
         # Save global status information
         #
         global_status = GlobalStatus(
-            prefixes_for_grouping_module_parameters=self.prefixes_for_grouping_module_parameters,
-            tensor_representations=list(self.tensor_name_to_representation.values()),
+            prefixes_for_grouping_module_parameters=list(self.prefixes_for_grouping_module_parameters),
+            tensor_representations=dict(self.tensor_name_to_representation),
         )
         with open(self.group_path / 'globals.json', 'w') as f:
             json.dump(dataclasses.asdict(global_status), f)

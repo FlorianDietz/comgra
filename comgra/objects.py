@@ -29,7 +29,11 @@ class TensorRepresentation:
 @dataclasses.dataclass
 class GlobalStatus:
     prefixes_for_grouping_module_parameters: List[str]
-    tensor_representations: List[TensorRepresentation]
+    tensor_representations: Dict[str, TensorRepresentation]
+
+    def __post_init__(self):
+        for k, v in self.tensor_representations.items():
+            assert k == v.full_unique_name, (k, v.full_unique_name)
 
 
 @dataclasses.dataclass
@@ -53,23 +57,23 @@ class DirectedAcyclicGraph:
         #
         nodes_list_list = []
         debug = 0
-        nodes_list_list.append([a.full_unique_name for a in global_status.tensor_representations if a.role == 'input'])
+        nodes_list_list.append([k for k, v in global_status.tensor_representations.items() if v.role == 'input'])
         used_nodes = {a: True for a in nodes_list_list[0]}
         nodes_list_for_parameters = []
         for prefix in global_status.prefixes_for_grouping_module_parameters:
             next_set_of_nodes = []
             nodes_list_for_parameters.append(next_set_of_nodes)
-            for a in global_status.tensor_representations:
+            for a in global_status.tensor_representations.values():
                 if a.role == 'parameter' and a.full_unique_name not in used_nodes:
                     if a.full_unique_name.startswith(prefix):
                         used_nodes[a.full_unique_name] = True
                         next_set_of_nodes.append(a.full_unique_name)
-        for a in global_status.tensor_representations:
+        for a in global_status.tensor_representations.values():
             if a.role == 'parameter':
                 assert a.full_unique_name in used_nodes, \
                     f"The parameter {a.full_unique_name} is not covered by any of the provided prefixes: " \
                     f"{global_status.prefixes_for_grouping_module_parameters}"
-        nodes_to_sort = [a.full_unique_name for a in global_status.tensor_representations if a.role in ['intermediate', 'output']]
+        nodes_to_sort = [k for k, v in global_status.tensor_representations.items() if v.role in ['intermediate', 'output']]
         c = 0
         while c < len(nodes_to_sort):
             debug += 1
@@ -99,8 +103,8 @@ class DirectedAcyclicGraph:
                 if any(a in shared_dependencies_of_nodes for a in list_of_parameters):
                     break
             nodes_list_list.insert(farthest_possible_index, list_of_parameters)
-        nodes_list_list.append([a.full_unique_name for a in global_status.tensor_representations if a.role == 'target'])
-        nodes_list_list.append([a.full_unique_name for a in global_status.tensor_representations if a.role == 'loss'])
+        nodes_list_list.append([k for k, v in global_status.tensor_representations.items() if v.role == 'target'])
+        nodes_list_list.append([k for k, v in global_status.tensor_representations.items() if v.role == 'loss'])
         nodes_list_list = [a for a in nodes_list_list if len(a) > 0]
         assert sum([len(a) for a in nodes_list_list]) == len(self.nodes)
         for i, nodes0 in enumerate(nodes_list_list):
