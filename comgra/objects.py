@@ -1,6 +1,8 @@
 import collections
 import dataclasses
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional, Any, Union
+
+import torch
 
 
 @dataclasses.dataclass
@@ -23,13 +25,16 @@ class TensorRepresentation:
     full_unique_name: str
     role: str
     shape: List[int]
-    batch_index: int
+    index_of_batch_dimension: Optional[int]
+    value_dimensions: List[int]
+    recording_type: str
     items_to_record: List[str]
+    record_per_batch_index: bool
     is_a_dependency_of: List[str] = dataclasses.field(default_factory=list)
 
     def get_size_of_tensor(self):
         assert len(self.shape) == 2
-        return self.shape[1 - self.batch_index]
+        return self.shape[1 - self.index_of_batch_dimension]
 
 
 @dataclasses.dataclass
@@ -47,7 +52,7 @@ class GlobalStatus:
         for tr in self.tensor_representations.values():
             assert len(tr.items_to_record) > 0, tr.full_unique_name
             for item in tr.items_to_record:
-                if item in ['mean', 'std']:
+                if item in ['single_value', 'mean', 'abs_mean', 'std']:
                     res.append((tr.full_unique_name, item, None))
                 elif item == 'neurons':
                     for i in range(tr.get_size_of_tensor()):
@@ -55,6 +60,11 @@ class GlobalStatus:
                 else:
                     raise NotImplementedError(item)
         return res
+
+
+@dataclasses.dataclass
+class TensorRecordings:
+    training_time_to_type_of_recording_to_batch_index_to_records: Dict[int, Dict[str, Dict[Optional[int], Dict[Tuple[str, str, Any], Optional[Union[torch.Tensor, float]]]]]] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
@@ -108,7 +118,6 @@ class DirectedAcyclicGraph:
                     for dependency in dependencies_of[n]:
                         if dependency not in used_nodes:
                             is_now_a_root = False
-                            print(3, n, dependency)
                             break
                     if is_now_a_root:
                         next_set_of_nodes.append(n)
