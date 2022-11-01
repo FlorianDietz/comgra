@@ -24,7 +24,8 @@ class ComgraRecorder:
         self.parameters_of_trial = parameters_of_trial
         self.trial_path.mkdir(parents=True, exist_ok=True)
         self._warning_messages_cache = {}
-        self.set_of_modules = {}
+        self.set_of_top_level_modules = {}
+        self.module_to_name = {}
         self.computational_graph_layout_and_global_data_have_been_recorded = False
         self.unique_module_names = {}
         self.unique_parameter_names = {}
@@ -64,11 +65,13 @@ class ComgraRecorder:
         return name
 
     def track_module(self, module_name, module: torch_nn.Module):
-        self._track_module_recursive(module_name, module, self.set_of_modules, [])
+        self._track_module_recursive(module_name, module, self.set_of_top_level_modules, [])
 
     def _track_module_recursive(self, module_name, module: torch_nn.Module, container, preceding_names: List[str]):
         assert module_name not in container
         assert '.' not in module_name
+        assert module not in self.module_to_name
+        self.module_to_name[module] = module_name
         full_unique_name = '.'.join(preceding_names + [module_name])
         parameters = {}
         for k, v in module.named_parameters(recurse=False):
@@ -87,6 +90,9 @@ class ComgraRecorder:
             submodules=submodules,
             parameters=parameters,
         )
+
+    def get_name_of_module(self, module):
+        return self.module_to_name[module]
 
     def start_next_recording(self, recording_is_active=True):
         self.recording_is_active = recording_is_active
@@ -135,7 +141,8 @@ class ComgraRecorder:
         self.computation_step_to_tensor[tensor.grad_fn] = tensor
         assert tensor not in self.tensor_to_name
         self.tensor_to_name[tensor] = tensor_name
-        assert tensor_name not in self.tensor_name_to_representation
+        assert tensor_name not in self.tensor_name_to_representation, \
+            f"Two tensors were recorded with the same name. Give your tensors unique names: {tensor_name}"
         if recording_type == 'kpis':
             items_to_record = ['mean', 'std']
         elif recording_type == 'neurons':
