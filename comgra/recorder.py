@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import torch
 from torch import nn as torch_nn
@@ -30,6 +30,13 @@ class ComgraRecorder:
         self.unique_parameter_names = {}
         self.parameter_to_representation = {}
         self.current_stage = 'inactive'
+        self.types_of_tensor_recordings = ['forward']
+        self.current_type_of_tensor_recording = None
+        #
+        # Things that are recorded once and then compared to
+        #
+        self.global_status: Optional[GlobalStatus] = None
+        self.graph: Optional[DirectedAcyclicGraph] = None
         #
         # Per iteration
         #
@@ -85,13 +92,17 @@ class ComgraRecorder:
         self.recording_is_active = recording_is_active
         assert self.current_stage == 'inactive', self.current_stage
         self.current_stage = 'started'
+        self.types_of_tensor_recordings = []
+        self.current_type_of_tensor_recording = 'forward'
         self.computation_step_to_tensor = {}
         self.tensor_to_name = {}
         self.tensor_name_to_representation = {}
 
     def register_tensor(
             self, tensor_name, tensor: torch.Tensor,
-            is_input=False, is_parameter=False, is_output=False, is_target=False, is_loss=False
+            batch_index=0,
+            is_input=False, is_parameter=False, is_output=False, is_target=False, is_loss=False,
+            recording_type='kpis',
     ):
         if not self.recording_is_active:
             return
@@ -125,10 +136,18 @@ class ComgraRecorder:
         assert tensor not in self.tensor_to_name
         self.tensor_to_name[tensor] = tensor_name
         assert tensor_name not in self.tensor_name_to_representation
+        if recording_type == 'kpis':
+            items_to_record = ['mean', 'std']
+        elif recording_type == 'neurons':
+            items_to_record = ['mean', 'std', 'neurons']
+        else:
+            raise NotImplementedError(recording_type)
         self.tensor_name_to_representation[tensor_name] = TensorRepresentation(
             full_unique_name=tensor_name,
             role=role,
             shape=list(tensor.shape),
+            batch_index=batch_index,
+            items_to_record=items_to_record,
         )
 
     def start_forward_pass(self):
@@ -141,9 +160,12 @@ class ComgraRecorder:
         #
         pass
 
-    def start_backward_pass(self):
+    def start_backward_pass(self, name_of_loss_group):
         assert self.current_stage == 'forward', self.current_stage
         self.current_stage = 'backward'
+        assert name_of_loss_group not in self.types_of_tensor_recordings
+        self.types_of_tensor_recordings.append(name_of_loss_group)
+        self.current_type_of_tensor_recording = name_of_loss_group
         if not self.recording_is_active:
             return
         # TODO this should be optional since there won't always be a loss.
@@ -153,41 +175,42 @@ class ComgraRecorder:
     def finish_iteration(self):
         assert self.current_stage in ['forward', 'backward'], self.current_stage
         self.current_stage = 'inactive'
+        self.current_type_of_tensor_recording = None
         if not self.recording_is_active:
             return
         #
         # Go backwards through the computation graph, starting from outputs, targets, and losses.
         # Go back until you encounter an input, or you can't go back anymore.
         #
+        def traverse_graph_backwards(step, last_encountered_named_tensor):
+            if step is None:
+                return
+            t = None
+            if step in self.computation_step_to_tensor:
+                assert not hasattr(step, 'variable'), \
+                    "This shouldn't be possible. hasattr(step, 'variable') is True if it's a leaf, " \
+                    "while computation_step_to_tensor is used for intermediate values."
+                t = self.computation_step_to_tensor[step]
+            if hasattr(step, 'variable'):
+                t = step.variable
+                # Register parameters in the graph the first time you encounter them.
+                if t in self.parameter_to_representation and t not in self.tensor_to_name:
+                    self.register_tensor(self.parameter_to_representation[t].full_unique_name, t, is_parameter=True)
+            if t is not None:
+                name_of_this_tensor = self.tensor_to_name[t]
+                tensor_representation = self.tensor_name_to_representation[name_of_this_tensor]
+                if last_encountered_named_tensor is not None and \
+                        last_encountered_named_tensor not in tensor_representation.is_a_dependency_of:
+                    tensor_representation.is_a_dependency_of.append(last_encountered_named_tensor)
+                last_encountered_named_tensor = name_of_this_tensor
+                if tensor_representation.role == 'input':
+                    return  # Do not track the graph beyond the inputs, which might go into the previous iteration.
+            for predecessor, other in step.next_functions:
+                traverse_graph_backwards(predecessor, last_encountered_named_tensor)
+        final_tensors = [t for t, n in self.tensor_to_name.items() if self.tensor_name_to_representation[n].role in ['output', 'target', 'loss']]
+        for tensor in final_tensors:
+            traverse_graph_backwards(tensor.grad_fn, None)
         if not self.computational_graph_layout_and_global_data_have_been_recorded:
-            def traverse_graph_backwards(step, last_encountered_named_tensor):
-                if step is None:
-                    return
-                t = None
-                if step in self.computation_step_to_tensor:
-                    assert not hasattr(step, 'variable'), \
-                        "This shouldn't be possible. hasattr(step, 'variable') is True if it's a leaf, " \
-                        "while computation_step_to_tensor is used for intermediate values."
-                    t = self.computation_step_to_tensor[step]
-                if hasattr(step, 'variable'):
-                    t = step.variable
-                    # Register parameters in the graph the first time you encounter them.
-                    if t in self.parameter_to_representation and t not in self.tensor_to_name:
-                        self.register_tensor(self.parameter_to_representation[t].full_unique_name, t, is_parameter=True)
-                if t is not None:
-                    name_of_this_tensor = self.tensor_to_name[t]
-                    tensor_representation = self.tensor_name_to_representation[name_of_this_tensor]
-                    if last_encountered_named_tensor is not None and \
-                            last_encountered_named_tensor not in tensor_representation.is_a_dependency_of:
-                        tensor_representation.is_a_dependency_of.append(last_encountered_named_tensor)
-                    last_encountered_named_tensor = name_of_this_tensor
-                    if tensor_representation.role == 'input':
-                        return  # Do not track the graph beyond the inputs, which might go into the previous iteration.
-                for predecessor, other in step.next_functions:
-                    traverse_graph_backwards(predecessor, last_encountered_named_tensor)
-            final_tensors = [t for t, n in self.tensor_to_name.items() if self.tensor_name_to_representation[n].role in ['output', 'target', 'loss']]
-            for tensor in final_tensors:
-                traverse_graph_backwards(tensor.grad_fn, None)
             assert sum([len(a.is_a_dependency_of) for a in self.tensor_name_to_representation.values()]) > 0, \
                 "No computational graph could be constructed. " \
                 "The most common error that could cause this is that gradient computations are turned off."
@@ -198,12 +221,14 @@ class ComgraRecorder:
             #
             # Save global status information
             #
-            global_status = GlobalStatus(
+            assert self.global_status is None
+            self.global_status = GlobalStatus(
                 prefixes_for_grouping_module_parameters=list(self.prefixes_for_grouping_module_parameters),
                 tensor_representations=dict(self.tensor_name_to_representation),
+                types_of_tensor_recordings=list(self.types_of_tensor_recordings),
             )
             with open(self.group_path / 'globals.json', 'w') as f:
-                json.dump(dataclasses.asdict(global_status), f)
+                json.dump(dataclasses.asdict(self.global_status), f)
             #
             # Construct a graph format and save it.
             #
@@ -213,13 +238,14 @@ class ComgraRecorder:
                 for dependency, rep in self.tensor_name_to_representation.items()
                 for dependent in rep.is_a_dependency_of
             ]
-            graph = DirectedAcyclicGraph(
+            assert self.graph is None
+            self.graph = DirectedAcyclicGraph(
                 nodes=nodes,
                 connections=connections,
             )
-            graph.build_dag_format(global_status)
+            self.graph.build_dag_format(self.global_status)
             with open(self.group_path / 'graph.json', 'w') as f:
-                json.dump(dataclasses.asdict(graph), f)
+                json.dump(dataclasses.asdict(self.graph), f)
             # Make sure this is only done once
             self.computational_graph_layout_and_global_data_have_been_recorded = True
         #
@@ -229,7 +255,18 @@ class ComgraRecorder:
             json.dump(self.parameters_of_trial, f)
         #
         # Verify that the result is identical to previous results.
-        # For both the graph and the metadata.
+        # For the graph.
         # TODO
         #
-        pass
+        #
+        # Verify that the result is identical to previous results.
+        # For the global_data.
+        #
+        assert tuple(self.types_of_tensor_recordings) == tuple(self.global_status.types_of_tensor_recordings)
+        fake_global_status = GlobalStatus(
+            prefixes_for_grouping_module_parameters=list(self.prefixes_for_grouping_module_parameters),
+            tensor_representations=dict(self.tensor_name_to_representation),
+            types_of_tensor_recordings=list(self.types_of_tensor_recordings),
+        )
+        assert tuple(self.global_status.get_all_items_to_record()) == tuple(fake_global_status.get_all_items_to_record()), \
+            f"\n{self.global_status.get_all_items_to_record()}\n{fake_global_status.get_all_items_to_record()}"

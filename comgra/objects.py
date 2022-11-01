@@ -23,17 +23,38 @@ class TensorRepresentation:
     full_unique_name: str
     role: str
     shape: List[int]
+    batch_index: int
+    items_to_record: List[str]
     is_a_dependency_of: List[str] = dataclasses.field(default_factory=list)
+
+    def get_size_of_tensor(self):
+        assert len(self.shape) == 2
+        return self.shape[1 - self.batch_index]
 
 
 @dataclasses.dataclass
 class GlobalStatus:
     prefixes_for_grouping_module_parameters: List[str]
     tensor_representations: Dict[str, TensorRepresentation]
+    types_of_tensor_recordings: List[str]
 
     def __post_init__(self):
         for k, v in self.tensor_representations.items():
             assert k == v.full_unique_name, (k, v.full_unique_name)
+
+    def get_all_items_to_record(self):
+        res = []
+        for tr in self.tensor_representations.values():
+            assert len(tr.items_to_record) > 0, tr.full_unique_name
+            for item in tr.items_to_record:
+                if item in ['mean', 'std']:
+                    res.append((tr.full_unique_name, item, None))
+                elif item == 'neurons':
+                    for i in range(tr.get_size_of_tensor()):
+                        res.append((tr.full_unique_name, item, i))
+                else:
+                    raise NotImplementedError(item)
+        return res
 
 
 @dataclasses.dataclass
