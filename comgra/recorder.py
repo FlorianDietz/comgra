@@ -263,7 +263,7 @@ class ComgraRecorder:
         assert key not in records, \
             f"Duplicate tensor recording for {self.training_time}, " \
             f"{self.current_type_of_tensor_recording}, {batch_index}, {key}"
-        assert tensor.shape == ()
+        assert tensor.shape == (), (tensor.shape, key)
         records[key] = tensor
 
     def start_forward_pass(self):

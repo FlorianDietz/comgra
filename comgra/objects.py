@@ -103,10 +103,10 @@ class DirectedAcyclicGraph:
         debug = 0
         nodes_list_list.append([k for k, v in global_status.tensor_representations.items() if v.role == 'input'])
         used_nodes = {a: True for a in nodes_list_list[0]}
-        nodes_list_for_parameters = []
+        nodes_list_for_parameters_and_targets = []
         for prefix in global_status.prefixes_for_grouping_module_parameters:
             next_set_of_nodes = []
-            nodes_list_for_parameters.append(next_set_of_nodes)
+            nodes_list_for_parameters_and_targets.append(next_set_of_nodes)
             for a in global_status.tensor_representations.values():
                 if a.role == 'parameter' and a.full_unique_name not in used_nodes:
                     if a.full_unique_name.startswith(prefix):
@@ -117,7 +117,9 @@ class DirectedAcyclicGraph:
                 assert a.full_unique_name in used_nodes, \
                     f"The parameter {a.full_unique_name} is not covered by any of the provided prefixes: " \
                     f"{global_status.prefixes_for_grouping_module_parameters}"
+        nodes_list_for_parameters_and_targets.append([k for k, v in global_status.tensor_representations.items() if v.role == 'target'])
         nodes_to_sort = [k for k, v in global_status.tensor_representations.items() if v.role in ['intermediate', 'output']]
+        nodes_without_open_dependencies = {k: True for k, v in global_status.tensor_representations.items() if not dependencies_of[k]}
         c = 0
         while c < len(nodes_to_sort):
             debug += 1
@@ -126,27 +128,26 @@ class DirectedAcyclicGraph:
             next_set_of_nodes = []
             nodes_list_list.append(next_set_of_nodes)
             for n in nodes_to_sort:
-                if n not in used_nodes:
+                if n not in nodes_without_open_dependencies:
                     is_now_a_root = True
                     for dependency in dependencies_of[n]:
-                        if dependency not in used_nodes:
+                        if dependency not in nodes_without_open_dependencies:
                             is_now_a_root = False
                             break
                     if is_now_a_root:
                         next_set_of_nodes.append(n)
                         c += 1
             for n in next_set_of_nodes:
-                used_nodes[n] = True
+                nodes_without_open_dependencies[n] = True
         assert c == len(nodes_to_sort)
-        for list_of_parameters in nodes_list_for_parameters:
+        for list_of_parameters_and_targets in nodes_list_for_parameters_and_targets:
             farthest_possible_index = 0
             for i, nodes in enumerate(nodes_list_list):
                 farthest_possible_index = i
                 shared_dependencies_of_nodes = {b for a in nodes for b in dependencies_of[a]}
-                if any(a in shared_dependencies_of_nodes for a in list_of_parameters):
+                if any(a in shared_dependencies_of_nodes for a in list_of_parameters_and_targets):
                     break
-            nodes_list_list.insert(farthest_possible_index, list_of_parameters)
-        nodes_list_list.append([k for k, v in global_status.tensor_representations.items() if v.role == 'target'])
+            nodes_list_list.insert(farthest_possible_index, list_of_parameters_and_targets)
         nodes_list_list.append([k for k, v in global_status.tensor_representations.items() if v.role == 'loss'])
         nodes_list_list = [a for a in nodes_list_list if len(a) > 0]
         assert sum([len(a) for a in nodes_list_list]) == len(self.nodes)
