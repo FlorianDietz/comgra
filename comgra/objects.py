@@ -63,6 +63,14 @@ class GlobalStatus:
 
 
 @dataclasses.dataclass
+class DecisionMakerForRecordings:
+    fixed_training_steps: set[int]
+
+    def is_record_on_this_iteration(self, training_step):
+        return training_step in self.fixed_training_steps
+
+
+@dataclasses.dataclass
 class TensorRecordings:
     training_time_to_type_of_recording_to_batch_index_to_records: Dict[int, Dict[str, Dict[Optional[int], Dict[Tuple[str, str, Any], Optional[Union[torch.Tensor, float]]]]]] = dataclasses.field(default_factory=dict)
 

@@ -1,21 +1,24 @@
 import dataclasses
 import json
 from pathlib import Path
+import pickle
 from typing import List, Dict, Optional
 
 import torch
 from torch import nn as torch_nn
 
-from comgra.objects import DirectedAcyclicGraph, GlobalStatus, ModuleRepresentation, ParameterRepresentation, TensorRecordings, TensorRepresentation
+from comgra.objects import DecisionMakerForRecordings, DirectedAcyclicGraph, GlobalStatus, ModuleRepresentation, ParameterRepresentation, TensorRecordings, TensorRepresentation
 
 
 class ComgraRecorder:
 
     def __init__(
-            self, comgra_root_path, group, trial_id, prefixes_for_grouping_module_parameters, parameters_of_trial
+            self, comgra_root_path, group, trial_id, prefixes_for_grouping_module_parameters, parameters_of_trial,
+            decision_maker_for_recordings, comgra_is_active=True
     ):
         comgra_root_path = Path(comgra_root_path)
         assert comgra_root_path.exists()
+        self.comgra_is_active = comgra_is_active
         self.trial_id = trial_id
         self.group_path = comgra_root_path / group
         self.trial_path = self.group_path / 'trials' / trial_id
@@ -30,6 +33,7 @@ class ComgraRecorder:
         self.unique_module_names = {}
         self.unique_parameter_names = {}
         self.parameter_to_representation = {}
+        self.decision_maker_for_recordings: DecisionMakerForRecordings = decision_maker_for_recordings
         self.current_stage = 'inactive'
         self.types_of_tensor_recordings = ['forward']
         self.current_type_of_tensor_recording = None
@@ -42,13 +46,17 @@ class ComgraRecorder:
         #
         # Per iteration
         #
-        self.recording_is_active = False
+        self.is_training_mode = False
         self.training_time = None
         self.record_all_tensors_per_batch_index_by_default = False
         self.computation_step_to_tensor = {}
         self.tensor_to_name = {}
         self.tensor_name_to_representation: Dict[str, TensorRepresentation] = {}
         self.current_batch_size = None
+
+    @property
+    def recording_is_active(self):
+        return self.comgra_is_active and self.is_training_mode and self.decision_maker_for_recordings.is_record_on_this_iteration(self.training_time)
 
     def _log_warning_once(self, msg):
         if msg not in self._warning_messages_cache:
@@ -99,11 +107,10 @@ class ComgraRecorder:
         return self.module_to_name[module]
 
     def start_next_recording(
-            self, training_time, current_batch_size,
-            recording_is_active=True,
+            self, training_time, current_batch_size, is_training_mode,
             record_all_tensors_per_batch_index_by_default=False,
     ):
-        self.recording_is_active = recording_is_active
+        self.is_training_mode = is_training_mode
         self.training_time = training_time
         self.record_all_tensors_per_batch_index_by_default = record_all_tensors_per_batch_index_by_default
         assert self.current_stage == 'inactive', self.current_stage
@@ -125,6 +132,11 @@ class ComgraRecorder:
             return
         assert (1 if is_input else 0) + (1 if is_parameter else 0) + (1 if is_output else 0) + \
                (1 if is_target else 0) + (1 if is_loss else 0) <= 1, tensor_name
+        # Make sure that gradients are generated and retained for later.
+        if not tensor.requires_grad:
+            tensor.requires_grad = True
+        tensor.retain_grad()
+        # Make parameters of this function call consistent with each other
         if record_per_batch_index is None:
             record_per_batch_index = self.record_all_tensors_per_batch_index_by_default
         if is_loss:
@@ -148,26 +160,15 @@ class ComgraRecorder:
                    tensor.shape[index_of_batch_dimension] == self.current_batch_size, tensor_name
         if recording_type == 'single_value':
             assert index_of_batch_dimension is None
+        # Create a TensorRepresentation for the tensor and store various references for later.
         if is_input:
             role = 'input'
-            if not tensor.requires_grad:
-                self._log_warning_once(
-                    f"The input tensor {tensor_name} did not require a gradient, so comgra set requires_grad=True "
-                    f"because this is needed to record the computational graph. This may have side effects."
-                )
-            tensor.requires_grad = True
         elif is_parameter:
             role = 'parameter'
         elif is_output:
             role = 'output'
         elif is_target:
             role = 'target'
-            if not tensor.requires_grad:
-                self._log_warning_once(
-                    f"The target tensor {tensor_name} did not require a gradient, so comgra set requires_grad=True "
-                    f"because this is needed to record the computational graph. This may have side effects."
-                )
-            tensor.requires_grad = True
         elif is_loss:
             role = 'loss'
         else:
@@ -196,6 +197,7 @@ class ComgraRecorder:
             record_per_batch_index=record_per_batch_index,
         )
         self.tensor_name_to_representation[tensor_name] = tensor_representation
+        # Store the current value of the tensor
         self.store_value_of_tensor(tensor, tensor_representation)
 
     def store_value_of_tensor(self, tensor: torch.Tensor, tensor_representation: TensorRepresentation):
@@ -269,19 +271,22 @@ class ComgraRecorder:
         self.current_stage = 'forward'
         if not self.recording_is_active:
             return
-        #
-        # Construct the computational graph
-        #
-        pass
 
-    def start_backward_pass(self, name_of_loss_group):
+    def start_backward_pass(self):
         assert self.current_stage == 'forward', self.current_stage
         self.current_stage = 'backward'
+        if not self.recording_is_active:
+            return
+
+    def record_current_gradients(self, name_of_loss_group):
         assert name_of_loss_group not in self.types_of_tensor_recordings
         self.types_of_tensor_recordings.append(name_of_loss_group)
         self.current_type_of_tensor_recording = name_of_loss_group
-        if not self.recording_is_active:
-            return
+        for tensor, name in self.tensor_to_name.items():
+            tr = self.tensor_name_to_representation[name]
+            assert tensor.grad is not None, \
+                f"A tensor does not have a gradient on it to record: {name}"
+            self.store_value_of_tensor(tensor.grad, tr)
 
     def finish_iteration(self):
         assert self.current_stage in ['forward', 'backward'], self.current_stage
@@ -417,3 +422,5 @@ class ComgraRecorder:
                     records[key] = list_of_floats[c]
                     c += 1
         assert c == len(list_of_floats)
+        with open(self.trial_path / 'recordings.json', 'wb') as f:
+            pickle.dump(self.tensor_recordings, f)

@@ -6,6 +6,7 @@
 (Much of the below is not necessary after all, if you use a website instead of jupyter to display things.)
 (Likewise some requirements are probably unnecessary)
 (TODO: Clean these up once I am sure whether or not to use jupyter for visualization after all)
+(TODO: make two requirements files. One for recording and one for displaying.)
 
 Install nodejs.
 
