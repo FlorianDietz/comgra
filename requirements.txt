@@ -15,7 +15,7 @@ backcall==0.2.0
 beautifulsoup4==4.11.1
 bleach==5.0.1
 Brotli==1.0.9
-certifi==2022.9.24
+certifi @ file:///croot/certifi_1665076670883/work/certifi
 cffi==1.15.1
 channels==2.4.0
 charset-normalizer==2.1.1
@@ -29,6 +29,7 @@ dash==2.6.2
 dash-bootstrap-components==0.13.1
 dash-core-components==2.0.0
 dash-html-components==2.0.0
+dash-svg==0.0.9
 dash-table==5.0.0
 debugpy==1.6.3
 decorator==5.1.1
