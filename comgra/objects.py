@@ -36,6 +36,19 @@ class TensorRepresentation:
         assert len(self.shape) == 2
         return self.shape[1 - self.index_of_batch_dimension]
 
+    def get_all_items_to_record(self):
+        res = []
+        assert len(self.items_to_record) > 0, self.full_unique_name
+        for item in self.items_to_record:
+            if item in ['single_value', 'mean', 'abs_mean', 'std']:
+                res.append((self.full_unique_name, item, None))
+            elif item == 'neurons':
+                for i in range(self.get_size_of_tensor()):
+                    res.append((self.full_unique_name, item, i))
+            else:
+                raise NotImplementedError(item)
+        return res
+
 
 @dataclasses.dataclass
 class GlobalStatus:
@@ -50,15 +63,7 @@ class GlobalStatus:
     def get_all_items_to_record(self):
         res = []
         for tr in self.tensor_representations.values():
-            assert len(tr.items_to_record) > 0, tr.full_unique_name
-            for item in tr.items_to_record:
-                if item in ['single_value', 'mean', 'abs_mean', 'std']:
-                    res.append((tr.full_unique_name, item, None))
-                elif item == 'neurons':
-                    for i in range(tr.get_size_of_tensor()):
-                        res.append((tr.full_unique_name, item, i))
-                else:
-                    raise NotImplementedError(item)
+            res.extend(tr.get_all_items_to_record())
         return res
 
 

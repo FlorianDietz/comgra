@@ -204,9 +204,9 @@ class ComgraRecorder:
         tensor_name = tensor_representation.full_unique_name
         value_dimensions = tensor_representation.value_dimensions
         if tensor_representation.recording_type == 'single_value':
-            self.store_value_of_tensor_helper(None, tensor_name, 'single_value', None, tensor)
+            self.store_value_of_tensor_helper('batch', tensor_name, 'single_value', None, tensor)
         else:
-            batch_indices = [None] + (list(range(self.current_batch_size)) if tensor_representation.record_per_batch_index else [])
+            batch_indices = ['batch'] + (list(range(self.current_batch_size)) if tensor_representation.record_per_batch_index else [])
             assert len(value_dimensions) > 0, tensor_name
             items_with_metadata = []
             for item in tensor_representation.items_to_record:
@@ -242,12 +242,12 @@ class ComgraRecorder:
                 for batch_index in batch_indices:
                     if tensor_representation.index_of_batch_dimension is None:
                         assert val.shape == (), (tensor_name, item, val.shape)
-                        assert batch_index is None
+                        assert batch_index is 'batch'
                         val_specific_to_batch_index = val
                     else:
                         assert val.shape == (self.current_batch_size,), (tensor_name, item, val.shape)
-                        assert tensor_representation.index_of_batch_dimension is not None or batch_index is None
-                        if batch_index is None:
+                        assert tensor_representation.index_of_batch_dimension is not None or batch_index is 'batch'
+                        if batch_index is 'batch':
                             val_specific_to_batch_index = val.mean()
                         else:
                             val_specific_to_batch_index = val[batch_index]

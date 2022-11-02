@@ -18,6 +18,7 @@ import math
 import numbers
 import os
 from pathlib import Path
+import pickle
 import pdb
 from pprint import pformat, pprint, PrettyPrinter
 import random
@@ -45,7 +46,7 @@ import plotly.express as px
 import pandas as pd
 import torch
 
-from comgra.objects import DirectedAcyclicGraph, GlobalStatus, ModuleRepresentation, ParameterRepresentation, TensorRepresentation
+from comgra.objects import DirectedAcyclicGraph, GlobalStatus, ModuleRepresentation, ParameterRepresentation, TensorRepresentation, TensorRecordings
 
 
 @dataclass
@@ -84,6 +85,7 @@ class Visualization:
         assert assets_path.exists(), "If this fails, files have been moved."
         self.app = dash.Dash(__name__, assets_folder=str(assets_path))
         self._sanity_check_cache_to_avoid_duplicates = {}
+        self.cache_for_tensor_recordings = {}
 
     def _node_name_to_dash_id(self, node_name):
         conversion = node_name.replace('.', '__')
@@ -100,6 +102,15 @@ class Visualization:
     def run_server(self):
         self.create_visualization()
         self.app.run_server(debug=True)
+
+    def get_recordings_with_caching(self, trials_value) -> TensorRecordings:
+        key = (trials_value,)
+        if key not in self.cache_for_tensor_recordings:
+            recordings_file = self.path / 'trials' / trials_value / 'recordings.json'
+            with open(recordings_file, 'rb') as f:
+                recordings: TensorRecordings = pickle.load(f)
+            self.cache_for_tensor_recordings[key] = recordings
+        return self.cache_for_tensor_recordings[key]
 
     def create_nodes_and_arrows(self, global_status: GlobalStatus, graph: DirectedAcyclicGraph):
         highest_number_of_nodes = max(len(a) for a in graph.dag_format)
@@ -159,7 +170,6 @@ class Visualization:
         with open(self.path / 'graph.json') as f:
             graph_json = json.load(f)
             graph = DirectedAcyclicGraph(**graph_json)
-            print(graph.dag_format)
 
         elements_of_the_graph, connection_names_to_source_and_target, node_to_incoming_and_outgoing_lines = \
             self.create_nodes_and_arrows(global_status, graph)
@@ -179,11 +189,10 @@ class Visualization:
             dcc.Tooltip(id="graph-tooltip"),
             html.Div(id='controls-container', children=[
                 html.Button('Refresh', id='refresh-button', n_clicks=0),
-                dcc.Dropdown(
-                    id='trials-dropdown',
-                    options=[],
-                    value=None,
-                ),
+                dcc.Dropdown(id='trials-dropdown', options=[], value=None),
+                dcc.Slider(id='training-time-slider', min=0, max=100, step=None, value=None),
+                dcc.Dropdown(id='type-of-recording-dropdown', options=[], value=None),
+                dcc.Dropdown(id='batch-index-dropdown', options=[], value=None),
             ]),
             html.Div(id='selected-item-details-container', children=[
             ]),
@@ -192,12 +201,52 @@ class Visualization:
         @app.callback([Output('trials-dropdown', 'options'),
                        Output('trials-dropdown', 'value')],
                       [Input('refresh-button', 'n_clicks')])
-        def update_trials_list(n_clicks):
+        def refresh_all(n_clicks):
+            # Reset caches
+            self.cache_for_tensor_recordings = {}
+            # Load the list of trials
             trials_folder = self.path / 'trials'
             subfolders = [a for a in trials_folder.iterdir() if a.is_dir()]
             options = [{'label': a.name, 'value': a.name} for a in subfolders]
             return options, options[0]['value']
-        update_trials_list(0)
+        refresh_all(0)
+
+        @app.callback([Output('training-time-slider', 'min'),
+                       Output('training-time-slider', 'max'),
+                       Output('training-time-slider', 'marks'),
+                       Output('training-time-slider', 'value'),
+                       Output('type-of-recording-dropdown', 'options'),
+                       Output('type-of-recording-dropdown', 'value'),
+                       Output('batch-index-dropdown', 'options'),
+                       Output('batch-index-dropdown', 'value')],
+                      [Input('trials-dropdown', 'value'),
+                       Input('training-time-slider', 'value'),
+                       Input('type-of-recording-dropdown', 'value'),
+                       Input('batch-index-dropdown', 'value')])
+        def update_dropboxes(trials_value, training_time_value, type_of_recording_value, batch_index_value):
+            recordings = self.get_recordings_with_caching(trials_value)
+            def create_slider_data_from_list(previous_value, options_list):
+                options_list = sorted(options_list)
+                val = previous_value if previous_value in options_list else (options_list[0] if options_list else None)
+                marks = {a: str(a) for a in options_list}
+                min_, max_ = (options_list[0], options_list[-1]) if options_list else (0, 100)
+                return min_, max_, marks, val
+            def create_options_and_value_from_list(previous_value, options_list):
+                val = previous_value if previous_value in options_list else (options_list[0] if options_list else None)
+                options = [{'label': str(a), 'value': a} for a in options_list]
+                return options, val
+            training_times = sorted(list(recordings.training_time_to_type_of_recording_to_batch_index_to_records.keys()))
+            assert len(training_times) > 0
+            training_time_min, training_time_max, training_time_marks, training_time_value = create_slider_data_from_list(training_time_value, training_times)
+            type_of_recording_to_batch_index_to_records = recordings.training_time_to_type_of_recording_to_batch_index_to_records[training_time_value]
+            types_of_recordings = sorted(list(type_of_recording_to_batch_index_to_records.keys()))
+            assert len(types_of_recordings) > 0
+            type_of_recording_options, type_of_recording_value = create_options_and_value_from_list(type_of_recording_value, types_of_recordings)
+            batch_index_to_records = type_of_recording_to_batch_index_to_records[type_of_recording_value]
+            batch_indices = sorted(list(batch_index_to_records.keys()), key=lambda x: -1 if isinstance(x, str) else x)
+            assert len(batch_indices) > 0
+            batch_index_options, batch_index_value = create_options_and_value_from_list(batch_index_value, batch_indices)
+            return training_time_min, training_time_max, training_time_marks, training_time_value, type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value
 
         @app.callback(Output('dummy-for-selecting-a-node', 'className'),
                       [Input(self._node_name_to_dash_id(node), 'n_clicks_timestamp') for node
@@ -218,18 +267,37 @@ class Visualization:
         @app.callback(
             ([Output('selected-item-details-container', 'children')] +
              [Output(self._node_name_to_dash_id(n), 'className') for n in global_status.tensor_representations]),
-            Input('dummy-for-selecting-a-node', 'className')
+            [Input('dummy-for-selecting-a-node', 'className'),
+             Input('trials-dropdown', 'value'),
+             Input('training-time-slider', 'value'),
+             Input('type-of-recording-dropdown', 'value'),
+             Input('batch-index-dropdown', 'value')]
         )
-        def select_node(node_name):
+        def select_node(node_name, trials_value, training_time_value, type_of_recording_value, batch_index_value):
+            # Select the node
             node = global_status.tensor_representations[node_name]
-            children = [
-                html.Header(node.full_unique_name),
-                html.P(node.role),
-                html.P(f"[{', '.join([str(a) for a in node.shape])}]"),
-            ]
             connected_node_names = {a[0] for a in graph.connections if a[1] == node_name} | {a[1] for a in graph.connections if a[0] == node_name}
             classes_for_nodes = [
                 "node selected" if n == node_name else "node highlighted" if n in connected_node_names else "node"
                 for n in global_status.tensor_representations
+            ]
+            # Display values based on the selected node
+            recordings = self.get_recordings_with_caching(trials_value)
+            records = recordings.training_time_to_type_of_recording_to_batch_index_to_records[training_time_value][type_of_recording_value][batch_index_value]
+            rows = []
+            for key in node.get_all_items_to_record():
+                val = records[key]
+                assert key[0] == node_name
+                row = [
+                    html.Td(key[1]),
+                    html.Td(key[2]),
+                    html.Td(val),
+                ]
+                rows.append(html.Tr(row))
+            children = [
+                html.Header(node.full_unique_name),
+                html.P(node.role),
+                html.P(f"[{', '.join([str(a) for a in node.shape])}]"),
+                html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', 'value']])] + rows)
             ]
             return [children] + classes_for_nodes
