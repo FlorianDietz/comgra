@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="server_single_test_0" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="server_comparison_test_1" type="PythonConfigurationType" factoryName="Python">
     <module name="comgra" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/scripts/start_server.py" />
-    <option name="PARAMETERS" value="--name &quot;debugging0&quot;" />
+    <option name="PARAMETERS" value="--name &quot;comparison1&quot;" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />
