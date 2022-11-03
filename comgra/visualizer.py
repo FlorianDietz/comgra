@@ -190,7 +190,7 @@ class Visualization:
             html.Div(id='controls-container', children=[
                 html.Button('Refresh', id='refresh-button', n_clicks=0),
                 dcc.Dropdown(id='trials-dropdown', options=[], value=None),
-                dcc.Slider(id='training-time-slider', min=0, max=100, step=None, value=None),
+                dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None),
                 dcc.RadioItems(id='type-of-recording-dropdown', options=[], value=None),
                 dcc.Dropdown(id='batch-index-dropdown', options=[], value=None),
             ]),
@@ -211,19 +211,19 @@ class Visualization:
             return options, options[0]['value']
         refresh_all(0)
 
-        @app.callback([Output('training-time-slider', 'min'),
-                       Output('training-time-slider', 'max'),
-                       Output('training-time-slider', 'marks'),
-                       Output('training-time-slider', 'value'),
+        @app.callback([Output('training-step-slider', 'min'),
+                       Output('training-step-slider', 'max'),
+                       Output('training-step-slider', 'marks'),
+                       Output('training-step-slider', 'value'),
                        Output('type-of-recording-dropdown', 'options'),
                        Output('type-of-recording-dropdown', 'value'),
                        Output('batch-index-dropdown', 'options'),
                        Output('batch-index-dropdown', 'value')],
                       [Input('trials-dropdown', 'value'),
-                       Input('training-time-slider', 'value'),
+                       Input('training-step-slider', 'value'),
                        Input('type-of-recording-dropdown', 'value'),
                        Input('batch-index-dropdown', 'value')])
-        def update_dropboxes(trials_value, training_time_value, type_of_recording_value, batch_index_value):
+        def update_dropboxes(trials_value, training_step_value, type_of_recording_value, batch_index_value):
             recordings = self.get_recordings_with_caching(trials_value)
             def create_slider_data_from_list(previous_value, options_list):
                 options_list = sorted(options_list)
@@ -235,10 +235,10 @@ class Visualization:
                 val = previous_value if previous_value in options_list else (options_list[0] if options_list else None)
                 options = [{'label': label_maker(a), 'value': a} for a in options_list]
                 return options, val
-            training_times = sorted(list(recordings.training_time_to_type_of_recording_to_batch_index_to_records.keys()))
-            assert len(training_times) > 0
-            training_time_min, training_time_max, training_time_marks, training_time_value = create_slider_data_from_list(training_time_value, training_times)
-            type_of_recording_to_batch_index_to_records = recordings.training_time_to_type_of_recording_to_batch_index_to_records[training_time_value]
+            training_steps = sorted(list(recordings.training_step_to_type_of_recording_to_batch_index_to_records.keys()))
+            assert len(training_steps) > 0
+            training_step_min, training_step_max, training_step_marks, training_step_value = create_slider_data_from_list(training_step_value, training_steps)
+            type_of_recording_to_batch_index_to_records = recordings.training_step_to_type_of_recording_to_batch_index_to_records[training_step_value]
             types_of_recordings = sorted(list(type_of_recording_to_batch_index_to_records.keys()))
             assert len(types_of_recordings) > 0
             type_of_recording_options, type_of_recording_value = create_options_and_value_from_list(type_of_recording_value, types_of_recordings)
@@ -249,7 +249,7 @@ class Visualization:
                 batch_index_value, batch_indices,
                 label_maker=lambda a: "mean over the batch" if a == 'batch' else f"batch index {a}"
             )
-            return training_time_min, training_time_max, training_time_marks, training_time_value, type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value
+            return training_step_min, training_step_max, training_step_marks, training_step_value, type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value
 
         @app.callback(Output('dummy-for-selecting-a-node', 'className'),
                       [Input(self._node_name_to_dash_id(node), 'n_clicks_timestamp') for node
@@ -272,11 +272,11 @@ class Visualization:
              [Output(self._node_name_to_dash_id(n), 'className') for n in global_status.tensor_representations]),
             [Input('dummy-for-selecting-a-node', 'className'),
              Input('trials-dropdown', 'value'),
-             Input('training-time-slider', 'value'),
+             Input('training-step-slider', 'value'),
              Input('type-of-recording-dropdown', 'value'),
              Input('batch-index-dropdown', 'value')]
         )
-        def select_node(node_name, trials_value, training_time_value, type_of_recording_value, batch_index_value):
+        def select_node(node_name, trials_value, training_step_value, type_of_recording_value, batch_index_value):
             # Select the node
             node = global_status.tensor_representations[node_name]
             connected_node_names = {a[0] for a in graph.connections if a[1] == node_name} | {a[1] for a in graph.connections if a[0] == node_name}
@@ -286,7 +286,7 @@ class Visualization:
             ]
             # Display values based on the selected node
             recordings = self.get_recordings_with_caching(trials_value)
-            records = recordings.training_time_to_type_of_recording_to_batch_index_to_records[training_time_value][type_of_recording_value][batch_index_value]
+            records = recordings.training_step_to_type_of_recording_to_batch_index_to_records[training_step_value][type_of_recording_value][batch_index_value]
             rows = []
             for key in node.get_all_items_to_record():
                 val = records[key] if key in records else "No applicable value to display for this selection."

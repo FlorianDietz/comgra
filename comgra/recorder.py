@@ -47,7 +47,7 @@ class ComgraRecorder:
         # Per iteration
         #
         self.is_training_mode = False
-        self.training_time = None
+        self.training_step = None
         self.record_all_tensors_per_batch_index_by_default = False
         self.computation_step_to_tensor = {}
         self.tensor_to_name = {}
@@ -56,7 +56,7 @@ class ComgraRecorder:
 
     @property
     def recording_is_active(self):
-        return self.comgra_is_active and self.is_training_mode and self.decision_maker_for_recordings.is_record_on_this_iteration(self.training_time)
+        return self.comgra_is_active and self.is_training_mode and self.decision_maker_for_recordings.is_record_on_this_iteration(self.training_step)
 
     def _log_warning_once(self, msg):
         if msg not in self._warning_messages_cache:
@@ -107,11 +107,11 @@ class ComgraRecorder:
         return self.module_to_name[module]
 
     def start_next_recording(
-            self, training_time, current_batch_size, is_training_mode,
+            self, training_step, current_batch_size, is_training_mode,
             record_all_tensors_per_batch_index_by_default=False,
     ):
         self.is_training_mode = is_training_mode
-        self.training_time = training_time
+        self.training_step = training_step
         self.record_all_tensors_per_batch_index_by_default = record_all_tensors_per_batch_index_by_default
         assert self.current_stage == 'inactive', self.current_stage
         self.current_stage = 'started'
@@ -242,26 +242,26 @@ class ComgraRecorder:
                 for batch_index in batch_indices:
                     if tensor_representation.index_of_batch_dimension is None:
                         assert val.shape == (), (tensor_name, item, val.shape)
-                        assert batch_index is 'batch'
+                        assert batch_index == 'batch'
                         val_specific_to_batch_index = val
                     else:
                         assert val.shape == (self.current_batch_size,), (tensor_name, item, val.shape)
-                        assert tensor_representation.index_of_batch_dimension is not None or batch_index is 'batch'
-                        if batch_index is 'batch':
+                        assert tensor_representation.index_of_batch_dimension is not None or batch_index == 'batch'
+                        if batch_index == 'batch':
                             val_specific_to_batch_index = val.mean()
                         else:
                             val_specific_to_batch_index = val[batch_index]
                     self.store_value_of_tensor_helper(batch_index, tensor_name, item, metadata, val_specific_to_batch_index)
 
     def store_value_of_tensor_helper(self, batch_index, tensor_name, item, metadata, tensor):
-        type_of_recording_to_batch_index_to_records = self.tensor_recordings.training_time_to_type_of_recording_to_batch_index_to_records.setdefault(
-            self.training_time, {})
+        type_of_recording_to_batch_index_to_records = self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_records.setdefault(
+            self.training_step, {})
         batch_index_to_records = type_of_recording_to_batch_index_to_records.setdefault(
             self.current_type_of_tensor_recording, {})
         records = batch_index_to_records.setdefault(batch_index, {})
         key = (tensor_name, item, metadata)
         assert key not in records, \
-            f"Duplicate tensor recording for {self.training_time}, " \
+            f"Duplicate tensor recording for {self.training_step}, " \
             f"{self.current_type_of_tensor_recording}, {batch_index}, {key}"
         assert tensor.shape == (), (tensor.shape, key)
         records[key] = tensor
@@ -401,7 +401,10 @@ class ComgraRecorder:
         # Convert the TensorRecordings from tensor to float.
         # While doing so, minimize GPU-to-CPU transfers
         #
-        type_of_recording_to_batch_index_to_records = self.tensor_recordings.training_time_to_type_of_recording_to_batch_index_to_records[self.training_time]
+        self.decision_maker_for_recordings.prune_recordings(
+            training_step=self.training_step, tensor_recordings=self.tensor_recordings
+        )
+        type_of_recording_to_batch_index_to_records = self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_records[self.training_step]
         all_tensors = []
         for batch_index_to_records in type_of_recording_to_batch_index_to_records.values():
             for records in batch_index_to_records.values():
