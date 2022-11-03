@@ -330,10 +330,6 @@ class ComgraRecorder:
             assert sum([len(a.is_a_dependency_of) for a in self.tensor_name_to_representation.values()]) > 0, \
                 "No computational graph could be constructed. " \
                 "The most common error that could cause this is that gradient computations are turned off."
-            print("-----------")
-            for k, v in self.tensor_name_to_representation.items():
-                print(k)
-                print(v)
             #
             # Save global status information
             #
