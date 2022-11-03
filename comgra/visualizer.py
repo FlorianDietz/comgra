@@ -191,7 +191,7 @@ class Visualization:
                 html.Button('Refresh', id='refresh-button', n_clicks=0),
                 dcc.Dropdown(id='trials-dropdown', options=[], value=None),
                 dcc.Slider(id='training-time-slider', min=0, max=100, step=None, value=None),
-                dcc.Dropdown(id='type-of-recording-dropdown', options=[], value=None),
+                dcc.RadioItems(id='type-of-recording-dropdown', options=[], value=None),
                 dcc.Dropdown(id='batch-index-dropdown', options=[], value=None),
             ]),
             html.Div(id='selected-item-details-container', children=[
@@ -231,9 +231,9 @@ class Visualization:
                 marks = {a: str(a) for a in options_list}
                 min_, max_ = (options_list[0], options_list[-1]) if options_list else (0, 100)
                 return min_, max_, marks, val
-            def create_options_and_value_from_list(previous_value, options_list):
+            def create_options_and_value_from_list(previous_value, options_list, label_maker=lambda a: str(a)):
                 val = previous_value if previous_value in options_list else (options_list[0] if options_list else None)
-                options = [{'label': str(a), 'value': a} for a in options_list]
+                options = [{'label': label_maker(a), 'value': a} for a in options_list]
                 return options, val
             training_times = sorted(list(recordings.training_time_to_type_of_recording_to_batch_index_to_records.keys()))
             assert len(training_times) > 0
@@ -245,7 +245,10 @@ class Visualization:
             batch_index_to_records = type_of_recording_to_batch_index_to_records[type_of_recording_value]
             batch_indices = sorted(list(batch_index_to_records.keys()), key=lambda x: -1 if isinstance(x, str) else x)
             assert len(batch_indices) > 0
-            batch_index_options, batch_index_value = create_options_and_value_from_list(batch_index_value, batch_indices)
+            batch_index_options, batch_index_value = create_options_and_value_from_list(
+                batch_index_value, batch_indices,
+                label_maker=lambda a: "mean over the batch" if a == 'batch' else f"batch index {a}"
+            )
             return training_time_min, training_time_max, training_time_marks, training_time_value, type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value
 
         @app.callback(Output('dummy-for-selecting-a-node', 'className'),
@@ -286,7 +289,7 @@ class Visualization:
             records = recordings.training_time_to_type_of_recording_to_batch_index_to_records[training_time_value][type_of_recording_value][batch_index_value]
             rows = []
             for key in node.get_all_items_to_record():
-                val = records[key]
+                val = records[key] if key in records else "No applicable value to display for this selection."
                 assert key[0] == node_name
                 row = [
                     html.Td(key[1]),

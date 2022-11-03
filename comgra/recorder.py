@@ -137,8 +137,6 @@ class ComgraRecorder:
             tensor.requires_grad = True
         tensor.retain_grad()
         # Make parameters of this function call consistent with each other
-        if record_per_batch_index is None:
-            record_per_batch_index = self.record_all_tensors_per_batch_index_by_default
         if is_loss:
             recording_type = 'single_value'
             index_of_batch_dimension = None
@@ -158,6 +156,8 @@ class ComgraRecorder:
         else:
             assert len(tensor.shape) > index_of_batch_dimension and \
                    tensor.shape[index_of_batch_dimension] == self.current_batch_size, tensor_name
+            if record_per_batch_index is None:
+                record_per_batch_index = self.record_all_tensors_per_batch_index_by_default
         if recording_type == 'single_value':
             assert index_of_batch_dimension is None
         # Create a TensorRepresentation for the tensor and store various references for later.
