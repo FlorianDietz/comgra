@@ -7,3 +7,6 @@
 .highlighted {
     border: 3px solid #9a0000
 }
+.inactive {
+    display: none
+}

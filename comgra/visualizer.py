@@ -84,11 +84,13 @@ class Visualization:
         assets_path = Path(__file__).absolute().parent.parent / 'assets'
         assert assets_path.exists(), "If this fails, files have been moved."
         self.app = dash.Dash(__name__, assets_folder=str(assets_path))
+        self.configuration_type_to_graph_and_status = {}
         self._sanity_check_cache_to_avoid_duplicates = {}
         self.cache_for_tensor_recordings = {}
 
-    def _node_name_to_dash_id(self, node_name):
+    def _node_name_to_dash_id(self, configuration_type, node_name):
         conversion = node_name.replace('.', '__')
+        conversion = f"node__{configuration_type}__{conversion}"
         assert (conversion not in self._sanity_check_cache_to_avoid_duplicates or
                self._sanity_check_cache_to_avoid_duplicates[conversion] == node_name), \
             f"Two nodes have the same representation: " \
@@ -96,10 +98,30 @@ class Visualization:
         self._sanity_check_cache_to_avoid_duplicates[conversion] = node_name
         return conversion
 
-    def _nodes_to_connection_dash_id(self, source, target):
-        return f"connection__{self._node_name_to_dash_id(source)}__{self._node_name_to_dash_id(target)}"
+    def _nodes_to_connection_dash_id(self, configuration_type, source, target):
+        return f"connection__{self._node_name_to_dash_id(configuration_type, source)}__" \
+               f"{self._node_name_to_dash_id(configuration_type, target)}"
 
     def run_server(self):
+        #
+        # Load data that can only be loaded once, because Divs depend on it.
+        #
+        for config_folder in (self.path / 'configs').iterdir():
+            configuration_type = config_folder.name
+            with open(config_folder / 'globals.json') as f:
+                globals_json = json.load(f)
+                globals_json['tensor_representations'] = {
+                    k: TensorRepresentation(**v) for k, v in
+                    globals_json['tensor_representations'].items()
+                }
+                global_status = GlobalStatus(**globals_json)
+            with open(config_folder / 'graph.json') as f:
+                graph_json = json.load(f)
+                graph = DirectedAcyclicGraph(**graph_json)
+            self.configuration_type_to_graph_and_status[configuration_type] = (graph, global_status)
+        #
+        # Visualize
+        #
         self.create_visualization()
         self.app.run_server(debug=True)
 
@@ -112,7 +134,9 @@ class Visualization:
             self.cache_for_tensor_recordings[key] = recordings
         return self.cache_for_tensor_recordings[key]
 
-    def create_nodes_and_arrows(self, global_status: GlobalStatus, graph: DirectedAcyclicGraph):
+    def create_nodes_and_arrows(
+            self, configuration_type: str, global_status: GlobalStatus, graph: DirectedAcyclicGraph
+    ):
         highest_number_of_nodes = max(len(a) for a in graph.dag_format)
         height_per_box = int((vp.total_display_height - vp.padding_top - vp.padding_bottom) / (highest_number_of_nodes + (highest_number_of_nodes - 1) * vp.ratio_of_space_between_nodes_to_node_size))
         width_per_box = int((vp.total_display_width - vp.padding_left - vp.padding_right) / (len(graph.dag_format) + (len(graph.dag_format) - 1) * vp.ratio_of_space_between_nodes_to_node_size))
@@ -123,7 +147,7 @@ class Visualization:
                 left = int(vp.padding_left + i * (1 + vp.ratio_of_space_between_nodes_to_node_size) * width_per_box)
                 top = int(vp.padding_top + j * (1 + vp.ratio_of_space_between_nodes_to_node_size) * height_per_box)
                 node_to_top_left_corner[node] = (left, top)
-                elements_of_the_graph.append(html.Div(id=self._node_name_to_dash_id(node), style={
+                elements_of_the_graph.append(html.Div(id=self._node_name_to_dash_id(configuration_type, node), style={
                     'width': f'{width_per_box}px',
                     'height': f'{height_per_box}px',
                     'backgroundColor': 'white',
@@ -145,7 +169,7 @@ class Visualization:
             source_y = int(source_top + 0.5 * height_per_box)
             target_x = int(target_left)
             target_y = int(target_top + 0.5 * height_per_box)
-            connection_name = self._nodes_to_connection_dash_id(source, target)
+            connection_name = self._nodes_to_connection_dash_id(configuration_type, source, target)
             svg_connection_lines.append(dash_svg.Line(
                 id=connection_name,
                 x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
@@ -158,22 +182,10 @@ class Visualization:
         # Note: "9" here is the offset of the viewport from the top left corner of the screen.
         # This is 1 from the border plus 8 from the padding.
         elements_of_the_graph.append(dash_svg.Svg(svg_connection_lines, viewBox=f'9 9 {vp.total_display_width} {vp.total_display_height}'))
-        return elements_of_the_graph, connection_names_to_source_and_target, node_to_incoming_and_outgoing_lines
+        return elements_of_the_graph
 
     def create_visualization(self):
         app = self.app
-
-        with open(self.path / 'globals.json') as f:
-            globals_json = json.load(f)
-            globals_json['tensor_representations'] = {k: TensorRepresentation(**v) for k, v in globals_json['tensor_representations'].items()}
-            global_status = GlobalStatus(**globals_json)
-        with open(self.path / 'graph.json') as f:
-            graph_json = json.load(f)
-            graph = DirectedAcyclicGraph(**graph_json)
-
-        elements_of_the_graph, connection_names_to_source_and_target, node_to_incoming_and_outgoing_lines = \
-            self.create_nodes_and_arrows(global_status, graph)
-
         # Define the Layout of the App
         app.layout = html.Div(style={
             'backgroundColor': 'white',
@@ -185,7 +197,14 @@ class Visualization:
                 'width': f'{vp.total_display_width}px',
                 'height': f'{vp.total_display_height}px',
                 'border': '1px solid black',
-            }, children=elements_of_the_graph),
+            }, children=[
+                html.Div(id=f'graph_container__{configuration_type}', style={
+                    'display': 'relative',
+                    'width': f'{vp.total_display_width}px',
+                    'height': f'{vp.total_display_height}px',
+                }, children=self.create_nodes_and_arrows(configuration_type, global_status, graph))
+                for configuration_type, (graph, global_status) in self.configuration_type_to_graph_and_status.items()
+            ]),
             dcc.Tooltip(id="graph-tooltip"),
             html.Div(id='controls-container', children=[
                 html.Button('Refresh', id='refresh-button', n_clicks=0),
@@ -211,14 +230,16 @@ class Visualization:
             return options, options[0]['value']
         refresh_all(0)
 
-        @app.callback([Output('training-step-slider', 'min'),
+        @app.callback(([Output('training-step-slider', 'min'),
                        Output('training-step-slider', 'max'),
                        Output('training-step-slider', 'marks'),
                        Output('training-step-slider', 'value'),
                        Output('type-of-recording-dropdown', 'options'),
                        Output('type-of-recording-dropdown', 'value'),
                        Output('batch-index-dropdown', 'options'),
-                       Output('batch-index-dropdown', 'value')],
+                       Output('batch-index-dropdown', 'value')] +
+                      [Output(f'graph_container__{configuration_type}', 'className')
+                       for configuration_type in self.configuration_type_to_graph_and_status.keys()]),
                       [Input('trials-dropdown', 'value'),
                        Input('training-step-slider', 'value'),
                        Input('type-of-recording-dropdown', 'value'),
@@ -249,27 +270,49 @@ class Visualization:
                 batch_index_value, batch_indices,
                 label_maker=lambda a: "mean over the batch" if a == 'batch' else f"batch index {a}"
             )
-            return training_step_min, training_step_max, training_step_marks, training_step_value, type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value
+            graph_container_visibilities = [
+                'active' if configuration_type == recordings.configuration_type else 'inactive'
+                for configuration_type in self.configuration_type_to_graph_and_status.keys()
+            ]
+            res = [training_step_min, training_step_max, training_step_marks, training_step_value, type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value] + graph_container_visibilities
+            return res
 
         @app.callback(Output('dummy-for-selecting-a-node', 'className'),
-                      [Input(self._node_name_to_dash_id(node), 'n_clicks_timestamp') for node
-                       in global_status.tensor_representations.keys()])
+                      [Input('trials-dropdown', 'value')] +
+                      [Input(self._node_name_to_dash_id(configuration_type, node), 'n_clicks_timestamp')
+                       for configuration_type, (_, global_status) in self.configuration_type_to_graph_and_status.items()
+                       for node in global_status.tensor_representations.keys()])
         def update_visibility(*lsts):
-            num_nodes = len(global_status.tensor_representations)
-            clicks_per_object = lsts[0:num_nodes]
+            trials_value = lsts[0]
+            recordings = self.get_recordings_with_caching(trials_value)
+            graph, global_status = self.configuration_type_to_graph_and_status[recordings.configuration_type]
+            names = [
+                node
+                for _, (_, gs) in self.configuration_type_to_graph_and_status.items()
+                for node in gs.tensor_representations.keys()
+            ]
+            names_that_exist_in_the_selected_configuration = {
+                node for node in
+                self.configuration_type_to_graph_and_status[recordings.configuration_type][1].tensor_representations.keys()
+            }
+            clicks_per_object = lsts[1:]
+            assert len(clicks_per_object) == len(names)
             # Identify the most recently clicked object
-            max_index = 0
+            max_index = [0 if a is None else 1 for a in names].index(1)
             max_val = 0
-            for i, b in enumerate(clicks_per_object):
-                if b is not None and b > max_val:
-                    max_val = b
+            for i, (clicks, name) in enumerate(zip(clicks_per_object, names)):
+                if name in names_that_exist_in_the_selected_configuration and clicks is not None and clicks > max_val:
+                    max_val = clicks
                     max_index = i
-            name_of_selected_item = list(global_status.tensor_representations.keys())[max_index]
+            name_of_selected_item = names[max_index]
+            assert name_of_selected_item is not None
             return name_of_selected_item
 
         @app.callback(
             ([Output('selected-item-details-container', 'children')] +
-             [Output(self._node_name_to_dash_id(n), 'className') for n in global_status.tensor_representations]),
+             [Output(self._node_name_to_dash_id(configuration_type, n), 'className')
+              for configuration_type, (_, global_status) in self.configuration_type_to_graph_and_status.items()
+              for n in global_status.tensor_representations]),
             [Input('dummy-for-selecting-a-node', 'className'),
              Input('trials-dropdown', 'value'),
              Input('training-step-slider', 'value'),
@@ -277,15 +320,18 @@ class Visualization:
              Input('batch-index-dropdown', 'value')]
         )
         def select_node(node_name, trials_value, training_step_value, type_of_recording_value, batch_index_value):
+            recordings = self.get_recordings_with_caching(trials_value)
+            graph, global_status = self.configuration_type_to_graph_and_status[recordings.configuration_type]
             # Select the node
             node = global_status.tensor_representations[node_name]
             connected_node_names = {a[0] for a in graph.connections if a[1] == node_name} | {a[1] for a in graph.connections if a[0] == node_name}
             classes_for_nodes = [
-                "node selected" if n == node_name else "node highlighted" if n in connected_node_names else "node"
-                for n in global_status.tensor_representations
+                ("node selected" if n == node_name else "node highlighted" if n in connected_node_names else "node")
+                if gs == global_status else "node inactive"
+                for _, (_, gs) in self.configuration_type_to_graph_and_status.items()
+                for n in gs.tensor_representations
             ]
             # Display values based on the selected node
-            recordings = self.get_recordings_with_caching(trials_value)
             records = recordings.training_step_to_type_of_recording_to_batch_index_to_records[training_step_value][type_of_recording_value][batch_index_value]
             rows = []
             for key in node.get_all_items_to_record():

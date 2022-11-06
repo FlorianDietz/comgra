@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import re
 from pathlib import Path
 import pickle
 from typing import List, Dict, Optional
@@ -14,7 +15,7 @@ class ComgraRecorder:
 
     def __init__(
             self, comgra_root_path, group, trial_id, prefixes_for_grouping_module_parameters, parameters_of_trial,
-            decision_maker_for_recordings, comgra_is_active=True
+            configuration_type, decision_maker_for_recordings, comgra_is_active=True
     ):
         comgra_root_path = Path(comgra_root_path)
         assert comgra_root_path.exists()
@@ -22,10 +23,12 @@ class ComgraRecorder:
         self.trial_id = trial_id
         self.group_path = comgra_root_path / group
         self.trial_path = self.group_path / 'trials' / trial_id
+        self.trial_path.mkdir(parents=True, exist_ok=True)
+        self.configuration_path = self.group_path / 'configs' / configuration_type
+        self.configuration_path.mkdir(parents=True, exist_ok=True)
         self.prefixes_for_grouping_module_parameters = list(prefixes_for_grouping_module_parameters)
         assert all(isinstance(a, str) for a in prefixes_for_grouping_module_parameters)
         self.parameters_of_trial = parameters_of_trial
-        self.trial_path.mkdir(parents=True, exist_ok=True)
         self._warning_messages_cache = {}
         self.set_of_top_level_modules = {}
         self.module_to_name = {}
@@ -37,7 +40,8 @@ class ComgraRecorder:
         self.current_stage = 'inactive'
         self.types_of_tensor_recordings = ['forward']
         self.current_type_of_tensor_recording = None
-        self.tensor_recordings = TensorRecordings()
+        assert isinstance(configuration_type, str) and re.match(r'[a-zA-Z_-]+', configuration_type), configuration_type
+        self.tensor_recordings = TensorRecordings(configuration_type=configuration_type)
         #
         # Things that are recorded once and then compared to
         #
@@ -339,8 +343,6 @@ class ComgraRecorder:
                 tensor_representations=dict(self.tensor_name_to_representation),
                 types_of_tensor_recordings=list(self.types_of_tensor_recordings),
             )
-            with open(self.group_path / 'globals.json', 'w') as f:
-                json.dump(dataclasses.asdict(self.global_status), f)
             #
             # Construct a graph format and save it.
             #
@@ -356,10 +358,17 @@ class ComgraRecorder:
                 connections=connections,
             )
             self.graph.build_dag_format(self.global_status)
-            with open(self.group_path / 'graph.json', 'w') as f:
-                json.dump(dataclasses.asdict(self.graph), f)
-            # Make sure this is only done once
+            # Make sure the graph and global_status are only DERIVED once per run
             self.computational_graph_layout_and_global_data_have_been_recorded = True
+            # Make sure the graph and global_status are only SAVED once per set of multiple trials.
+            globals_path = self.configuration_path / 'globals.json'
+            if not globals_path.exists():
+                with open(globals_path, 'w') as f:
+                    json.dump(dataclasses.asdict(self.global_status), f)
+            graph_path = self.configuration_path / 'graph.json'
+            if not graph_path.exists():
+                with open(graph_path, 'w') as f:
+                    json.dump(dataclasses.asdict(self.graph), f)
         #
         # Save trial information
         #
