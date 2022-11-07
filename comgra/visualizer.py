@@ -102,7 +102,7 @@ class Visualization:
         return f"connection__{self._node_name_to_dash_id(configuration_type, source)}__" \
                f"{self._node_name_to_dash_id(configuration_type, target)}"
 
-    def run_server(self):
+    def run_server(self, port):
         #
         # Load data that can only be loaded once, because Divs depend on it.
         #
@@ -123,7 +123,7 @@ class Visualization:
         # Visualize
         #
         self.create_visualization()
-        self.app.run_server(debug=True)
+        self.app.run_server(debug=True, port=port)
 
     def get_recordings_with_caching(self, trials_value) -> TensorRecordings:
         key = (trials_value,)

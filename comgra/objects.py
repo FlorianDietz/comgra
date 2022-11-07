@@ -60,6 +60,12 @@ class GlobalStatus:
     def __post_init__(self):
         for k, v in self.tensor_representations.items():
             assert k == v.full_unique_name, (k, v.full_unique_name)
+        for i, a in enumerate(self.prefixes_for_grouping_module_parameters):
+            for j, b in enumerate(self.prefixes_for_grouping_module_parameters):
+                if j >= i:
+                    break
+                assert not a.startswith(b), \
+                    f"Earlier prefixes should be more specific than later ones.\n{a}\n{b}"
 
     def get_all_items_to_record(self):
         res = []
