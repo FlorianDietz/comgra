@@ -4,19 +4,19 @@ import json
 import re
 from pathlib import Path
 import pickle
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 import torch
 from torch import nn as torch_nn
 
-from comgra.objects import DecisionMakerForRecordings, DirectedAcyclicGraph, GlobalStatus, ModuleRepresentation, ParameterRepresentation, TensorRecordings, TensorRepresentation
+from comgra.objects import DecisionMakerForRecordings, StatusAndGraph, ModuleRepresentation, ParameterRepresentation, TensorRecordings, TensorRepresentation
 
 
 class ComgraRecorder:
 
     def __init__(
             self, comgra_root_path, group, trial_id, prefixes_for_grouping_module_parameters, parameters_of_trial,
-            configuration_type, decision_maker_for_recordings, comgra_is_active=True
+            decision_maker_for_recordings, comgra_is_active=True
     ):
         comgra_root_path = Path(comgra_root_path)
         assert comgra_root_path.exists()
@@ -25,15 +25,14 @@ class ComgraRecorder:
         self.group_path = comgra_root_path / group
         self.trial_path = self.group_path / 'trials' / trial_id
         self.trial_path.mkdir(parents=True, exist_ok=True)
-        self.configuration_path = self.group_path / 'configs' / configuration_type
-        self.configuration_path.mkdir(parents=True, exist_ok=True)
+        self.configuration_type = None
+        self.configuration_path = None
         self.prefixes_for_grouping_module_parameters = list(prefixes_for_grouping_module_parameters)
         assert all(isinstance(a, str) for a in prefixes_for_grouping_module_parameters)
         self.parameters_of_trial = parameters_of_trial
         self._warning_messages_cache = {}
         self.set_of_top_level_modules = {}
         self.module_to_name = {}
-        self.computational_graph_layout_and_global_data_have_been_recorded = False
         self.unique_module_names = {}
         self.unique_parameter_names = {}
         self.parameter_to_representation = {}
@@ -41,22 +40,21 @@ class ComgraRecorder:
         self.current_stage = 'inactive'
         self.types_of_tensor_recordings = ['forward']
         self.current_type_of_tensor_recording = None
-        assert isinstance(configuration_type, str) and re.match(r'[a-zA-Z_-]+', configuration_type), configuration_type
-        self.tensor_recordings = TensorRecordings(configuration_type=configuration_type)
+        self.tensor_recordings = TensorRecordings()
         #
         # Things that are recorded once and then compared to
         #
-        self.global_status: Optional[GlobalStatus] = None
-        self.graph: Optional[DirectedAcyclicGraph] = None
+        self.configuration_type_to_status_and_graph: Dict[str, StatusAndGraph] = {}
         #
         # Per iteration
         #
         self.is_training_mode = False
         self.training_step = None
+        self.iteration = None
         self.record_all_tensors_per_batch_index_by_default = False
         self.computation_step_to_tensor = {}
-        self.tensor_to_name = {}
-        self.tensor_name_to_representation: Dict[str, TensorRepresentation] = {}
+        self.tensor_to_name_and_iteration = {}
+        self.tensor_name_and_iteration_to_representation: Dict[Tuple[str, int], TensorRepresentation] = {}
         self.current_batch_size = None
 
     @property
@@ -117,14 +115,15 @@ class ComgraRecorder:
     ):
         self.is_training_mode = is_training_mode
         self.training_step = training_step
+        self.iteration = 0
         self.record_all_tensors_per_batch_index_by_default = record_all_tensors_per_batch_index_by_default
         assert self.current_stage == 'inactive', self.current_stage
         self.current_stage = 'started'
         self.types_of_tensor_recordings = []
         self.current_type_of_tensor_recording = 'forward'
         self.computation_step_to_tensor = {}
-        self.tensor_to_name = {}
-        self.tensor_name_to_representation = {}
+        self.tensor_to_name_and_iteration = {}
+        self.tensor_name_and_iteration_to_representation = {}
         self.current_batch_size = current_batch_size
 
     def register_tensor(
@@ -179,11 +178,12 @@ class ComgraRecorder:
         else:
             role = 'intermediate'
         self.computation_step_to_tensor[tensor.grad_fn] = tensor
-        assert tensor not in self.tensor_to_name, \
-            f"Tensor is already registered under the name {self.tensor_to_name[tensor]}"
-        self.tensor_to_name[tensor] = tensor_name
-        assert tensor_name not in self.tensor_name_to_representation, \
-            f"Two tensors were recorded with the same name. Give your tensors unique names: {tensor_name}"
+        assert tensor not in self.tensor_to_name_and_iteration, \
+            f"Tensor is already registered under the name and iteration {self.tensor_to_name_and_iteration[tensor]}"
+        self.tensor_to_name_and_iteration[tensor] = (tensor_name, self.iteration)
+        assert (tensor_name, self.iteration) not in self.tensor_name_and_iteration_to_representation, \
+            f"Two tensors were recorded with the same name in the same iteration. " \
+            f"Give your tensors unique names: {(tensor_name, self.iteration)}"
         if recording_type == 'kpis':
             items_to_record = ['mean', 'abs_mean', 'std', 'abs_max']
         elif recording_type == 'neurons':
@@ -194,6 +194,8 @@ class ComgraRecorder:
             raise NotImplementedError(recording_type)
         tensor_representation = TensorRepresentation(
             full_unique_name=tensor_name,
+            iteration=self.iteration,
+            configuration_type=self.configuration_type,
             role=role,
             shape=list(tensor.shape),
             index_of_batch_dimension=index_of_batch_dimension,
@@ -202,7 +204,7 @@ class ComgraRecorder:
             items_to_record=list(items_to_record),
             record_per_batch_index=record_per_batch_index,
         )
-        self.tensor_name_to_representation[tensor_name] = tensor_representation
+        self.tensor_name_and_iteration_to_representation[(tensor_name, self.iteration)] = tensor_representation
         # Store the current value of the tensor
         self.store_value_of_tensor(tensor, tensor_representation)
 
@@ -210,7 +212,10 @@ class ComgraRecorder:
         tensor_name = tensor_representation.full_unique_name
         value_dimensions = tensor_representation.value_dimensions
         if tensor_representation.recording_type == 'single_value':
-            self.store_value_of_tensor_helper('batch', tensor_name, 'single_value', None, tensor)
+            self.store_value_of_tensor_helper(
+                'batch', tensor_representation.iteration,
+                tensor_name, 'single_value', None, tensor
+            )
         else:
             batch_indices = ['batch'] + (list(range(self.current_batch_size)) if tensor_representation.record_per_batch_index else [])
             assert len(value_dimensions) > 0, tensor_name
@@ -259,14 +264,18 @@ class ComgraRecorder:
                             val_specific_to_batch_index = val.mean()
                         else:
                             val_specific_to_batch_index = val[batch_index]
-                    self.store_value_of_tensor_helper(batch_index, tensor_name, item, metadata, val_specific_to_batch_index)
+                    self.store_value_of_tensor_helper(
+                        batch_index, tensor_representation.iteration,
+                        tensor_name, item, metadata, val_specific_to_batch_index
+                    )
 
-    def store_value_of_tensor_helper(self, batch_index, tensor_name, item, metadata, tensor):
-        type_of_recording_to_batch_index_to_records = self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_records.setdefault(
+    def store_value_of_tensor_helper(self, batch_index, iteration, tensor_name, item, metadata, tensor):
+        type_of_recording_to_batch_index_to_iteration_to_records = self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records.setdefault(
             self.training_step, {})
-        batch_index_to_records = type_of_recording_to_batch_index_to_records.setdefault(
+        batch_index_to_iteration_to_records = type_of_recording_to_batch_index_to_iteration_to_records.setdefault(
             self.current_type_of_tensor_recording, {})
-        records = batch_index_to_records.setdefault(batch_index, {})
+        iteration_to_records = batch_index_to_iteration_to_records.setdefault(batch_index, {})
+        records = iteration_to_records.setdefault(iteration, {})
         key = (tensor_name, item, metadata)
         assert key not in records, \
             f"Duplicate tensor recording for {self.training_step}, " \
@@ -274,9 +283,16 @@ class ComgraRecorder:
         assert tensor.shape == (), (tensor.shape, key)
         records[key] = tensor
 
-    def start_forward_pass(self):
-        assert self.current_stage == 'started', self.current_stage
+    def start_forward_pass(self, iteration, configuration_type):
+        assert self.current_stage in ['started', 'after_iteration'], self.current_stage
         self.current_stage = 'forward'
+        self.iteration = iteration
+        assert isinstance(configuration_type, str) and re.match(r'[a-zA-Z_-]+', configuration_type), configuration_type
+        self.configuration_type = configuration_type
+        print(123, iteration, configuration_type)
+        self.configuration_path = self.group_path / 'configs' / configuration_type
+        self.configuration_path.mkdir(parents=True, exist_ok=True)
+        self.tensor_recordings.iteration_to_configuration_type[self.iteration] = configuration_type
         if not self.recording_is_active:
             return
 
@@ -290,15 +306,15 @@ class ComgraRecorder:
         assert name_of_loss_group not in self.types_of_tensor_recordings
         self.types_of_tensor_recordings.append(name_of_loss_group)
         self.current_type_of_tensor_recording = name_of_loss_group
-        for tensor, name in self.tensor_to_name.items():
-            tr = self.tensor_name_to_representation[name]
+        for tensor, k in self.tensor_to_name_and_iteration.items():
+            tr = self.tensor_name_and_iteration_to_representation[k]
             assert tensor.grad is not None, \
-                f"A tensor does not have a gradient on it to record: {name}"
+                f"A tensor does not have a gradient on it to record: {k}"
             self.store_value_of_tensor(tensor.grad, tr)
 
-    def finish_iteration(self):
+    def finish_iteration(self, sanity_check__verify_graph_and_global_status_equal_existing_file=False):
         assert self.current_stage in ['forward', 'backward'], self.current_stage
-        self.current_stage = 'inactive'
+        self.current_stage = 'after_iteration'
         self.current_type_of_tensor_recording = 'forward'  # This will be used when the parameters get recorded in traverse_graph_backwards
         if not self.recording_is_active:
             return
@@ -306,6 +322,7 @@ class ComgraRecorder:
         # Go backwards through the computation graph, starting from outputs, targets, and losses.
         # Go back until you encounter an input, or you can't go back anymore.
         #
+        print('finish_iteration', self.iteration, self.configuration_path)
         step_was_already_encountered_with_parameters = collections.defaultdict(list)
         def traverse_graph_backwards(step, last_encountered_named_tensor):
             if step is None:
@@ -319,11 +336,14 @@ class ComgraRecorder:
             if hasattr(step, 'variable'):
                 t = step.variable
                 # Register parameters in the graph the first time you encounter them.
-                if t in self.parameter_to_representation and t not in self.tensor_to_name:
+                if t in self.parameter_to_representation and t not in self.tensor_to_name_and_iteration:
                     self.register_tensor(self.parameter_to_representation[t].full_unique_name, t, is_parameter=True)
             if t is not None:
-                name_of_this_tensor = self.tensor_to_name[t]
-                tensor_representation = self.tensor_name_to_representation[name_of_this_tensor]
+                k = self.tensor_to_name_and_iteration[t]
+                name_of_this_tensor, iteration = k
+                tensor_representation = self.tensor_name_and_iteration_to_representation[k]
+                assert iteration == self.iteration or tensor_representation.role == 'parameter', \
+                    (name_of_this_tensor, iteration, self.iteration)
                 if last_encountered_named_tensor is not None and \
                         last_encountered_named_tensor not in tensor_representation.is_a_dependency_of:
                     tensor_representation.is_a_dependency_of.append(last_encountered_named_tensor)
@@ -338,85 +358,92 @@ class ComgraRecorder:
             # Recurse
             for predecessor, other in step.next_functions:
                 traverse_graph_backwards(predecessor, last_encountered_named_tensor)
-        final_tensors = [t for t, n in self.tensor_to_name.items() if self.tensor_name_to_representation[n].role in ['output', 'target', 'loss']]
+        final_tensors = [
+            t for t, ni in self.tensor_to_name_and_iteration.items()
+            if self.tensor_name_and_iteration_to_representation[ni].role in ['output', 'target', 'loss']
+            and self.tensor_name_and_iteration_to_representation[ni].iteration == self.iteration
+        ]
         for tensor in final_tensors:
             traverse_graph_backwards(tensor.grad_fn, None)
-        if not self.computational_graph_layout_and_global_data_have_been_recorded:
-            assert sum([len(a.is_a_dependency_of) for a in self.tensor_name_to_representation.values()]) > 0, \
+        if self.configuration_type not in self.configuration_type_to_status_and_graph:
+            print('recording layout in files', self.configuration_type, self.iteration)
+            assert sum([len(a.is_a_dependency_of) for a in self.tensor_name_and_iteration_to_representation.values()]) > 0, \
                 "No computational graph could be constructed. " \
                 "The most common error that could cause this is that gradient computations are turned off."
             #
-            # Save global status information
+            # Construct global status and graph information
             #
-            assert self.global_status is None
-            self.global_status = GlobalStatus(
-                prefixes_for_grouping_module_parameters=list(self.prefixes_for_grouping_module_parameters),
-                tensor_representations=dict(self.tensor_name_to_representation),
-                types_of_tensor_recordings=list(self.types_of_tensor_recordings),
-            )
-            #
-            # Construct a graph format and save it.
-            #
-            nodes = list(self.tensor_name_to_representation.keys())
-            connections = [
-                [dependency, dependent]
-                for dependency, rep in self.tensor_name_to_representation.items()
-                for dependent in rep.is_a_dependency_of
-            ]
-            assert self.graph is None
-            self.graph = DirectedAcyclicGraph(
-                nodes=nodes,
-                connections=connections,
-            )
-            self.graph.build_dag_format(self.global_status)
+            status_and_graph = self.build_global_status_and_graph()
             # Make sure the graph and global_status are only DERIVED once per run
-            self.computational_graph_layout_and_global_data_have_been_recorded = True
+            self.configuration_type_to_status_and_graph[self.configuration_type] = status_and_graph
             # Make sure the graph and global_status are only SAVED once per set of multiple trials.
-            globals_path = self.configuration_path / 'globals.json'
-            if not globals_path.exists():
-                with open(globals_path, 'w') as f:
-                    json.dump(dataclasses.asdict(self.global_status), f)
-            graph_path = self.configuration_path / 'graph.json'
-            if not graph_path.exists():
-                with open(graph_path, 'w') as f:
-                    json.dump(dataclasses.asdict(self.graph), f)
-        #
-        # Save trial information
-        #
-        with open(self.trial_path / 'parameters.json', 'w') as f:
-            json.dump(self.parameters_of_trial, f)
-        #
-        # Verify that the result is identical to previous results.
-        # For the graph.
-        #
-        nodes = list(self.tensor_name_to_representation.keys())
+            path = self.configuration_path / 'status_and_graph.pkl'
+            if not path.exists():
+                with open(path, 'wb') as f:
+                    pickle.dump(status_and_graph, f)
+            #
+            # Save trial information
+            #
+            with open(self.trial_path / 'parameters.json', 'w') as f:
+                json.dump(self.parameters_of_trial, f)
+        if sanity_check__verify_graph_and_global_status_equal_existing_file:
+            print('sanity_check__verify_graph_and_global_status_equal_existing_file', self.configuration_type, self.iteration)
+            #
+            # Verify that the result is identical to previous results.
+            #
+            new_version = self.build_global_status_and_graph()
+            path = self.configuration_path / 'status_and_graph.pkl'
+            with open(path, 'rb') as f:
+                existing_version: StatusAndGraph = pickle.load(f)
+            assert new_version.configuration_type == existing_version.configuration_type
+            assert len(new_version.name_to_tensor_representation) == len(existing_version.name_to_tensor_representation)
+            for k1, v1 in new_version.name_to_tensor_representation.items():
+                v2 = dataclasses.asdict(existing_version.name_to_tensor_representation[k1])
+                for kk1, vv1 in dataclasses.asdict(v1).items():
+                    vv2 = v2[kk1]
+                    vv1 = tuple(vv1) if isinstance(vv1, list) else vv1
+                    vv2 = tuple(vv2) if isinstance(vv2, list) else vv2
+                    assert vv1 == vv2
+            assert tuple(new_version.types_of_tensor_recordings) == tuple(existing_version.types_of_tensor_recordings)
+            assert tuple(new_version.get_all_items_to_record()) == tuple(existing_version.get_all_items_to_record()), \
+                f"\n{new_version.get_all_items_to_record()}\n{existing_version.get_all_items_to_record()}"
+            assert len(new_version.dag_format) == len(existing_version.dag_format)
+            for a, b in zip(new_version.dag_format, existing_version.dag_format):
+                assert len(a) == len(b)
+                for c, d in zip(a, b):
+                    assert c == d
+
+    def build_global_status_and_graph(self) -> StatusAndGraph:
+        nodes = [
+            name for (name, iteration), v in self.tensor_name_and_iteration_to_representation.items()
+            if iteration == self.iteration or v.role == 'parameter'
+        ]
         connections = [
             [dependency, dependent]
-            for dependency, rep in self.tensor_name_to_representation.items()
+            for (dependency, _), rep in self.tensor_name_and_iteration_to_representation.items()
             for dependent in rep.is_a_dependency_of
         ]
-        fake_graph = DirectedAcyclicGraph(
+        print(456, self.configuration_type, self.iteration)
+        status_and_graph = StatusAndGraph(
+            configuration_type=self.configuration_type,
+            prefixes_for_grouping_module_parameters=list(self.prefixes_for_grouping_module_parameters),
+            name_to_tensor_representation={
+                name: v.create_copy_without_iteration_specific_data()
+                for (name, iteration), v in self.tensor_name_and_iteration_to_representation.items()
+                if iteration == self.iteration or v.role == 'parameter'
+            },
+            types_of_tensor_recordings=list(self.types_of_tensor_recordings),
             nodes=nodes,
             connections=connections,
         )
-        fake_graph.build_dag_format(self.global_status)
-        assert len(fake_graph.dag_format) == len(self.graph.dag_format)
-        for a, b in zip(fake_graph.dag_format, self.graph.dag_format):
-            assert len(a) == len(b)
-            for c, d in zip(a, b):
-                assert c == d
-        #
-        # Verify that the result is identical to previous results.
-        # For the global_data.
-        #
-        assert tuple(self.types_of_tensor_recordings) == tuple(self.global_status.types_of_tensor_recordings)
-        fake_global_status = GlobalStatus(
-            prefixes_for_grouping_module_parameters=list(self.prefixes_for_grouping_module_parameters),
-            tensor_representations=dict(self.tensor_name_to_representation),
-            types_of_tensor_recordings=list(self.types_of_tensor_recordings),
-        )
-        assert tuple(self.global_status.get_all_items_to_record()) == tuple(fake_global_status.get_all_items_to_record()), \
-            f"\n{self.global_status.get_all_items_to_record()}\n{fake_global_status.get_all_items_to_record()}"
+        status_and_graph.build_dag_format()
+        return status_and_graph
+
+    def finish_batch(self):
+        assert self.current_stage == 'after_iteration', self.current_stage
+        self.current_stage = 'inactive'
+        if not self.recording_is_active:
+            return
         #
         # Convert the TensorRecordings from tensor to float.
         # While doing so, minimize GPU-to-CPU transfers
@@ -424,22 +451,27 @@ class ComgraRecorder:
         self.decision_maker_for_recordings.prune_recordings(
             training_step=self.training_step, tensor_recordings=self.tensor_recordings
         )
-        type_of_recording_to_batch_index_to_records = self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_records[self.training_step]
+        print('finish_batch')
+        print(1)
+        type_of_recording_to_batch_index_to_iteration_to_records = self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records[self.training_step]
         all_tensors = []
-        for batch_index_to_records in type_of_recording_to_batch_index_to_records.values():
-            for records in batch_index_to_records.values():
-                for tensor in records.values():
-                    all_tensors.append(tensor)
+        for batch_index_to_iteration_to_records in type_of_recording_to_batch_index_to_iteration_to_records.values():
+            for iteration_to_records in batch_index_to_iteration_to_records.values():
+                for records in iteration_to_records.values():
+                    for tensor in records.values():
+                        all_tensors.append(tensor)
+        print(2)
         combined_tensor = torch.stack(all_tensors)
         list_of_floats = combined_tensor.cpu().tolist()
-        all_valid_keys = set(self.global_status.get_all_items_to_record())
+        all_valid_keys = set(self.configuration_type_to_status_and_graph[self.configuration_type].get_all_items_to_record())
         c = 0
-        for batch_index_to_records in type_of_recording_to_batch_index_to_records.values():
-            for records in batch_index_to_records.values():
-                for key in list(records.keys()):
-                    assert key in all_valid_keys, key
-                    records[key] = list_of_floats[c]
-                    c += 1
+        for batch_index_to_iteration_to_records in type_of_recording_to_batch_index_to_iteration_to_records.values():
+            for iteration_to_records in batch_index_to_iteration_to_records.values():
+                for records in iteration_to_records.values():
+                    for key in list(records.keys()):
+                        assert key in all_valid_keys, key
+                        records[key] = list_of_floats[c]
+                        c += 1
         assert c == len(list_of_floats)
-        with open(self.trial_path / 'recordings.json', 'wb') as f:
+        with open(self.trial_path / 'recordings.pkl', 'wb') as f:
             pickle.dump(self.tensor_recordings, f)

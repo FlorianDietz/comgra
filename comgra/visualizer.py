@@ -46,7 +46,7 @@ import plotly.express as px
 import pandas as pd
 import torch
 
-from comgra.objects import DirectedAcyclicGraph, GlobalStatus, ModuleRepresentation, ParameterRepresentation, TensorRepresentation, TensorRecordings
+from comgra.objects import StatusAndGraph, ModuleRepresentation, ParameterRepresentation, TensorRepresentation, TensorRecordings
 
 
 @dataclass
@@ -84,7 +84,7 @@ class Visualization:
         assets_path = Path(__file__).absolute().parent.parent / 'assets'
         assert assets_path.exists(), "If this fails, files have been moved."
         self.app = dash.Dash(__name__, assets_folder=str(assets_path))
-        self.configuration_type_to_graph_and_status = {}
+        self.configuration_type_to_status_and_graph: Dict[str, StatusAndGraph] = {}
         self._sanity_check_cache_to_avoid_duplicates = {}
         self.cache_for_tensor_recordings = {}
 
@@ -108,17 +108,9 @@ class Visualization:
         #
         for config_folder in (self.path / 'configs').iterdir():
             configuration_type = config_folder.name
-            with open(config_folder / 'globals.json') as f:
-                globals_json = json.load(f)
-                globals_json['tensor_representations'] = {
-                    k: TensorRepresentation(**v) for k, v in
-                    globals_json['tensor_representations'].items()
-                }
-                global_status = GlobalStatus(**globals_json)
-            with open(config_folder / 'graph.json') as f:
-                graph_json = json.load(f)
-                graph = DirectedAcyclicGraph(**graph_json)
-            self.configuration_type_to_graph_and_status[configuration_type] = (graph, global_status)
+            with open(config_folder / 'status_and_graph.pkl', 'rb') as f:
+                status_and_graph: StatusAndGraph = pickle.load(f)
+            self.configuration_type_to_status_and_graph[configuration_type] = status_and_graph
         #
         # Visualize
         #
@@ -135,14 +127,14 @@ class Visualization:
         return self.cache_for_tensor_recordings[key]
 
     def create_nodes_and_arrows(
-            self, configuration_type: str, global_status: GlobalStatus, graph: DirectedAcyclicGraph
+            self, configuration_type: str, sag: StatusAndGraph
     ):
-        highest_number_of_nodes = max(len(a) for a in graph.dag_format)
+        highest_number_of_nodes = max(len(a) for a in sag.dag_format)
         height_per_box = int((vp.total_display_height - vp.padding_top - vp.padding_bottom) / (highest_number_of_nodes + (highest_number_of_nodes - 1) * vp.ratio_of_space_between_nodes_to_node_size))
-        width_per_box = int((vp.total_display_width - vp.padding_left - vp.padding_right) / (len(graph.dag_format) + (len(graph.dag_format) - 1) * vp.ratio_of_space_between_nodes_to_node_size))
+        width_per_box = int((vp.total_display_width - vp.padding_left - vp.padding_right) / (len(sag.dag_format) + (len(sag.dag_format) - 1) * vp.ratio_of_space_between_nodes_to_node_size))
         elements_of_the_graph = []
         node_to_top_left_corner = {}
-        for i, nodes in enumerate(graph.dag_format):
+        for i, nodes in enumerate(sag.dag_format):
             for j, node in enumerate(nodes):
                 left = int(vp.padding_left + i * (1 + vp.ratio_of_space_between_nodes_to_node_size) * width_per_box)
                 top = int(vp.padding_top + j * (1 + vp.ratio_of_space_between_nodes_to_node_size) * height_per_box)
@@ -154,14 +146,14 @@ class Visualization:
                     'position': 'absolute',
                     'left': f'{left}px',
                     'top': f'{top}px',
-                    'background': vp.node_type_to_color[global_status.tensor_representations[node].role]
+                    'background': vp.node_type_to_color[sag.name_to_tensor_representation[node].role]
                 }, title=node, children=[
                     f'{node}'
                 ]))
         connection_names_to_source_and_target = {}
-        node_to_incoming_and_outgoing_lines = {n: ([], []) for n in graph.nodes}
+        node_to_incoming_and_outgoing_lines = {n: ([], []) for n in sag.nodes}
         svg_connection_lines = []
-        for connection in graph.connections:
+        for connection in sag.connections:
             source, target = tuple(connection)
             source_left, source_top = node_to_top_left_corner[source]
             target_left, target_top = node_to_top_left_corner[target]
@@ -173,7 +165,7 @@ class Visualization:
             svg_connection_lines.append(dash_svg.Line(
                 id=connection_name,
                 x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
-                stroke=vp.node_type_to_color[global_status.tensor_representations[source].role],
+                stroke=vp.node_type_to_color[sag.name_to_tensor_representation[source].role],
                 strokeWidth=1,
             ))
             connection_names_to_source_and_target[connection_name] = (source, target)
@@ -202,8 +194,8 @@ class Visualization:
                     'display': 'relative',
                     'width': f'{vp.total_display_width}px',
                     'height': f'{vp.total_display_height}px',
-                }, children=self.create_nodes_and_arrows(configuration_type, global_status, graph))
-                for configuration_type, (graph, global_status) in self.configuration_type_to_graph_and_status.items()
+                }, children=self.create_nodes_and_arrows(configuration_type, sag))
+                for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
             ]),
             dcc.Tooltip(id="graph-tooltip"),
             html.Div(id='controls-container', children=[
@@ -239,7 +231,7 @@ class Visualization:
                        Output('batch-index-dropdown', 'options'),
                        Output('batch-index-dropdown', 'value')] +
                       [Output(f'graph_container__{configuration_type}', 'className')
-                       for configuration_type in self.configuration_type_to_graph_and_status.keys()]),
+                       for configuration_type in self.configuration_type_to_status_and_graph.keys()]),
                       [Input('trials-dropdown', 'value'),
                        Input('training-step-slider', 'value'),
                        Input('type-of-recording-dropdown', 'value'),
@@ -256,15 +248,15 @@ class Visualization:
                 val = previous_value if previous_value in options_list else (options_list[0] if options_list else None)
                 options = [{'label': label_maker(a), 'value': a} for a in options_list]
                 return options, val
-            training_steps = sorted(list(recordings.training_step_to_type_of_recording_to_batch_index_to_records.keys()))
+            training_steps = sorted(list(recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records.keys()))
             assert len(training_steps) > 0
             training_step_min, training_step_max, training_step_marks, training_step_value = create_slider_data_from_list(training_step_value, training_steps)
-            type_of_recording_to_batch_index_to_records = recordings.training_step_to_type_of_recording_to_batch_index_to_records[training_step_value]
-            types_of_recordings = sorted(list(type_of_recording_to_batch_index_to_records.keys()))
+            type_of_recording_to_batch_index_to_iteration_to_records = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records[training_step_value]
+            types_of_recordings = sorted(list(type_of_recording_to_batch_index_to_iteration_to_records.keys()))
             assert len(types_of_recordings) > 0
             type_of_recording_options, type_of_recording_value = create_options_and_value_from_list(type_of_recording_value, types_of_recordings)
-            batch_index_to_records = type_of_recording_to_batch_index_to_records[type_of_recording_value]
-            batch_indices = sorted(list(batch_index_to_records.keys()), key=lambda x: -1 if isinstance(x, str) else x)
+            batch_index_to_iteration_to_records = type_of_recording_to_batch_index_to_iteration_to_records[type_of_recording_value]
+            batch_indices = sorted(list(batch_index_to_iteration_to_records.keys()), key=lambda x: -1 if isinstance(x, str) else x)
             assert len(batch_indices) > 0
             batch_index_options, batch_index_value = create_options_and_value_from_list(
                 batch_index_value, batch_indices,
@@ -272,7 +264,7 @@ class Visualization:
             )
             graph_container_visibilities = [
                 'active' if configuration_type == recordings.configuration_type else 'inactive'
-                for configuration_type in self.configuration_type_to_graph_and_status.keys()
+                for configuration_type in self.configuration_type_to_status_and_graph.keys()
             ]
             res = [training_step_min, training_step_max, training_step_marks, training_step_value, type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value] + graph_container_visibilities
             return res
@@ -280,20 +272,20 @@ class Visualization:
         @app.callback(Output('dummy-for-selecting-a-node', 'className'),
                       [Input('trials-dropdown', 'value')] +
                       [Input(self._node_name_to_dash_id(configuration_type, node), 'n_clicks_timestamp')
-                       for configuration_type, (_, global_status) in self.configuration_type_to_graph_and_status.items()
-                       for node in global_status.tensor_representations.keys()])
+                       for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
+                       for node in sag.name_to_tensor_representation.keys()])
         def update_visibility(*lsts):
             trials_value = lsts[0]
             recordings = self.get_recordings_with_caching(trials_value)
-            graph, global_status = self.configuration_type_to_graph_and_status[recordings.configuration_type]
             names = [
                 node
-                for _, (_, gs) in self.configuration_type_to_graph_and_status.items()
-                for node in gs.tensor_representations.keys()
+                for _, sag in self.configuration_type_to_status_and_graph.items()
+                for node in sag.name_to_tensor_representation.keys()
             ]
+            selected_configuration_type = recordings.configuration_type
             names_that_exist_in_the_selected_configuration = {
                 node for node in
-                self.configuration_type_to_graph_and_status[recordings.configuration_type][1].tensor_representations.keys()
+                self.configuration_type_to_status_and_graph[selected_configuration_type].name_to_tensor_representation.keys()
             }
             clicks_per_object = lsts[1:]
             assert len(clicks_per_object) == len(names)
@@ -311,8 +303,8 @@ class Visualization:
         @app.callback(
             ([Output('selected-item-details-container', 'children')] +
              [Output(self._node_name_to_dash_id(configuration_type, n), 'className')
-              for configuration_type, (_, global_status) in self.configuration_type_to_graph_and_status.items()
-              for n in global_status.tensor_representations]),
+              for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
+              for n in sag.name_to_tensor_representation]),
             [Input('dummy-for-selecting-a-node', 'className'),
              Input('trials-dropdown', 'value'),
              Input('training-step-slider', 'value'),
@@ -321,18 +313,18 @@ class Visualization:
         )
         def select_node(node_name, trials_value, training_step_value, type_of_recording_value, batch_index_value):
             recordings = self.get_recordings_with_caching(trials_value)
-            graph, global_status = self.configuration_type_to_graph_and_status[recordings.configuration_type]
+            sag = self.configuration_type_to_status_and_graph[recordings.configuration_type]
             # Select the node
-            node = global_status.tensor_representations[node_name]
-            connected_node_names = {a[0] for a in graph.connections if a[1] == node_name} | {a[1] for a in graph.connections if a[0] == node_name}
+            node = sag.name_to_tensor_representation[node_name]
+            connected_node_names = {a[0] for a in sag.connections if a[1] == node_name} | {a[1] for a in sag.connections if a[0] == node_name}
             classes_for_nodes = [
                 ("node selected" if n == node_name else "node highlighted" if n in connected_node_names else "node")
-                if gs == global_status else "node inactive"
-                for _, (_, gs) in self.configuration_type_to_graph_and_status.items()
-                for n in gs.tensor_representations
+                if sag1 == sag else "node inactive"
+                for _, sag1 in self.configuration_type_to_status_and_graph.items()
+                for n in sag1.name_to_tensor_representation
             ]
             # Display values based on the selected node
-            records = recordings.training_step_to_type_of_recording_to_batch_index_to_records[training_step_value][type_of_recording_value][batch_index_value]
+            records = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records[training_step_value][type_of_recording_value][batch_index_value]
             rows = []
             for key in node.get_all_items_to_record():
                 val = records[key] if key in records else "No applicable value to display for this selection."
