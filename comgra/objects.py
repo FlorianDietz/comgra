@@ -41,7 +41,7 @@ class TensorRepresentation:
         res = []
         assert len(self.items_to_record) > 0, self.full_unique_name
         for item in self.items_to_record:
-            if item in ['single_value', 'mean', 'abs_mean', 'std']:
+            if item in ['single_value', 'mean', 'abs_mean', 'std', 'abs_max']:
                 res.append((self.full_unique_name, item, None))
             elif item == 'neurons':
                 for i in range(self.get_size_of_tensor()):

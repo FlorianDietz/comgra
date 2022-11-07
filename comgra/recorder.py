@@ -185,9 +185,9 @@ class ComgraRecorder:
         assert tensor_name not in self.tensor_name_to_representation, \
             f"Two tensors were recorded with the same name. Give your tensors unique names: {tensor_name}"
         if recording_type == 'kpis':
-            items_to_record = ['mean', 'abs_mean', 'std']
+            items_to_record = ['mean', 'abs_mean', 'std', 'abs_max']
         elif recording_type == 'neurons':
-            items_to_record = ['mean', 'abs_mean', 'std', 'neurons']
+            items_to_record = ['mean', 'abs_mean', 'std', 'abs_max', 'neurons']
         elif recording_type == 'single_value':
             items_to_record = ['single_value']
         else:
@@ -232,6 +232,8 @@ class ComgraRecorder:
                     val = tensor.abs().mean(dim=value_dimensions)
                 elif item == 'std':
                     val = tensor.std(dim=value_dimensions)
+                elif item == 'abs_max':
+                    val = torch.amax(tensor.abs(), dim=value_dimensions)
                 elif item == 'neurons':
                     assert len(value_dimensions) == 1
                     if value_dimensions[0] == 0:
