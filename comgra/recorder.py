@@ -1,3 +1,4 @@
+import collections
 import dataclasses
 import json
 import re
@@ -178,7 +179,8 @@ class ComgraRecorder:
         else:
             role = 'intermediate'
         self.computation_step_to_tensor[tensor.grad_fn] = tensor
-        assert tensor not in self.tensor_to_name
+        assert tensor not in self.tensor_to_name, \
+            f"Tensor is already registered under the name {self.tensor_to_name[tensor]}"
         self.tensor_to_name[tensor] = tensor_name
         assert tensor_name not in self.tensor_name_to_representation, \
             f"Two tensors were recorded with the same name. Give your tensors unique names: {tensor_name}"
@@ -302,6 +304,7 @@ class ComgraRecorder:
         # Go backwards through the computation graph, starting from outputs, targets, and losses.
         # Go back until you encounter an input, or you can't go back anymore.
         #
+        step_was_already_encountered_with_parameters = collections.defaultdict(list)
         def traverse_graph_backwards(step, last_encountered_named_tensor):
             if step is None:
                 return
@@ -325,6 +328,12 @@ class ComgraRecorder:
                 last_encountered_named_tensor = name_of_this_tensor
                 if tensor_representation.role == 'input':
                     return  # Do not track the graph beyond the inputs, which might go into the previous iteration.
+            # Do not traverse the same node more often than necessary. It should be done once per unique parameter.
+            # (Otherwise this function can get very expensive.)
+            if last_encountered_named_tensor in step_was_already_encountered_with_parameters[step]:
+                return
+            step_was_already_encountered_with_parameters[step].append(last_encountered_named_tensor)
+            # Recurse
             for predecessor, other in step.next_functions:
                 traverse_graph_backwards(predecessor, last_encountered_named_tensor)
         final_tensors = [t for t, n in self.tensor_to_name.items() if self.tensor_name_to_representation[n].role in ['output', 'target', 'loss']]
