@@ -120,7 +120,7 @@ class Visualization:
     def get_recordings_with_caching(self, trials_value) -> TensorRecordings:
         key = (trials_value,)
         if key not in self.cache_for_tensor_recordings:
-            recordings_file = self.path / 'trials' / trials_value / 'recordings.json'
+            recordings_file = self.path / 'trials' / trials_value / 'recordings.pkl'
             with open(recordings_file, 'rb') as f:
                 recordings: TensorRecordings = pickle.load(f)
             self.cache_for_tensor_recordings[key] = recordings
@@ -204,6 +204,7 @@ class Visualization:
                 dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None),
                 dcc.RadioItems(id='type-of-recording-dropdown', options=[], value=None),
                 dcc.Dropdown(id='batch-index-dropdown', options=[], value=None),
+                dcc.Slider(id='iteration-slider', min=0, max=0, step=1, value=0),
             ]),
             html.Div(id='selected-item-details-container', children=[
             ]),
@@ -229,14 +230,19 @@ class Visualization:
                        Output('type-of-recording-dropdown', 'options'),
                        Output('type-of-recording-dropdown', 'value'),
                        Output('batch-index-dropdown', 'options'),
-                       Output('batch-index-dropdown', 'value')] +
+                       Output('batch-index-dropdown', 'value'),
+                       Output('iteration-slider', 'min'),
+                       Output('iteration-slider', 'max'),
+                       Output('iteration-slider', 'marks'),
+                       Output('iteration-slider', 'value')] +
                       [Output(f'graph_container__{configuration_type}', 'className')
                        for configuration_type in self.configuration_type_to_status_and_graph.keys()]),
                       [Input('trials-dropdown', 'value'),
                        Input('training-step-slider', 'value'),
                        Input('type-of-recording-dropdown', 'value'),
-                       Input('batch-index-dropdown', 'value')])
-        def update_dropboxes(trials_value, training_step_value, type_of_recording_value, batch_index_value):
+                       Input('batch-index-dropdown', 'value'),
+                       Input('iteration-slider', 'value')])
+        def update_dropboxes(trials_value, training_step_value, type_of_recording_value, batch_index_value, iteration_value):
             recordings = self.get_recordings_with_caching(trials_value)
             def create_slider_data_from_list(previous_value, options_list):
                 options_list = sorted(options_list)
@@ -262,32 +268,36 @@ class Visualization:
                 batch_index_value, batch_indices,
                 label_maker=lambda a: "mean over the batch" if a == 'batch' else f"batch index {a}"
             )
+            iteration_steps = sorted(list(batch_index_to_iteration_to_records[batch_index_value]))
+            iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(iteration_value, iteration_steps)
             graph_container_visibilities = [
-                'active' if configuration_type == recordings.configuration_type else 'inactive'
+                'active' if configuration_type == recordings.iteration_to_configuration_type[iteration_value] else 'inactive'
                 for configuration_type in self.configuration_type_to_status_and_graph.keys()
             ]
-            res = [training_step_min, training_step_max, training_step_marks, training_step_value, type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value] + graph_container_visibilities
+            res = [training_step_min, training_step_max, training_step_marks, training_step_value, type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value, iteration_min, iteration_max, iteration_marks, iteration_value] + graph_container_visibilities
             return res
 
         @app.callback(Output('dummy-for-selecting-a-node', 'className'),
-                      [Input('trials-dropdown', 'value')] +
+                      [Input('trials-dropdown', 'value'),
+                       Input('iteration-slider', 'value')] +
                       [Input(self._node_name_to_dash_id(configuration_type, node), 'n_clicks_timestamp')
                        for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
                        for node in sag.name_to_tensor_representation.keys()])
         def update_visibility(*lsts):
             trials_value = lsts[0]
+            iteration_value = lsts[1]
+            clicks_per_object = lsts[2:]
             recordings = self.get_recordings_with_caching(trials_value)
             names = [
                 node
                 for _, sag in self.configuration_type_to_status_and_graph.items()
                 for node in sag.name_to_tensor_representation.keys()
             ]
-            selected_configuration_type = recordings.configuration_type
+            selected_configuration_type = recordings.iteration_to_configuration_type[iteration_value]
             names_that_exist_in_the_selected_configuration = {
                 node for node in
                 self.configuration_type_to_status_and_graph[selected_configuration_type].name_to_tensor_representation.keys()
             }
-            clicks_per_object = lsts[1:]
             assert len(clicks_per_object) == len(names)
             # Identify the most recently clicked object
             max_index = [0 if a is None else 1 for a in names].index(1)
@@ -309,22 +319,23 @@ class Visualization:
              Input('trials-dropdown', 'value'),
              Input('training-step-slider', 'value'),
              Input('type-of-recording-dropdown', 'value'),
-             Input('batch-index-dropdown', 'value')]
+             Input('batch-index-dropdown', 'value'),
+             Input('iteration-slider', 'value')]
         )
-        def select_node(node_name, trials_value, training_step_value, type_of_recording_value, batch_index_value):
+        def select_node(node_name, trials_value, training_step_value, type_of_recording_value, batch_index_value, iteration_value):
             recordings = self.get_recordings_with_caching(trials_value)
-            sag = self.configuration_type_to_status_and_graph[recordings.configuration_type]
+            sag = self.configuration_type_to_status_and_graph[recordings.iteration_to_configuration_type[iteration_value]]
             # Select the node
             node = sag.name_to_tensor_representation[node_name]
             connected_node_names = {a[0] for a in sag.connections if a[1] == node_name} | {a[1] for a in sag.connections if a[0] == node_name}
             classes_for_nodes = [
                 ("node selected" if n == node_name else "node highlighted" if n in connected_node_names else "node")
-                if sag1 == sag else "node inactive"
+                if sag1 is sag else "node inactive"
                 for _, sag1 in self.configuration_type_to_status_and_graph.items()
                 for n in sag1.name_to_tensor_representation
             ]
             # Display values based on the selected node
-            records = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records[training_step_value][type_of_recording_value][batch_index_value]
+            records = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records[training_step_value][type_of_recording_value][batch_index_value][iteration_value]
             rows = []
             for key in node.get_all_items_to_record():
                 val = records[key] if key in records else "No applicable value to display for this selection."

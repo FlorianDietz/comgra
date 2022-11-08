@@ -316,7 +316,7 @@ class ComgraRecorder:
         # Go back until you encounter an input, or you can't go back anymore.
         #
         step_was_already_encountered_with_parameters = collections.defaultdict(list)
-        def traverse_graph_backwards(step, last_encountered_named_tensor):
+        def traverse_graph_backwards(step, last_encountered_named_tensor_and_iteration):
             if step is None:
                 return
             t = None
@@ -336,20 +336,23 @@ class ComgraRecorder:
                 tensor_representation = self.tensor_name_and_iteration_to_representation[k]
                 assert iteration == self.iteration or tensor_representation.role == 'parameter', \
                     (name_of_this_tensor, iteration, self.iteration)
-                if last_encountered_named_tensor is not None and \
-                        last_encountered_named_tensor not in tensor_representation.is_a_dependency_of:
-                    tensor_representation.is_a_dependency_of.append(last_encountered_named_tensor)
-                last_encountered_named_tensor = name_of_this_tensor
+                if last_encountered_named_tensor_and_iteration is not None and \
+                        last_encountered_named_tensor_and_iteration[0] not in tensor_representation.is_a_dependency_of:
+                    dependency_is_from_same_iteration = (tensor_representation.iteration == last_encountered_named_tensor_and_iteration[1])
+                    if dependency_is_from_same_iteration:
+                        tensor_representation.is_a_dependency_of.append(last_encountered_named_tensor_and_iteration[0])
+                assert tensor_representation.iteration is not None
+                last_encountered_named_tensor_and_iteration = (name_of_this_tensor, tensor_representation.iteration)
                 if tensor_representation.role == 'input':
                     return  # Do not track the graph beyond the inputs, which might go into the previous iteration.
             # Do not traverse the same node more often than necessary. It should be done once per unique parameter.
             # (Otherwise this function can get very expensive.)
-            if last_encountered_named_tensor in step_was_already_encountered_with_parameters[step]:
+            if last_encountered_named_tensor_and_iteration in step_was_already_encountered_with_parameters[step]:
                 return
-            step_was_already_encountered_with_parameters[step].append(last_encountered_named_tensor)
+            step_was_already_encountered_with_parameters[step].append(last_encountered_named_tensor_and_iteration)
             # Recurse
             for predecessor, other in step.next_functions:
-                traverse_graph_backwards(predecessor, last_encountered_named_tensor)
+                traverse_graph_backwards(predecessor, last_encountered_named_tensor_and_iteration)
         final_tensors = [
             t for t, ni in self.tensor_to_name_and_iteration.items()
             if self.tensor_name_and_iteration_to_representation[ni].role in ['output', 'target', 'loss']
@@ -410,8 +413,9 @@ class ComgraRecorder:
         ]
         connections = [
             [dependency, dependent]
-            for (dependency, _), rep in self.tensor_name_and_iteration_to_representation.items()
-            for dependent in rep.is_a_dependency_of
+            for (dependency, iteration), v in self.tensor_name_and_iteration_to_representation.items()
+            for dependent in v.is_a_dependency_of
+            if iteration == self.iteration or v.role == 'parameter'
         ]
         status_and_graph = StatusAndGraph(
             configuration_type=self.configuration_type,
