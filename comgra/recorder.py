@@ -30,7 +30,6 @@ class ComgraRecorder:
         self.prefixes_for_grouping_module_parameters = list(prefixes_for_grouping_module_parameters)
         assert all(isinstance(a, str) for a in prefixes_for_grouping_module_parameters)
         self.parameters_of_trial = parameters_of_trial
-        self._warning_messages_cache = {}
         self.set_of_top_level_modules = {}
         self.module_to_name = {}
         self.unique_module_names = {}
@@ -60,11 +59,6 @@ class ComgraRecorder:
     @property
     def recording_is_active(self):
         return self.comgra_is_active and self.is_training_mode and self.decision_maker_for_recordings.is_record_on_this_iteration(self.training_step)
-
-    def _log_warning_once(self, msg):
-        if msg not in self._warning_messages_cache:
-            print(msg)
-            self._warning_messages_cache[msg] = True
 
     def _verify_uniqueness_of_name(self, name, type_of_name):
         if type_of_name == 'module':
@@ -289,7 +283,6 @@ class ComgraRecorder:
         self.iteration = iteration
         assert isinstance(configuration_type, str) and re.match(r'[a-zA-Z_-]+', configuration_type), configuration_type
         self.configuration_type = configuration_type
-        print(123, iteration, configuration_type)
         self.configuration_path = self.group_path / 'configs' / configuration_type
         self.configuration_path.mkdir(parents=True, exist_ok=True)
         self.tensor_recordings.iteration_to_configuration_type[self.iteration] = configuration_type
@@ -322,7 +315,6 @@ class ComgraRecorder:
         # Go backwards through the computation graph, starting from outputs, targets, and losses.
         # Go back until you encounter an input, or you can't go back anymore.
         #
-        print('finish_iteration', self.iteration, self.configuration_path)
         step_was_already_encountered_with_parameters = collections.defaultdict(list)
         def traverse_graph_backwards(step, last_encountered_named_tensor):
             if step is None:
@@ -366,7 +358,6 @@ class ComgraRecorder:
         for tensor in final_tensors:
             traverse_graph_backwards(tensor.grad_fn, None)
         if self.configuration_type not in self.configuration_type_to_status_and_graph:
-            print('recording layout in files', self.configuration_type, self.iteration)
             assert sum([len(a.is_a_dependency_of) for a in self.tensor_name_and_iteration_to_representation.values()]) > 0, \
                 "No computational graph could be constructed. " \
                 "The most common error that could cause this is that gradient computations are turned off."
@@ -387,7 +378,6 @@ class ComgraRecorder:
             with open(self.trial_path / 'parameters.json', 'w') as f:
                 json.dump(self.parameters_of_trial, f)
         if sanity_check__verify_graph_and_global_status_equal_existing_file:
-            print('sanity_check__verify_graph_and_global_status_equal_existing_file', self.configuration_type, self.iteration)
             #
             # Verify that the result is identical to previous results.
             #
@@ -423,7 +413,6 @@ class ComgraRecorder:
             for (dependency, _), rep in self.tensor_name_and_iteration_to_representation.items()
             for dependent in rep.is_a_dependency_of
         ]
-        print(456, self.configuration_type, self.iteration)
         status_and_graph = StatusAndGraph(
             configuration_type=self.configuration_type,
             prefixes_for_grouping_module_parameters=list(self.prefixes_for_grouping_module_parameters),
@@ -451,8 +440,6 @@ class ComgraRecorder:
         self.decision_maker_for_recordings.prune_recordings(
             training_step=self.training_step, tensor_recordings=self.tensor_recordings
         )
-        print('finish_batch')
-        print(1)
         type_of_recording_to_batch_index_to_iteration_to_records = self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records[self.training_step]
         all_tensors = []
         for batch_index_to_iteration_to_records in type_of_recording_to_batch_index_to_iteration_to_records.values():
@@ -460,7 +447,6 @@ class ComgraRecorder:
                 for records in iteration_to_records.values():
                     for tensor in records.values():
                         all_tensors.append(tensor)
-        print(2)
         combined_tensor = torch.stack(all_tensors)
         list_of_floats = combined_tensor.cpu().tolist()
         all_valid_keys = set(self.configuration_type_to_status_and_graph[self.configuration_type].get_all_items_to_record())
