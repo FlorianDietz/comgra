@@ -335,7 +335,18 @@ class Visualization:
                 for n in sag1.name_to_tensor_representation
             ]
             # Display values based on the selected node
-            records = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records[training_step_value][type_of_recording_value][batch_index_value][iteration_value]
+            tmp = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records[training_step_value][type_of_recording_value][batch_index_value]
+            if node.role == 'parameter':
+                records = tmp[0]
+                value_is_independent_of_iterations = True
+                for k, v in tmp.items():
+                    for key in node.get_all_items_to_record():
+                        assert (key in v) is (k == 0), \
+                            f"Should have an entry only for iteration 0.\n{k}\n{key}"
+                # assert len(tmp) == 1, f"Parameters should only be recorded for iteration 0.\n{list(tmp.keys())}"
+            else:
+                records = tmp[iteration_value]
+                value_is_independent_of_iterations = False
             rows = []
             for key in node.get_all_items_to_record():
                 val = records[key] if key in records else "No applicable value to display for this selection."
@@ -346,9 +357,13 @@ class Visualization:
                     html.Td(val),
                 ]
                 rows.append(html.Tr(row))
+            if value_is_independent_of_iterations:
+                desc_text = f"{node.role}  -  NOTE: Values are independent of the selected iteration. Displaying values for iteration 0."
+            else:
+                desc_text = node.role
             children = [
                 html.Header(node.full_unique_name),
-                html.P(node.role),
+                html.P(desc_text),
                 html.P(f"[{', '.join([str(a) for a in node.shape])}]"),
                 html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', 'value']])] + rows)
             ]
