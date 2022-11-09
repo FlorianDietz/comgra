@@ -200,15 +200,14 @@ class ComgraRecorder:
         )
         self.tensor_name_and_iteration_to_representation[(tensor_name, self.iteration)] = tensor_representation
         # Store the current value of the tensor
-        self.store_value_of_tensor(tensor, tensor_representation, self.iteration)
+        self.store_value_of_tensor(tensor, tensor_representation)
 
-    def store_value_of_tensor(self, tensor: torch.Tensor, tensor_representation: TensorRepresentation, iteration):
-        assert iteration == tensor_representation.iteration or tensor_representation.role == 'parameter'
+    def store_value_of_tensor(self, tensor: torch.Tensor, tensor_representation: TensorRepresentation):
         tensor_name = tensor_representation.full_unique_name
         value_dimensions = tensor_representation.value_dimensions
         if tensor_representation.recording_type == 'single_value':
             self.store_value_of_tensor_helper(
-                'batch', iteration,
+                'batch', tensor_representation.iteration,
                 tensor_name, 'single_value', None, tensor
             )
         else:
@@ -260,7 +259,7 @@ class ComgraRecorder:
                         else:
                             val_specific_to_batch_index = val[batch_index]
                     self.store_value_of_tensor_helper(
-                        batch_index, iteration,
+                        batch_index, tensor_representation.iteration,
                         tensor_name, item, metadata, val_specific_to_batch_index
                     )
 
@@ -304,7 +303,7 @@ class ComgraRecorder:
             tr = self.tensor_name_and_iteration_to_representation[k]
             assert tensor.grad is not None, \
                 f"A tensor does not have a gradient on it to record: {k}"
-            self.store_value_of_tensor(tensor.grad, tr, self.iteration)
+            self.store_value_of_tensor(tensor.grad, tr)
 
     def finish_iteration(self, sanity_check__verify_graph_and_global_status_equal_existing_file=False):
         assert self.current_stage in ['forward', 'backward'], self.current_stage
