@@ -220,6 +220,7 @@ class Visualization:
             trials_folder = self.path / 'trials'
             subfolders = [a for a in trials_folder.iterdir() if a.is_dir()]
             options = [{'label': a.name, 'value': a.name} for a in subfolders]
+            options.sort(key=lambda a: a['label'])
             return options, options[0]['value']
         refresh_all(0)
 

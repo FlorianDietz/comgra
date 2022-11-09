@@ -173,7 +173,8 @@ class ComgraRecorder:
             role = 'intermediate'
         self.computation_step_to_tensor[tensor.grad_fn] = tensor
         assert tensor not in self.tensor_to_name_and_iteration, \
-            f"Tensor is already registered under the name and iteration {self.tensor_to_name_and_iteration[tensor]}"
+            f"Tensor is already registered under the name and iteration {self.tensor_to_name_and_iteration[tensor]}\n" \
+            f"New name and iteration: {(tensor_name, self.iteration)}"
         self.tensor_to_name_and_iteration[tensor] = (tensor_name, self.iteration)
         assert (tensor_name, self.iteration) not in self.tensor_name_and_iteration_to_representation, \
             f"Two tensors were recorded with the same name in the same iteration. " \
