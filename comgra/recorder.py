@@ -80,8 +80,8 @@ class ComgraRecorder:
         assert module_name not in container
         assert '.' not in module_name
         assert module not in self.module_to_name
-        self.module_to_name[module] = module_name
         full_unique_name = '.'.join(preceding_names + [module_name])
+        self.module_to_name[module] = full_unique_name
         parameters = {}
         for k, v in module.named_parameters(recurse=False):
             parameters[k] = ParameterRepresentation(
