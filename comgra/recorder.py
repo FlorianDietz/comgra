@@ -300,10 +300,12 @@ class ComgraRecorder:
         assert name_of_loss_group not in self.types_of_tensor_recordings
         self.types_of_tensor_recordings.append(name_of_loss_group)
         self.current_type_of_tensor_recording = name_of_loss_group
+        if not self.recording_is_active:
+            return
         for tensor, k in self.tensor_to_name_and_iteration.items():
             tr = self.tensor_name_and_iteration_to_representation[k]
             assert tensor.grad is not None, \
-                f"A tensor does not have a gradient on it to record: {k}"
+                f"A tensor does not have a gradient on it to record:\n{name_of_loss_group}\n{k}"
             self.store_value_of_tensor(tensor.grad, tr)
 
     def finish_iteration(self, sanity_check__verify_graph_and_global_status_equal_existing_file=False):
@@ -390,7 +392,11 @@ class ComgraRecorder:
             with open(path, 'rb') as f:
                 existing_version: StatusAndGraph = pickle.load(f)
             assert new_version.configuration_type == existing_version.configuration_type
-            assert len(new_version.name_to_tensor_representation) == len(existing_version.name_to_tensor_representation)
+            assert len(new_version.name_to_tensor_representation) == len(existing_version.name_to_tensor_representation), \
+                f"{self.configuration_type}\n" \
+                f"{len(new_version.name_to_tensor_representation)}, {len(existing_version.name_to_tensor_representation)}\n" \
+                f"{[a for a in new_version.name_to_tensor_representation if a not in existing_version.name_to_tensor_representation]}\n" \
+                f"{[a for a in existing_version.name_to_tensor_representation if a not in new_version.name_to_tensor_representation]}"
             for k1, v1 in new_version.name_to_tensor_representation.items():
                 v2 = dataclasses.asdict(existing_version.name_to_tensor_representation[k1])
                 for kk1, vv1 in dataclasses.asdict(v1).items():

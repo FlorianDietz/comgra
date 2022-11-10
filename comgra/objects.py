@@ -129,8 +129,10 @@ class StatusAndGraph:
         c = 0
         while c < len(nodes_to_sort):
             debug += 1
-            assert debug < 1000, \
-                "Either the graph is too large or I made a programming mistake and this is an endless loop."
+            assert debug < 100000, \
+                f"Either the graph is too large or I made a programming mistake and this is an endless loop.\n" \
+                f"{c}, {len(nodes_to_sort)}\n{[a for a in nodes_list_list if a]}\n{nodes_to_sort}\n" \
+                f"{[c for c in nodes_to_sort if c not in [b for a in nodes_list_list for b in a]]}"
             next_set_of_nodes = []
             nodes_list_list.append(next_set_of_nodes)
             for n in nodes_to_sort:
