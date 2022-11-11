@@ -285,7 +285,6 @@ class ComgraRecorder:
         assert isinstance(configuration_type, str) and re.match(r'[a-zA-Z_-]+', configuration_type), configuration_type
         self.configuration_type = configuration_type
         self.configuration_path = self.group_path / 'configs' / configuration_type
-        self.configuration_path.mkdir(parents=True, exist_ok=True)
         self.tensor_recordings.iteration_to_configuration_type[self.iteration] = configuration_type
         if not self.recording_is_active:
             return
@@ -304,9 +303,8 @@ class ComgraRecorder:
             return
         for tensor, k in self.tensor_to_name_and_iteration.items():
             tr = self.tensor_name_and_iteration_to_representation[k]
-            assert tensor.grad is not None, \
-                f"A tensor does not have a gradient on it to record:\n{name_of_loss_group}\n{k}"
-            self.store_value_of_tensor(tensor.grad, tr)
+            gradient = torch.zeros(tensor.shape, device=tensor.device) if tensor.grad is None else tensor.grad
+            self.store_value_of_tensor(gradient, tr)
 
     def finish_iteration(self, sanity_check__verify_graph_and_global_status_equal_existing_file=False):
         assert self.current_stage in ['forward', 'backward'], self.current_stage
@@ -374,6 +372,7 @@ class ComgraRecorder:
             # Make sure the graph and global_status are only DERIVED once per run
             self.configuration_type_to_status_and_graph[self.configuration_type] = status_and_graph
             # Make sure the graph and global_status are only SAVED once per set of multiple trials.
+            self.configuration_path.mkdir(parents=True, exist_ok=True)
             path = self.configuration_path / 'status_and_graph.pkl'
             if not path.exists():
                 with open(path, 'wb') as f:
