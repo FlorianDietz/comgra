@@ -67,8 +67,10 @@ class VisualizationParameters:
         'intermediate': '#a29fc9',
         'parameter': '#cfc100',
     }
-    color_for_highlighting_primary = '#ff1700'
-    color_for_highlighting_secondary = '#db8468'
+    highlighting_colors = {
+        'selected': '#ff1700',
+        'highlighted': '#9a0000',
+    }
 
 
 vp = VisualizationParameters()
@@ -86,6 +88,7 @@ class Visualization:
         assert assets_path.exists(), "If this fails, files have been moved."
         self.app = dash.Dash(__name__, assets_folder=str(assets_path))
         self.configuration_type_to_status_and_graph: Dict[str, StatusAndGraph] = {}
+        self.configuration_type_to_node_to_corners: Dict[str, Dict[str, Tuple[int, int, int, int]]] = {}
         self._sanity_check_cache_to_avoid_duplicates = {}
         self.cache_for_tensor_recordings = {}
 
@@ -118,7 +121,6 @@ class Visualization:
         self.create_visualization()
         self.app.run_server(debug=True, port=port)
 
-    @utilities.runtime_analysis_decorator
     def get_recordings_with_caching(self, trials_value) -> TensorRecordings:
         key = (trials_value,)
         if key not in self.cache_for_tensor_recordings:
@@ -128,20 +130,22 @@ class Visualization:
             self.cache_for_tensor_recordings[key] = recordings
         return self.cache_for_tensor_recordings[key]
 
-    @utilities.runtime_analysis_decorator
     def create_nodes_and_arrows(
             self, configuration_type: str, sag: StatusAndGraph
-    ):
+    ) -> List:
+        assert configuration_type not in self.configuration_type_to_node_to_corners, configuration_type
+        node_to_corners = self.configuration_type_to_node_to_corners.setdefault(configuration_type, {})
         highest_number_of_nodes = max(len(a) for a in sag.dag_format)
         height_per_box = int((vp.total_display_height - vp.padding_top - vp.padding_bottom) / (highest_number_of_nodes + (highest_number_of_nodes - 1) * vp.ratio_of_space_between_nodes_to_node_size))
         width_per_box = int((vp.total_display_width - vp.padding_left - vp.padding_right) / (len(sag.dag_format) + (len(sag.dag_format) - 1) * vp.ratio_of_space_between_nodes_to_node_size))
         elements_of_the_graph = []
-        node_to_top_left_corner = {}
         for i, nodes in enumerate(sag.dag_format):
             for j, node in enumerate(nodes):
                 left = int(vp.padding_left + i * (1 + vp.ratio_of_space_between_nodes_to_node_size) * width_per_box)
                 top = int(vp.padding_top + j * (1 + vp.ratio_of_space_between_nodes_to_node_size) * height_per_box)
-                node_to_top_left_corner[node] = (left, top)
+                right = int(left + width_per_box)
+                bottom = int(top + height_per_box)
+                node_to_corners[node] = (left, top, right, bottom)
                 elements_of_the_graph.append(html.Div(id=self._node_name_to_dash_id(configuration_type, node), style={
                     'width': f'{width_per_box}px',
                     'height': f'{height_per_box}px',
@@ -158,8 +162,8 @@ class Visualization:
         svg_connection_lines = []
         for connection in sag.connections:
             source, target = tuple(connection)
-            source_left, source_top = node_to_top_left_corner[source]
-            target_left, target_top = node_to_top_left_corner[target]
+            source_left, source_top, _, _ = node_to_corners[source]
+            target_left, target_top, _, _ = node_to_corners[target]
             source_x = int(source_left + width_per_box)
             source_y = int(source_top + 0.5 * height_per_box)
             target_x = int(target_left)
@@ -174,12 +178,9 @@ class Visualization:
             connection_names_to_source_and_target[connection_name] = (source, target)
             node_to_incoming_and_outgoing_lines[source][1].append(connection_name)
             node_to_incoming_and_outgoing_lines[target][0].append(connection_name)
-        # Note: "9" here is the offset of the viewport from the top left corner of the screen.
-        # This is 1 from the border plus 8 from the padding.
-        elements_of_the_graph.append(dash_svg.Svg(svg_connection_lines, viewBox=f'9 9 {vp.total_display_width} {vp.total_display_height}'))
+        elements_of_the_graph.append(dash_svg.Svg(svg_connection_lines, viewBox=f'0 0 {vp.total_display_width} {vp.total_display_height}'))
         return elements_of_the_graph
 
-    @utilities.runtime_analysis_decorator
     def create_visualization(self):
         app = self.app
         # Define the Layout of the App
@@ -187,19 +188,29 @@ class Visualization:
             'backgroundColor': 'white',
         }, children=[
             html.Div(id='dummy-for-selecting-a-node'),  # This dummy stores some data
-            html.Div(id='dummy-for-hovering-on-a-node'),  # This dummy stores some data
             html.Div(id='graph-container', style={
-                'display': 'relative',
+                'position': 'relative',
                 'width': f'{vp.total_display_width}px',
                 'height': f'{vp.total_display_height}px',
                 'border': '1px solid black',
             }, children=[
                 html.Div(id=f'graph_container__{configuration_type}', style={
-                    'display': 'relative',
-                    'width': f'{vp.total_display_width}px',
-                    'height': f'{vp.total_display_height}px',
-                }, children=self.create_nodes_and_arrows(configuration_type, sag))
+                        'position': 'relative',
+                        'width': f'{vp.total_display_width}px',
+                        'height': f'{vp.total_display_height}px',
+                    }, children=self.create_nodes_and_arrows(configuration_type, sag)
+                )
                 for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
+            ] + [
+                html.Div(id='graph-overlay-for-selections', style={
+                        'position': 'absolute',
+                        'top': '0',
+                        'left': '0',
+                        'width': f'{vp.total_display_width}px',
+                        'height': f'{vp.total_display_height}px',
+                        'pointer-events': 'none',
+                    }
+                )
             ]),
             dcc.Tooltip(id="graph-tooltip"),
             html.Div(id='controls-container', children=[
@@ -217,7 +228,6 @@ class Visualization:
         @app.callback([Output('trials-dropdown', 'options'),
                        Output('trials-dropdown', 'value')],
                       [Input('refresh-button', 'n_clicks')])
-        @utilities.runtime_analysis_decorator
         def refresh_all(n_clicks):
             # Reset caches
             self.cache_for_tensor_recordings = {}
@@ -248,7 +258,6 @@ class Visualization:
                        Input('type-of-recording-dropdown', 'value'),
                        Input('batch-index-dropdown', 'value'),
                        Input('iteration-slider', 'value')])
-        @utilities.runtime_analysis_decorator
         def update_dropboxes(trials_value, training_step_value, type_of_recording_value, batch_index_value, iteration_value):
             recordings = self.get_recordings_with_caching(trials_value)
             def create_slider_data_from_list(previous_value, options_list):
@@ -290,7 +299,6 @@ class Visualization:
                       [Input(self._node_name_to_dash_id(configuration_type, node), 'n_clicks_timestamp')
                        for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
                        for node in sag.name_to_tensor_representation.keys()])
-        @utilities.runtime_analysis_decorator
         def update_visibility(*lsts):
             trials_value = lsts[0]
             iteration_value = lsts[1]
@@ -319,10 +327,8 @@ class Visualization:
             return name_of_selected_item
 
         @app.callback(
-            ([Output('selected-item-details-container', 'children')] +
-             [Output(self._node_name_to_dash_id(configuration_type, n), 'className')
-              for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
-              for n in sag.name_to_tensor_representation]),
+            [Output('selected-item-details-container', 'children'),
+             Output('graph-overlay-for-selections', 'children')],
             [Input('dummy-for-selecting-a-node', 'className'),
              Input('trials-dropdown', 'value'),
              Input('training-step-slider', 'value'),
@@ -330,20 +336,54 @@ class Visualization:
              Input('batch-index-dropdown', 'value'),
              Input('iteration-slider', 'value')]
         )
-        @utilities.runtime_analysis_decorator
         def select_node(node_name, trials_value, training_step_value, type_of_recording_value, batch_index_value, iteration_value):
             recordings = self.get_recordings_with_caching(trials_value)
-            sag = self.configuration_type_to_status_and_graph[recordings.iteration_to_configuration_type[iteration_value]]
-            # Select the node
+            configuration_type = recordings.iteration_to_configuration_type[iteration_value]
+            sag = self.configuration_type_to_status_and_graph[configuration_type]
+            #
+            # Select the node and visually highlight it.
+            #
+            # NOTE
+            # This works in a hacky way, by constructing an SVG in graph-overlay-for-selections
+            # and drawing on that overlay to highlight the nodes.
+            # It would be cleaner to do this by adding a CSS class to the Nodes DIVs.
+            # I already tried this. Unfortunately, Dash appears to be unable to handle this efficiently.
+            # Even though the className of Nodes was not used as a dependency for anything,
+            # the Javascript part of the code took a very long time to run,
+            # which was proportional to the number of nodes.
+            # This made this approach infeasible in practice.
+            #
             node = sag.name_to_tensor_representation[node_name]
             connected_node_names = {a[0] for a in sag.connections if a[1] == node_name} | {a[1] for a in sag.connections if a[0] == node_name}
-            classes_for_nodes = [
-                ("node selected" if n == node_name else "node highlighted" if n in connected_node_names else "node")
-                if sag1 is sag else "node inactive"
-                for _, sag1 in self.configuration_type_to_status_and_graph.items()
-                for n in sag1.name_to_tensor_representation
+            graph_overlay_elements = []
+            for node_name_, (left, top, right, bottom) in self.configuration_type_to_node_to_corners[configuration_type].items():
+                if node_name_ == node_name:
+                    color = vp.highlighting_colors['selected']
+                elif node_name_ in connected_node_names:
+                    color = vp.highlighting_colors['highlighted']
+                else:
+                    continue
+                corners = [
+                    (left - 1, right + 1, top, top),
+                    (right, right, top - 1, bottom + 1),
+                    (left - 1, right + 1, bottom, bottom),
+                    (left, left, top - 1, bottom + 1),
+                ]
+                for x1, x2, y1, y2 in corners:
+                    graph_overlay_elements.append(dash_svg.Line(
+                        x1=str(x1), x2=str(x2), y1=str(y1), y2=str(y2),
+                        stroke=color,
+                        strokeWidth=3,
+                    ))
+            graph_overlay_for_selections_children = [
+                dash_svg.Svg(
+                    viewBox=f'0 0 {vp.total_display_width} {vp.total_display_height}',
+                    children=graph_overlay_elements
+                )
             ]
+            #
             # Display values based on the selected node
+            #
             tmp = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records[training_step_value][type_of_recording_value][batch_index_value]
             if node.role == 'parameter':
                 records = tmp[0]
@@ -358,7 +398,7 @@ class Visualization:
             rows = []
             for key in node.get_all_items_to_record():
                 val = records[key] if key in records else "No applicable value to display for this selection."
-                assert key[0] == node_name
+                assert key[0] == node_name, (key[0], node_name)
                 row = [
                     html.Td(key[1]),
                     html.Td(key[2]),
@@ -375,4 +415,4 @@ class Visualization:
                 html.P(f"[{', '.join([str(a) for a in node.shape])}]"),
                 html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', 'value']])] + rows)
             ]
-            return [children] + classes_for_nodes
+            return children, graph_overlay_for_selections_children
