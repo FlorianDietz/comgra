@@ -17,7 +17,7 @@ class ComgraRecorder:
 
     def __init__(
             self, comgra_root_path, group, trial_id, prefixes_for_grouping_module_parameters, parameters_of_trial,
-            decision_maker_for_recordings, comgra_is_active=True
+            decision_maker_for_recordings, comgra_is_active=True, max_num_batch_size_to_record=None,
     ):
         comgra_root_path = Path(comgra_root_path)
         assert comgra_root_path.exists()
@@ -31,6 +31,10 @@ class ComgraRecorder:
         self.prefixes_for_grouping_module_parameters = list(prefixes_for_grouping_module_parameters)
         assert all(isinstance(a, str) for a in prefixes_for_grouping_module_parameters)
         self.parameters_of_trial = parameters_of_trial
+        self.max_num_batch_size_to_record = max_num_batch_size_to_record
+        #
+        # Things that get updated
+        #
         self.set_of_top_level_modules = {}
         self.module_to_name = {}
         self.unique_module_names = {}
@@ -219,7 +223,8 @@ class ComgraRecorder:
                 tensor_name, 'single_value', None, tensor
             )
         else:
-            batch_indices = ['batch'] + (list(range(self.current_batch_size)) if tensor_representation.record_per_batch_index else [])
+            batch_size = self.current_batch_size if self.max_num_batch_size_to_record is None else min(self.current_batch_size, self.max_num_batch_size_to_record)
+            batch_indices = ['batch'] + (list(range(batch_size)) if tensor_representation.record_per_batch_index else [])
             assert len(value_dimensions) > 0, tensor_name
             items_with_metadata = []
             for item in tensor_representation.items_to_record:
