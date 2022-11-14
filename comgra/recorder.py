@@ -10,6 +10,7 @@ import torch
 from torch import nn as torch_nn
 
 from comgra.objects import DecisionMakerForRecordings, StatusAndGraph, ModuleRepresentation, ParameterRepresentation, TensorRecordings, TensorRepresentation
+from comgra import utilities
 
 
 class ComgraRecorder:
@@ -73,9 +74,11 @@ class ComgraRecorder:
             raise ValueError(type_of_name)
         return name
 
+    @utilities.runtime_analysis_decorator
     def track_module(self, module_name, module: torch_nn.Module):
         self._track_module_recursive(module_name, module, self.set_of_top_level_modules, [])
 
+    @utilities.runtime_analysis_decorator
     def _track_module_recursive(self, module_name, module: torch_nn.Module, container, preceding_names: List[str]):
         assert module_name not in container
         assert '.' not in module_name
@@ -100,9 +103,11 @@ class ComgraRecorder:
             parameters=parameters,
         )
 
+    @utilities.runtime_analysis_decorator
     def get_name_of_module(self, module):
         return self.module_to_name[module]
 
+    @utilities.runtime_analysis_decorator
     def start_next_recording(
             self, training_step, current_batch_size, is_training_mode,
             record_all_tensors_per_batch_index_by_default=False,
@@ -120,6 +125,7 @@ class ComgraRecorder:
         self.tensor_name_and_iteration_to_representation = {}
         self.current_batch_size = current_batch_size
 
+    @utilities.runtime_analysis_decorator
     def register_tensor(
             self, tensor_name, tensor: torch.Tensor,
             index_of_batch_dimension=0,
@@ -203,6 +209,7 @@ class ComgraRecorder:
         # Store the current value of the tensor
         self.store_value_of_tensor(tensor, tensor_representation)
 
+    @utilities.runtime_analysis_decorator
     def store_value_of_tensor(self, tensor: torch.Tensor, tensor_representation: TensorRepresentation):
         tensor_name = tensor_representation.full_unique_name
         value_dimensions = tensor_representation.value_dimensions
@@ -264,6 +271,7 @@ class ComgraRecorder:
                         tensor_name, item, metadata, val_specific_to_batch_index
                     )
 
+    @utilities.runtime_analysis_decorator
     def store_value_of_tensor_helper(self, batch_index, iteration, tensor_name, item, metadata, tensor):
         type_of_recording_to_batch_index_to_iteration_to_records = self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records.setdefault(
             self.training_step, {})
@@ -278,6 +286,7 @@ class ComgraRecorder:
         assert tensor.shape == (), (tensor.shape, key)
         records[key] = tensor
 
+    @utilities.runtime_analysis_decorator
     def start_forward_pass(self, iteration, configuration_type):
         assert self.current_stage in ['started', 'after_iteration'], self.current_stage
         self.current_stage = 'forward'
@@ -289,12 +298,14 @@ class ComgraRecorder:
         if not self.recording_is_active:
             return
 
+    @utilities.runtime_analysis_decorator
     def start_backward_pass(self):
         assert self.current_stage == 'forward', self.current_stage
         self.current_stage = 'backward'
         if not self.recording_is_active:
             return
 
+    @utilities.runtime_analysis_decorator
     def record_current_gradients(self, name_of_loss_group):
         assert name_of_loss_group not in self.types_of_tensor_recordings
         self.types_of_tensor_recordings.append(name_of_loss_group)
@@ -306,6 +317,7 @@ class ComgraRecorder:
             gradient = torch.zeros(tensor.shape, device=tensor.device) if tensor.grad is None else tensor.grad
             self.store_value_of_tensor(gradient, tr)
 
+    @utilities.runtime_analysis_decorator
     def finish_iteration(self, sanity_check__verify_graph_and_global_status_equal_existing_file=False):
         assert self.current_stage in ['forward', 'backward'], self.current_stage
         self.current_stage = 'after_iteration'
@@ -317,6 +329,8 @@ class ComgraRecorder:
         # Go back until you encounter an input, or you can't go back anymore.
         #
         step_was_already_encountered_with_parameters = collections.defaultdict(list)
+
+        @utilities.runtime_analysis_decorator
         def traverse_graph_backwards(step, last_encountered_named_tensor_and_iteration):
             if step is None:
                 return
@@ -412,6 +426,7 @@ class ComgraRecorder:
                 for c, d in zip(a, b):
                     assert c == d
 
+    @utilities.runtime_analysis_decorator
     def build_global_status_and_graph(self) -> StatusAndGraph:
         nodes = [
             name for (name, iteration), v in self.tensor_name_and_iteration_to_representation.items()
@@ -438,6 +453,7 @@ class ComgraRecorder:
         status_and_graph.build_dag_format()
         return status_and_graph
 
+    @utilities.runtime_analysis_decorator
     def finish_batch(self):
         assert self.current_stage == 'after_iteration', self.current_stage
         self.current_stage = 'inactive'
