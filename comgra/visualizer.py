@@ -49,6 +49,8 @@ import torch
 from comgra.objects import StatusAndGraph, ModuleRepresentation, ParameterRepresentation, TensorRepresentation, TensorRecordings
 from comgra import utilities
 
+utilities.PRINT_EACH_TIME = True
+
 
 @dataclass
 class VisualizationParameters:
@@ -121,6 +123,7 @@ class Visualization:
         self.create_visualization()
         self.app.run_server(debug=True, port=port)
 
+    @utilities.runtime_analysis_decorator
     def get_recordings_with_caching(self, trials_value) -> TensorRecordings:
         key = (trials_value,)
         if key not in self.cache_for_tensor_recordings:
@@ -130,6 +133,7 @@ class Visualization:
             self.cache_for_tensor_recordings[key] = recordings
         return self.cache_for_tensor_recordings[key]
 
+    @utilities.runtime_analysis_decorator
     def create_nodes_and_arrows(
             self, configuration_type: str, sag: StatusAndGraph
     ) -> List:
@@ -181,6 +185,7 @@ class Visualization:
         elements_of_the_graph.append(dash_svg.Svg(svg_connection_lines, viewBox=f'0 0 {vp.total_display_width} {vp.total_display_height}'))
         return elements_of_the_graph
 
+    @utilities.runtime_analysis_decorator
     def create_visualization(self):
         app = self.app
         # Define the Layout of the App
@@ -228,6 +233,7 @@ class Visualization:
         @app.callback([Output('trials-dropdown', 'options'),
                        Output('trials-dropdown', 'value')],
                       [Input('refresh-button', 'n_clicks')])
+        @utilities.runtime_analysis_decorator
         def refresh_all(n_clicks):
             # Reset caches
             self.cache_for_tensor_recordings = {}
@@ -258,6 +264,7 @@ class Visualization:
                        Input('type-of-recording-dropdown', 'value'),
                        Input('batch-index-dropdown', 'value'),
                        Input('iteration-slider', 'value')])
+        @utilities.runtime_analysis_decorator
         def update_dropboxes(trials_value, training_step_value, type_of_recording_value, batch_index_value, iteration_value):
             recordings = self.get_recordings_with_caching(trials_value)
             def create_slider_data_from_list(previous_value, options_list):
@@ -299,6 +306,7 @@ class Visualization:
                       [Input(self._node_name_to_dash_id(configuration_type, node), 'n_clicks_timestamp')
                        for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
                        for node in sag.name_to_tensor_representation.keys()])
+        @utilities.runtime_analysis_decorator
         def update_visibility(*lsts):
             trials_value = lsts[0]
             iteration_value = lsts[1]
@@ -336,6 +344,7 @@ class Visualization:
              Input('batch-index-dropdown', 'value'),
              Input('iteration-slider', 'value')]
         )
+        @utilities.runtime_analysis_decorator
         def select_node(node_name, trials_value, training_step_value, type_of_recording_value, batch_index_value, iteration_value):
             recordings = self.get_recordings_with_caching(trials_value)
             configuration_type = recordings.iteration_to_configuration_type[iteration_value]

@@ -492,3 +492,17 @@ class ComgraRecorder:
         assert c == len(list_of_floats)
         with open(self.trial_path / 'recordings.pkl', 'wb') as f:
             pickle.dump(self.tensor_recordings, f)
+        #
+        c = 0
+        res = []
+        for ts, type_of_recording_to_batch_index_to_iteration_to_records in \
+            self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records.items():
+            res.append(ts)
+            for batch_index_to_iteration_to_records in type_of_recording_to_batch_index_to_iteration_to_records.values():
+                for iteration_to_records in batch_index_to_iteration_to_records.values():
+                    for records in iteration_to_records.values():
+                        for tensor in records.values():
+                            c += 1
+        print(f"Number of recorded training steps in memory: {len(self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records)}")
+        print(f"Number of tensors to record: {c}")
+        print(f"Recorded training steps: {res}")
