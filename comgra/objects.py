@@ -25,6 +25,8 @@ class ModuleRepresentation:
 @dataclasses.dataclass
 class TensorRepresentation:
     full_unique_name: str
+    node_name: str
+    role_within_node: str
     iteration: int
     configuration_type: str
     role: str
@@ -35,6 +37,19 @@ class TensorRepresentation:
     items_to_record: List[str]
     record_per_batch_index: bool
     is_a_dependency_of: List[str] = dataclasses.field(default_factory=list)
+
+    def get_size_of_tensor(self):
+        assert len(self.shape) == 2
+        return self.shape[1 - self.index_of_batch_dimension]
+
+
+@dataclasses.dataclass
+class Node:
+    full_unique_name: str
+    role: str
+    shape: List[int]
+    index_of_batch_dimension: Optional[int]
+    items_to_record: List[str]
 
     def get_size_of_tensor(self):
         assert len(self.shape) == 2
@@ -53,31 +68,25 @@ class TensorRepresentation:
                 raise NotImplementedError(item)
         return res
 
-    def create_copy_without_iteration_specific_data(self):
-        res = copy.copy(self)
-        res.iteration = None
-        res.configuration_type = None
-        return res
-
 
 @dataclasses.dataclass
 class TensorRecordings:
-    iteration_to_configuration_type: Dict[int, str] = dataclasses.field(default_factory=dict)
-    training_step_to_type_of_recording_to_batch_index_to_iteration_to_records: Dict[int, Dict[str, Dict[Optional[int], Dict[int, Dict[Tuple[str, str, Any], Optional[Union[torch.Tensor, float]]]]]]] = dataclasses.field(default_factory=dict)
+    training_step_to_iteration_to_configuration_type: Dict[str, Dict[int, str]] = dataclasses.field(default_factory=dict)
+    training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records: Dict[int, Dict[str, Dict[Optional[int], Dict[int, Dict[str, Dict[Tuple[str, str, Any], Optional[Union[torch.Tensor, float]]]]]]]] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
 class StatusAndGraph:
     configuration_type: str
     prefixes_for_grouping_module_parameters: List[str]
-    name_to_tensor_representation: Dict[str, TensorRepresentation]
+    name_to_node: Dict[str, Node]
     types_of_tensor_recordings: List[str]
     nodes: List[str]
     connections: List[List[str]]
     dag_format: List[List[str]] = dataclasses.field(default_factory=list)
 
     def __post_init__(self):
-        for name, v in self.name_to_tensor_representation.items():
+        for name, v in self.name_to_node.items():
             assert name == v.full_unique_name, (name, v.full_unique_name,)
         for i, a in enumerate(self.prefixes_for_grouping_module_parameters):
             for j, b in enumerate(self.prefixes_for_grouping_module_parameters):
@@ -88,14 +97,23 @@ class StatusAndGraph:
 
     def get_all_items_to_record(self):
         res = []
-        for _, tr in sorted(list(self.name_to_tensor_representation.items()), key=lambda a: a[0]):
+        for _, tr in sorted(list(self.name_to_node.items()), key=lambda a: a[0]):
             res.extend(tr.get_all_items_to_record())
         return res
 
-    def build_dag_format(self):
+    def build_dag_format(self, name_to_tensor_representation: Dict[str, TensorRepresentation]):
         dependencies_of = collections.defaultdict(list)
         for a in self.connections:
             dependencies_of[a[1]].append(a[0])
+        #
+        # Sanity check for nodes vs tensors
+        #
+        node_to_tensor_names = collections.defaultdict(list)
+        for tr in name_to_tensor_representation.values():
+            assert tr.role_within_node not in node_to_tensor_names[tr.node_name], \
+                f"A node has two tensors with the same name in it: {tr.node_name}, {tr.role_within_node}"
+            node_to_tensor_names[tr.node_name].append(tr.role_within_node)
+        print(node_to_tensor_names)
         #
         # Logic for grouping:
         # * Inputs first (None of these have dependencies)
@@ -107,25 +125,25 @@ class StatusAndGraph:
         #
         nodes_list_list = []
         debug = 0
-        nodes_list_list.append([k for k, v in self.name_to_tensor_representation.items() if v.role == 'input'])
+        nodes_list_list.append([k for k, v in name_to_tensor_representation.items() if v.role == 'input'])
         used_nodes = {a: True for a in nodes_list_list[0]}
         nodes_list_for_parameters_and_targets = []
         for prefix in self.prefixes_for_grouping_module_parameters:
             next_set_of_nodes = []
             nodes_list_for_parameters_and_targets.append(next_set_of_nodes)
-            for a in self.name_to_tensor_representation.values():
+            for a in name_to_tensor_representation.values():
                 if a.role == 'parameter' and a.full_unique_name not in used_nodes:
                     if a.full_unique_name.startswith(prefix):
                         used_nodes[a.full_unique_name] = True
                         next_set_of_nodes.append(a.full_unique_name)
-        for a in self.name_to_tensor_representation.values():
+        for a in name_to_tensor_representation.values():
             if a.role == 'parameter':
                 assert a.full_unique_name in used_nodes, \
                     f"The parameter {a.full_unique_name} is not covered by any of the provided prefixes: " \
                     f"{self.prefixes_for_grouping_module_parameters}"
-        nodes_list_for_parameters_and_targets.append([k for k, v in self.name_to_tensor_representation.items() if v.role == 'target'])
-        nodes_to_sort = [k for k, v in self.name_to_tensor_representation.items() if v.role in ['intermediate', 'output']]
-        nodes_without_open_dependencies = {k: True for k, v in self.name_to_tensor_representation.items() if not dependencies_of[k]}
+        nodes_list_for_parameters_and_targets.append([k for k, v in name_to_tensor_representation.items() if v.role == 'target'])
+        nodes_to_sort = [k for k, v in name_to_tensor_representation.items() if v.role in ['intermediate', 'output']]
+        nodes_without_open_dependencies = {k: True for k, v in name_to_tensor_representation.items() if not dependencies_of[k]}
         c = 0
         while c < len(nodes_to_sort):
             debug += 1
@@ -156,10 +174,8 @@ class StatusAndGraph:
                 if any(a in shared_dependencies_of_nodes for a in list_of_parameters_and_targets):
                     break
             nodes_list_list.insert(farthest_possible_index, list_of_parameters_and_targets)
-        nodes_list_list.append([k for k, v in self.name_to_tensor_representation.items() if v.role == 'loss'])
+        nodes_list_list.append([k for k, v in name_to_tensor_representation.items() if v.role == 'loss'])
         nodes_list_list = [a for a in nodes_list_list if len(a) > 0]
-        assert sum([len(a) for a in nodes_list_list]) == len(self.nodes), \
-            (sum([len(a) for a in nodes_list_list]), len(self.nodes), nodes_list_list, self.nodes)
         for i, nodes0 in enumerate(nodes_list_list):
             for j, nodes1 in enumerate(nodes_list_list):
                 if i < j:
@@ -168,7 +184,45 @@ class StatusAndGraph:
                         f"The construction of the DAG is faulty. Probably the easiest way to debug this is " \
                         f"to deactivate this assert and check what the graph looks like. " \
                         f"Some arrows for dependencies should be pointing in the wrong direction."
-        self.dag_format = nodes_list_list
+        #
+        # At this point the nodes_list_list contains tensor_names, not node_names.
+        # Translate between these, and make sure there are no contradictions.
+        #
+        used_node_names = {}
+        dag_format = []
+        for nodes_list in nodes_list_list:
+            tmp = []
+            dag_format.append(tmp)
+            for tensor_name in nodes_list:
+                node_name = name_to_tensor_representation[tensor_name].node_name
+                if node_name in used_node_names:
+                    assert node_name in tmp, \
+                        f"The node_name {node_name} is used for two tensors that get sorted in different ways. " \
+                        f"This should not be possible if the tensors have the same role / are used " \
+                        f"in the same way."
+                else:
+                    tmp.append(node_name)
+                used_node_names[node_name] = True
+        self.dag_format = dag_format
+        # Also adjust connections to be based on node instead of tensors
+        node_level_connections = [
+            list(a)
+            for a in list(dict.fromkeys([
+                (name_to_tensor_representation[a[0]].node_name, name_to_tensor_representation[a[1]].node_name)
+                for a in self.connections
+            ]))
+        ]
+        for from_node, to_node in node_level_connections:
+            all_from_tensors = [tr.full_unique_name for tr in name_to_tensor_representation.values() if tr.node_name == from_node]
+            all_to_tensors = [tr.full_unique_name for tr in name_to_tensor_representation.values() if tr.node_name == to_node]
+            for from_tensor in all_from_tensors:
+                for to_tensor in all_to_tensors:
+                    assert [from_tensor, to_tensor] in self.connections, \
+                        f"Not all tensors that were combined into nodes have a connection in common." \
+                        f"\n{from_node}, {to_node}\n{from_tensor}, {to_tensor}"
+        self.connections = node_level_connections
+        assert sum([len(a) for a in dag_format]) == len(self.nodes), \
+            (sum([len(a) for a in dag_format]), len(self.nodes), dag_format, self.nodes)
 
 
 class DecisionMakerForRecordings(abc.ABC):
@@ -211,9 +265,9 @@ class DecisionMakerForRecordingsRegularlyDropHalf(DecisionMakerForRecordings):
 
     def prune_recordings(self, training_step, tensor_recordings: TensorRecordings):
         cut_training_steps = [
-            k for k in tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records
+            k for k in tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records
             if k % self.current_step_size != 0
         ]
         for k in cut_training_steps:
-            del tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records[k]
-        assert len(tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records) <= self.maximum_number_of_recordings
+            del tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records[k]
+        assert len(tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records) <= self.maximum_number_of_recordings

@@ -49,7 +49,7 @@ import torch
 from comgra.objects import StatusAndGraph, ModuleRepresentation, ParameterRepresentation, TensorRepresentation, TensorRecordings
 from comgra import utilities
 
-utilities.PRINT_EACH_TIME = True
+utilities.PRINT_EACH_TIME = False
 
 
 @dataclass
@@ -96,7 +96,7 @@ class Visualization:
 
     def _node_name_to_dash_id(self, configuration_type, node_name):
         conversion = node_name.replace('.', '__')
-        conversion = f"node__{configuration_type}__{conversion}"
+        conversion = f"confnode__{configuration_type}__{conversion}"
         assert (conversion not in self._sanity_check_cache_to_avoid_duplicates or
                self._sanity_check_cache_to_avoid_duplicates[conversion] == node_name), \
             f"Two nodes have the same representation: " \
@@ -157,9 +157,9 @@ class Visualization:
                     'position': 'absolute',
                     'left': f'{left}px',
                     'top': f'{top}px',
-                    'background': vp.node_type_to_color[sag.name_to_tensor_representation[node].role]
-                }, title=node, children=[
-                    f'{node}'
+                    'background': vp.node_type_to_color[sag.name_to_node[node].role]
+                }, title=node[len("node__"):], children=[
+                    f'{node[len("node__"):]}'
                 ]))
         connection_names_to_source_and_target = {}
         node_to_incoming_and_outgoing_lines = {n: ([], []) for n in sag.nodes}
@@ -176,7 +176,7 @@ class Visualization:
             svg_connection_lines.append(dash_svg.Line(
                 id=connection_name,
                 x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
-                stroke=vp.node_type_to_color[sag.name_to_tensor_representation[source].role],
+                stroke=vp.node_type_to_color[sag.name_to_node[source].role],
                 strokeWidth=1,
             ))
             connection_names_to_source_and_target[connection_name] = (source, target)
@@ -222,9 +222,10 @@ class Visualization:
                 html.Button('Refresh', id='refresh-button', n_clicks=0),
                 dcc.Dropdown(id='trials-dropdown', options=[], value=None),
                 dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None),
-                dcc.RadioItems(id='type-of-recording-dropdown', options=[], value=None),
+                dcc.RadioItems(id='type-of-recording-radio-buttons', options=[], value=None),
                 dcc.Dropdown(id='batch-index-dropdown', options=[], value=None),
                 dcc.Slider(id='iteration-slider', min=0, max=0, step=1, value=0),
+                dcc.Dropdown(id='role-of-tensor-in-node-dropdown', options=[], value=None),
             ]),
             html.Div(id='selected-item-details-container', children=[
             ]),
@@ -249,23 +250,31 @@ class Visualization:
                        Output('training-step-slider', 'max'),
                        Output('training-step-slider', 'marks'),
                        Output('training-step-slider', 'value'),
-                       Output('type-of-recording-dropdown', 'options'),
-                       Output('type-of-recording-dropdown', 'value'),
+                       Output('type-of-recording-radio-buttons', 'options'),
+                       Output('type-of-recording-radio-buttons', 'value'),
                        Output('batch-index-dropdown', 'options'),
                        Output('batch-index-dropdown', 'value'),
                        Output('iteration-slider', 'min'),
                        Output('iteration-slider', 'max'),
                        Output('iteration-slider', 'marks'),
-                       Output('iteration-slider', 'value')] +
+                       Output('iteration-slider', 'value'),
+                       Output('role-of-tensor-in-node-dropdown', 'options'),
+                       Output('role-of-tensor-in-node-dropdown', 'value')] +
                       [Output(f'graph_container__{configuration_type}', 'className')
                        for configuration_type in self.configuration_type_to_status_and_graph.keys()]),
-                      [Input('trials-dropdown', 'value'),
+                      [Input('dummy-for-selecting-a-node', 'className'),
+                       Input('trials-dropdown', 'value'),
                        Input('training-step-slider', 'value'),
-                       Input('type-of-recording-dropdown', 'value'),
+                       Input('type-of-recording-radio-buttons', 'value'),
                        Input('batch-index-dropdown', 'value'),
-                       Input('iteration-slider', 'value')])
+                       Input('iteration-slider', 'value'),
+                       Input('role-of-tensor-in-node-dropdown', 'value')])
         @utilities.runtime_analysis_decorator
-        def update_dropboxes(trials_value, training_step_value, type_of_recording_value, batch_index_value, iteration_value):
+        def update_dropboxes(
+                name_of_selected_node,
+                trials_value, training_step_value, type_of_recording_value, batch_index_value,
+                iteration_value, role_of_tensor_in_node_value
+        ):
             recordings = self.get_recordings_with_caching(trials_value)
             def create_slider_data_from_list(previous_value, options_list):
                 options_list = sorted(options_list)
@@ -277,50 +286,71 @@ class Visualization:
                 val = previous_value if previous_value in options_list else (options_list[0] if options_list else None)
                 options = [{'label': label_maker(a), 'value': a} for a in options_list]
                 return options, val
-            training_steps = sorted(list(recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records.keys()))
+            training_steps = sorted(list(recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records.keys()))
             assert len(training_steps) > 0
             training_step_min, training_step_max, training_step_marks, training_step_value = create_slider_data_from_list(training_step_value, training_steps)
-            type_of_recording_to_batch_index_to_iteration_to_records = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records[training_step_value]
-            types_of_recordings = sorted(list(type_of_recording_to_batch_index_to_iteration_to_records.keys()))
+            type_of_recording_to_batch_index_to_iteration_to_role_to_records = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records[training_step_value]
+            types_of_recordings = sorted(list(type_of_recording_to_batch_index_to_iteration_to_role_to_records.keys()))
             assert len(types_of_recordings) > 0
             type_of_recording_options, type_of_recording_value = create_options_and_value_from_list(type_of_recording_value, types_of_recordings)
-            batch_index_to_iteration_to_records = type_of_recording_to_batch_index_to_iteration_to_records[type_of_recording_value]
-            batch_indices = sorted(list(batch_index_to_iteration_to_records.keys()), key=lambda x: -1 if isinstance(x, str) else x)
+            batch_index_to_iteration_to_role_to_records = type_of_recording_to_batch_index_to_iteration_to_role_to_records[type_of_recording_value]
+            batch_indices = sorted(list(batch_index_to_iteration_to_role_to_records.keys()), key=lambda x: -1 if isinstance(x, str) else x)
             assert len(batch_indices) > 0
             batch_index_options, batch_index_value = create_options_and_value_from_list(
                 batch_index_value, batch_indices,
                 label_maker=lambda a: "mean over the batch" if a == 'batch' else f"batch index {a}"
             )
-            iteration_steps = sorted(list(batch_index_to_iteration_to_records[batch_index_value]))
+            iteration_to_role_to_records = batch_index_to_iteration_to_role_to_records[batch_index_value]
+            iteration_steps = sorted(list(iteration_to_role_to_records.keys()))
+            assert len(iteration_steps) > 0
             iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(iteration_value, iteration_steps)
+            configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][iteration_value]
+            sag = self.configuration_type_to_status_and_graph[configuration_type]
+            node = sag.name_to_node.get(name_of_selected_node, None)
             graph_container_visibilities = [
-                'active' if configuration_type == recordings.iteration_to_configuration_type[iteration_value] else 'inactive'
-                for configuration_type in self.configuration_type_to_status_and_graph.keys()
+                'active' if conf_type == configuration_type else 'inactive'
+                for conf_type in self.configuration_type_to_status_and_graph.keys()
             ]
-            res = [training_step_min, training_step_max, training_step_marks, training_step_value, type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value, iteration_min, iteration_max, iteration_marks, iteration_value] + graph_container_visibilities
+            role_to_records, value_is_independent_of_iterations = self.pick_iteration_for_nodes_without_iteration_selection(
+                iteration_value, node, iteration_to_role_to_records)
+            possible_roles = list(dict.fromkeys([
+                role
+                for role, v in role_to_records.items()
+                for (node, _, _) in v.keys()
+                if node == name_of_selected_node
+            ]))
+            role_of_tensor_in_node_options, role_of_tensor_in_node_value = create_options_and_value_from_list(role_of_tensor_in_node_value, possible_roles)
+            res = [
+                      training_step_min, training_step_max, training_step_marks, training_step_value,
+                      type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value,
+                      iteration_min, iteration_max, iteration_marks, iteration_value,
+                      role_of_tensor_in_node_options, role_of_tensor_in_node_value,
+                  ] + graph_container_visibilities
             return res
 
         @app.callback(Output('dummy-for-selecting-a-node', 'className'),
                       [Input('trials-dropdown', 'value'),
+                       Input('training-step-slider', 'value'),
                        Input('iteration-slider', 'value')] +
                       [Input(self._node_name_to_dash_id(configuration_type, node), 'n_clicks_timestamp')
                        for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
-                       for node in sag.name_to_tensor_representation.keys()])
+                       for node in sag.name_to_node.keys()])
         @utilities.runtime_analysis_decorator
         def update_visibility(*lsts):
             trials_value = lsts[0]
-            iteration_value = lsts[1]
-            clicks_per_object = lsts[2:]
+            training_step_value = lsts[1]
+            iteration_value = lsts[2]
+            clicks_per_object = lsts[3:]
             recordings = self.get_recordings_with_caching(trials_value)
             names = [
                 node
                 for _, sag in self.configuration_type_to_status_and_graph.items()
-                for node in sag.name_to_tensor_representation.keys()
+                for node in sag.name_to_node.keys()
             ]
-            selected_configuration_type = recordings.iteration_to_configuration_type[iteration_value]
+            selected_configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][iteration_value]
             names_that_exist_in_the_selected_configuration = {
                 node for node in
-                self.configuration_type_to_status_and_graph[selected_configuration_type].name_to_tensor_representation.keys()
+                self.configuration_type_to_status_and_graph[selected_configuration_type].name_to_node.keys()
             }
             assert len(clicks_per_object) == len(names)
             # Identify the most recently clicked object
@@ -330,9 +360,9 @@ class Visualization:
                 if name in names_that_exist_in_the_selected_configuration and clicks is not None and clicks > max_val:
                     max_val = clicks
                     max_index = i
-            name_of_selected_item = names[max_index]
-            assert name_of_selected_item is not None
-            return name_of_selected_item
+            name_of_selected_node = names[max_index]
+            assert name_of_selected_node is not None
+            return name_of_selected_node
 
         @app.callback(
             [Output('selected-item-details-container', 'children'),
@@ -340,14 +370,18 @@ class Visualization:
             [Input('dummy-for-selecting-a-node', 'className'),
              Input('trials-dropdown', 'value'),
              Input('training-step-slider', 'value'),
-             Input('type-of-recording-dropdown', 'value'),
+             Input('type-of-recording-radio-buttons', 'value'),
              Input('batch-index-dropdown', 'value'),
-             Input('iteration-slider', 'value')]
+             Input('iteration-slider', 'value'),
+             Input('role-of-tensor-in-node-dropdown', 'value')]
         )
         @utilities.runtime_analysis_decorator
-        def select_node(node_name, trials_value, training_step_value, type_of_recording_value, batch_index_value, iteration_value):
+        def select_node(
+                node_name, trials_value, training_step_value, type_of_recording_value,
+                batch_index_value, iteration_value, role_of_tensor_in_node_value,
+        ):
             recordings = self.get_recordings_with_caching(trials_value)
-            configuration_type = recordings.iteration_to_configuration_type[iteration_value]
+            configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][iteration_value]
             sag = self.configuration_type_to_status_and_graph[configuration_type]
             #
             # Select the node and visually highlight it.
@@ -362,7 +396,7 @@ class Visualization:
             # which was proportional to the number of nodes.
             # This made this approach infeasible in practice.
             #
-            node = sag.name_to_tensor_representation[node_name]
+            node = sag.name_to_node[node_name]
             connected_node_names = {a[0] for a in sag.connections if a[1] == node_name} | {a[1] for a in sag.connections if a[0] == node_name}
             graph_overlay_elements = []
             for node_name_, (left, top, right, bottom) in self.configuration_type_to_node_to_corners[configuration_type].items():
@@ -393,17 +427,18 @@ class Visualization:
             #
             # Display values based on the selected node
             #
-            tmp = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_records[training_step_value][type_of_recording_value][batch_index_value]
-            if node.role == 'parameter':
-                records = tmp[0]
-                value_is_independent_of_iterations = True
-                for k, v in tmp.items():
-                    for key in node.get_all_items_to_record():
-                        assert (key in v) is (k == 0), \
-                            f"Should have an entry only for iteration 0.\n{k}\n{key}"
-            else:
-                records = tmp[iteration_value]
-                value_is_independent_of_iterations = False
+            iteration_to_role_to_records = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records[training_step_value][type_of_recording_value][batch_index_value]
+            role_to_records, value_is_independent_of_iterations = self.pick_iteration_for_nodes_without_iteration_selection(
+                iteration_value, node, iteration_to_role_to_records)
+            if role_of_tensor_in_node_value is None:
+                possible_roles = list(dict.fromkeys([
+                    role
+                    for role, v in role_to_records.items()
+                    for (n, _, _) in v.keys()
+                    if n == node.full_unique_name
+                ]))
+                role_of_tensor_in_node_value = possible_roles[0]
+            records = role_to_records[role_of_tensor_in_node_value]
             rows = []
             for key in node.get_all_items_to_record():
                 val = records[key] if key in records else "No applicable value to display for this selection."
@@ -425,3 +460,18 @@ class Visualization:
                 html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', 'value']])] + rows)
             ]
             return children, graph_overlay_for_selections_children
+
+    def pick_iteration_for_nodes_without_iteration_selection(self, iteration_value, node, iteration_to_role_to_records):
+        if node is not None and node.role == 'parameter':
+            role_to_records = iteration_to_role_to_records[0]
+            value_is_independent_of_iterations = True
+            for iteration, role_to_records_ in iteration_to_role_to_records.items():
+                record_keys = {b for a in role_to_records_.values() for b in a.keys()}
+                for key in node.get_all_items_to_record():
+                    assert (key in record_keys) is (iteration == 0), \
+                        f"Should have an entry only for iteration 0.\n" \
+                        f"{iteration}\n{node.full_unique_name}\n{key}"
+        else:
+            role_to_records = iteration_to_role_to_records[iteration_value]
+            value_is_independent_of_iterations = False
+        return role_to_records, value_is_independent_of_iterations
