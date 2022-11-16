@@ -2,9 +2,12 @@ import abc
 import collections
 import copy
 import dataclasses
-from typing import List, Dict, Tuple, Optional, Any, Union
+from typing import List, Dict, Tuple, Optional, Any, Union, TYPE_CHECKING
 
 import torch
+
+if TYPE_CHECKING:
+    from comgra.recorder import ComgraRecorder
 
 
 @dataclasses.dataclass
@@ -29,7 +32,7 @@ class TensorRepresentation:
     role_within_node: str
     iteration: int
     configuration_type: str
-    role: str
+    type_of_tensor: str
     shape: List[int]
     index_of_batch_dimension: Optional[int]
     value_dimensions: List[int]
@@ -46,7 +49,7 @@ class TensorRepresentation:
 @dataclasses.dataclass
 class Node:
     full_unique_name: str
-    role: str
+    type_of_tensor: str
     shape: List[int]
     index_of_batch_dimension: Optional[int]
     items_to_record: List[str]
@@ -78,7 +81,6 @@ class TensorRecordings:
 @dataclasses.dataclass
 class StatusAndGraph:
     configuration_type: str
-    prefixes_for_grouping_module_parameters: List[str]
     name_to_node: Dict[str, Node]
     types_of_tensor_recordings: List[str]
     nodes: List[str]
@@ -88,12 +90,6 @@ class StatusAndGraph:
     def __post_init__(self):
         for name, v in self.name_to_node.items():
             assert name == v.full_unique_name, (name, v.full_unique_name,)
-        for i, a in enumerate(self.prefixes_for_grouping_module_parameters):
-            for j, b in enumerate(self.prefixes_for_grouping_module_parameters):
-                if j >= i:
-                    break
-                assert not a.startswith(b), \
-                    f"Earlier prefixes should be more specific than later ones.\n{a}\n{b}"
 
     def get_all_items_to_record(self):
         res = []
@@ -101,7 +97,7 @@ class StatusAndGraph:
             res.extend(tr.get_all_items_to_record())
         return res
 
-    def build_dag_format(self, name_to_tensor_representation: Dict[str, TensorRepresentation]):
+    def build_dag_format(self, recorder: 'ComgraRecorder', name_to_tensor_representation: Dict[str, TensorRepresentation]):
         dependencies_of = collections.defaultdict(list)
         for a in self.connections:
             dependencies_of[a[1]].append(a[0])
@@ -125,24 +121,24 @@ class StatusAndGraph:
         #
         nodes_list_list = []
         debug = 0
-        nodes_list_list.append([k for k, v in name_to_tensor_representation.items() if v.role == 'input'])
+        nodes_list_list.append([k for k, v in name_to_tensor_representation.items() if v.type_of_tensor == 'input'])
         used_nodes = {a: True for a in nodes_list_list[0]}
         nodes_list_for_parameters_and_targets = []
-        for prefix in self.prefixes_for_grouping_module_parameters:
+        for prefix in recorder.prefixes_for_grouping_module_parameters_visually:
             next_set_of_nodes = []
             nodes_list_for_parameters_and_targets.append(next_set_of_nodes)
             for a in name_to_tensor_representation.values():
-                if a.role == 'parameter' and a.full_unique_name not in used_nodes:
+                if a.type_of_tensor == 'parameter' and a.full_unique_name not in used_nodes:
                     if a.full_unique_name.startswith(prefix):
                         used_nodes[a.full_unique_name] = True
                         next_set_of_nodes.append(a.full_unique_name)
         for a in name_to_tensor_representation.values():
-            if a.role == 'parameter':
+            if a.type_of_tensor == 'parameter':
                 assert a.full_unique_name in used_nodes, \
                     f"The parameter {a.full_unique_name} is not covered by any of the provided prefixes: " \
-                    f"{self.prefixes_for_grouping_module_parameters}"
-        nodes_list_for_parameters_and_targets.append([k for k, v in name_to_tensor_representation.items() if v.role == 'target'])
-        nodes_to_sort = [k for k, v in name_to_tensor_representation.items() if v.role in ['intermediate', 'output']]
+                    f"{recorder.prefixes_for_grouping_module_parameters_visually}"
+        nodes_list_for_parameters_and_targets.append([k for k, v in name_to_tensor_representation.items() if v.type_of_tensor == 'target'])
+        nodes_to_sort = [k for k, v in name_to_tensor_representation.items() if v.type_of_tensor in ['intermediate', 'output']]
         nodes_without_open_dependencies = {k: True for k, v in name_to_tensor_representation.items() if not dependencies_of[k]}
         c = 0
         while c < len(nodes_to_sort):
@@ -174,7 +170,7 @@ class StatusAndGraph:
                 if any(a in shared_dependencies_of_nodes for a in list_of_parameters_and_targets):
                     break
             nodes_list_list.insert(farthest_possible_index, list_of_parameters_and_targets)
-        nodes_list_list.append([k for k, v in name_to_tensor_representation.items() if v.role == 'loss'])
+        nodes_list_list.append([k for k, v in name_to_tensor_representation.items() if v.type_of_tensor == 'loss'])
         nodes_list_list = [a for a in nodes_list_list if len(a) > 0]
         for i, nodes0 in enumerate(nodes_list_list):
             for j, nodes1 in enumerate(nodes_list_list):

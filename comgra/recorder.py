@@ -16,8 +16,10 @@ from comgra import utilities
 class ComgraRecorder:
 
     def __init__(
-            self, comgra_root_path, group, trial_id, prefixes_for_grouping_module_parameters, parameters_of_trial,
-            decision_maker_for_recordings, comgra_is_active=True, max_num_batch_size_to_record=None,
+            self, comgra_root_path, group, trial_id,
+            prefixes_for_grouping_module_parameters_visually, prefixes_for_grouping_module_parameters_in_nodes,
+            parameters_of_trial, decision_maker_for_recordings,
+            comgra_is_active=True, max_num_batch_size_to_record=None,
     ):
         comgra_root_path = Path(comgra_root_path)
         assert comgra_root_path.exists()
@@ -28,8 +30,28 @@ class ComgraRecorder:
         self.trial_path.mkdir(parents=True, exist_ok=True)
         self.configuration_type = None
         self.configuration_path = None
-        self.prefixes_for_grouping_module_parameters = list(prefixes_for_grouping_module_parameters)
-        assert all(isinstance(a, str) for a in prefixes_for_grouping_module_parameters)
+        self.prefixes_for_grouping_module_parameters_visually = list(prefixes_for_grouping_module_parameters_visually)
+        self.prefixes_for_grouping_module_parameters_in_nodes = list(prefixes_for_grouping_module_parameters_in_nodes)
+        assert all(isinstance(a, str) for a in prefixes_for_grouping_module_parameters_visually)
+        for i, a in enumerate(self.prefixes_for_grouping_module_parameters_visually):
+            for j, b in enumerate(self.prefixes_for_grouping_module_parameters_visually):
+                if j >= i:
+                    break
+                assert not a.startswith(b), \
+                    f"Earlier prefixes for visual grouping should be more specific than later ones.\n{a}\n{b}"
+        for i, a in enumerate(self.prefixes_for_grouping_module_parameters_in_nodes):
+            for j, b in enumerate(self.prefixes_for_grouping_module_parameters_in_nodes):
+                if j >= i:
+                    break
+                assert not a.startswith(b), \
+                    f"Earlier prefixes for node grouping should be more specific than later ones.\n{a}\n{b}"
+        for i, a in enumerate(self.prefixes_for_grouping_module_parameters_in_nodes):
+            for j, b in enumerate(self.prefixes_for_grouping_module_parameters_visually):
+                assert not b.startswith(a) or a == b, \
+                    f"Earlier prefixes should be more specific than later ones.\n{a}\n{b}"
+            assert any(b for b in self.prefixes_for_grouping_module_parameters_visually if a.startswith(b)), \
+                f"A prefix for node grouping does not have a prefix for visual grouping that is less restrictive." \
+                f"\n{a}"
         self.parameters_of_trial = parameters_of_trial
         self.max_num_batch_size_to_record = max_num_batch_size_to_record
         #
@@ -176,17 +198,17 @@ class ComgraRecorder:
             assert index_of_batch_dimension is None
         # Create a TensorRepresentation for the tensor and store various references for later.
         if is_input:
-            role = 'input'
+            type_of_tensor = 'input'
         elif is_parameter:
-            role = 'parameter'
+            type_of_tensor = 'parameter'
         elif is_output:
-            role = 'output'
+            type_of_tensor = 'output'
         elif is_target:
-            role = 'target'
+            type_of_tensor = 'target'
         elif is_loss:
-            role = 'loss'
+            type_of_tensor = 'loss'
         else:
-            role = 'intermediate'
+            type_of_tensor = 'intermediate'
         self.computation_step_to_tensor[tensor.grad_fn] = tensor
         assert tensor not in self.tensor_to_name_and_iteration, \
             f"Tensor is already registered under the name and iteration {self.tensor_to_name_and_iteration[tensor]}\n" \
@@ -209,7 +231,7 @@ class ComgraRecorder:
             role_within_node=role_within_node,
             iteration=self.iteration,
             configuration_type=self.configuration_type,
-            role=role,
+            type_of_tensor=type_of_tensor,
             shape=list(tensor.shape),
             index_of_batch_dimension=index_of_batch_dimension,
             value_dimensions=list(value_dimensions),
@@ -359,12 +381,14 @@ class ComgraRecorder:
                 t = step.variable
                 # Register parameters in the graph the first time you encounter them.
                 if t in self.parameter_to_representation and t not in self.tensor_to_name_and_iteration:
-                    self.register_tensor(self.parameter_to_representation[t].full_unique_name, t, is_parameter=True)
+                    tensor_name = self.parameter_to_representation[t].full_unique_name
+                    node_name = next((a for a in self.prefixes_for_grouping_module_parameters_in_nodes if tensor_name.startswith(a)), None)
+                    self.register_tensor(tensor_name, t, is_parameter=True, node_name=node_name)
             if t is not None:
                 k = self.tensor_to_name_and_iteration[t]
                 name_of_this_tensor, iteration = k
                 tensor_representation = self.tensor_name_and_iteration_to_representation[k]
-                assert iteration == self.iteration or tensor_representation.role == 'parameter', \
+                assert iteration == self.iteration or tensor_representation.type_of_tensor == 'parameter', \
                     (name_of_this_tensor, iteration, self.iteration)
                 if last_encountered_named_tensor_and_iteration is not None and \
                         last_encountered_named_tensor_and_iteration[0] not in tensor_representation.is_a_dependency_of:
@@ -373,7 +397,7 @@ class ComgraRecorder:
                         tensor_representation.is_a_dependency_of.append(last_encountered_named_tensor_and_iteration[0])
                 assert tensor_representation.iteration is not None
                 last_encountered_named_tensor_and_iteration = (name_of_this_tensor, tensor_representation.iteration)
-                if tensor_representation.role == 'input':
+                if tensor_representation.type_of_tensor == 'input':
                     return  # Do not track the graph beyond the inputs, which might go into the previous iteration.
             # Do not traverse the same node more often than necessary. It should be done once per unique parameter.
             # (Otherwise this function can get very expensive.)
@@ -385,8 +409,8 @@ class ComgraRecorder:
                 traverse_graph_backwards(predecessor, last_encountered_named_tensor_and_iteration)
         final_tensors = [
             t for t, ni in self.tensor_to_name_and_iteration.items()
-            if self.tensor_name_and_iteration_to_representation[ni].role in ['output', 'target', 'loss']
-            and self.tensor_name_and_iteration_to_representation[ni].iteration == self.iteration
+            if self.tensor_name_and_iteration_to_representation[ni].type_of_tensor in ['output', 'target', 'loss']
+               and self.tensor_name_and_iteration_to_representation[ni].iteration == self.iteration
         ]
         for tensor in final_tensors:
             traverse_graph_backwards(tensor.grad_fn, None)
@@ -446,29 +470,29 @@ class ComgraRecorder:
         nodes = list(dict.fromkeys([
             v.node_name
             for (name, iteration), v in self.tensor_name_and_iteration_to_representation.items()
-            if iteration == self.iteration or v.role == 'parameter'
+            if iteration == self.iteration or v.type_of_tensor == 'parameter'
         ]))
         connections = [
             [dependency, dependent]
             for (dependency, iteration), v in self.tensor_name_and_iteration_to_representation.items()
             for dependent in v.is_a_dependency_of
-            if iteration == self.iteration or v.role == 'parameter'
+            if iteration == self.iteration or v.type_of_tensor == 'parameter'
         ]
         name_to_node = {}
         name_to_tensor_representation_relevant_for_graph_construction = {}
         for (tensor_name, iteration), v in self.tensor_name_and_iteration_to_representation.items():
-            if iteration == self.iteration or v.role == 'parameter':
+            if iteration == self.iteration or v.type_of_tensor == 'parameter':
                 node_name = self.tensor_name_to_node_name[tensor_name]
                 new_node = Node(
                     full_unique_name=node_name,
-                    role=v.role,
+                    type_of_tensor=v.type_of_tensor,
                     shape=list(v.shape),
                     index_of_batch_dimension=v.index_of_batch_dimension,
                     items_to_record=list(v.items_to_record),
                 )
                 if node_name in name_to_node:
                     existing_node = name_to_node[node_name]
-                    assert existing_node.role == new_node.role
+                    assert existing_node.type_of_tensor == new_node.type_of_tensor
                     assert tuple(existing_node.shape) == tuple(new_node.shape)
                     assert existing_node.index_of_batch_dimension == new_node.index_of_batch_dimension
                     assert tuple(existing_node.items_to_record) == tuple(new_node.items_to_record)
@@ -476,13 +500,12 @@ class ComgraRecorder:
                 name_to_tensor_representation_relevant_for_graph_construction[tensor_name] = v
         status_and_graph = StatusAndGraph(
             configuration_type=self.configuration_type,
-            prefixes_for_grouping_module_parameters=list(self.prefixes_for_grouping_module_parameters),
             name_to_node=name_to_node,
             types_of_tensor_recordings=list(self.types_of_tensor_recordings),
             nodes=nodes,
             connections=connections,
         )
-        status_and_graph.build_dag_format(name_to_tensor_representation_relevant_for_graph_construction)
+        status_and_graph.build_dag_format(self, name_to_tensor_representation_relevant_for_graph_construction)
         return status_and_graph
 
     @utilities.runtime_analysis_decorator
