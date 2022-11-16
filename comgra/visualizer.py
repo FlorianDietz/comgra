@@ -55,7 +55,7 @@ utilities.PRINT_EACH_TIME = False
 @dataclass
 class VisualizationParameters:
     total_display_width = 1800
-    total_display_height = 600
+    total_display_height = 400
     padding_left = 50
     padding_right = 50
     padding_top = 50
@@ -150,6 +150,7 @@ class Visualization:
                 right = int(left + width_per_box)
                 bottom = int(top + height_per_box)
                 node_to_corners[node] = (left, top, right, bottom)
+                node_type = sag.name_to_node[node].type_of_tensor
                 elements_of_the_graph.append(html.Div(id=self._node_name_to_dash_id(configuration_type, node), style={
                     'width': f'{width_per_box}px',
                     'height': f'{height_per_box}px',
@@ -157,7 +158,7 @@ class Visualization:
                     'position': 'absolute',
                     'left': f'{left}px',
                     'top': f'{top}px',
-                    'background': vp.node_type_to_color[sag.name_to_node[node].role]
+                    'background': vp.node_type_to_color[node_type]
                 }, title=node[len("node__"):], children=[
                     f'{node[len("node__"):]}'
                 ]))
@@ -176,7 +177,7 @@ class Visualization:
             svg_connection_lines.append(dash_svg.Line(
                 id=connection_name,
                 x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
-                stroke=vp.node_type_to_color[sag.name_to_node[source].role],
+                stroke=vp.node_type_to_color[sag.name_to_node[source].type_of_tensor],
                 strokeWidth=1,
             ))
             connection_names_to_source_and_target[connection_name] = (source, target)
@@ -440,37 +441,39 @@ class Visualization:
                 role_of_tensor_in_node_value = possible_roles[0]
             records = role_to_records[role_of_tensor_in_node_value]
             rows = []
-            for key in node.get_all_items_to_record():
-                val = records[key] if key in records else "No applicable value to display for this selection."
-                assert key[0] == node_name, (key[0], node_name)
+            for (nn, item, metadata), val in records.items():
+                if nn != node_name:
+                    continue
                 row = [
-                    html.Td(key[1]),
-                    html.Td(key[2]),
+                    html.Td(item),
+                    html.Td(metadata),
                     html.Td(val),
                 ]
                 rows.append(html.Tr(row))
             if value_is_independent_of_iterations:
-                desc_text = f"{node.role}  -  NOTE: Values are independent of the selected iteration. Displaying values for iteration 0."
+                desc_text = f"{node.type_of_tensor}  -  NOTE: Values are independent of the selected iteration. Displaying values for iteration 0."
             else:
-                desc_text = node.role
+                desc_text = node.type_of_tensor
+            tensor_shape = recordings.node_to_role_to_tensor_metadata[node.full_unique_name][role_of_tensor_in_node_value].shape
             children = [
-                html.Header(node.full_unique_name),
+                html.Header(f"{node.full_unique_name} - {role_of_tensor_in_node_value}"),
                 html.P(desc_text),
-                html.P(f"[{', '.join([str(a) for a in node.shape])}]"),
+                html.P(f"Shape: [{', '.join([str(a) for a in tensor_shape])}]"),
                 html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', 'value']])] + rows)
             ]
             return children, graph_overlay_for_selections_children
 
     def pick_iteration_for_nodes_without_iteration_selection(self, iteration_value, node, iteration_to_role_to_records):
-        if node is not None and node.role == 'parameter':
+        if node is not None and node.type_of_tensor == 'parameter':
             role_to_records = iteration_to_role_to_records[0]
             value_is_independent_of_iterations = True
             for iteration, role_to_records_ in iteration_to_role_to_records.items():
-                record_keys = {b for a in role_to_records_.values() for b in a.keys()}
-                for key in node.get_all_items_to_record():
-                    assert (key in record_keys) is (iteration == 0), \
-                        f"Should have an entry only for iteration 0.\n" \
-                        f"{iteration}\n{node.full_unique_name}\n{key}"
+                for records_ in role_to_records_.values():
+                    for nn, _, _ in records_.keys():
+                        if nn == node.full_unique_name:
+                            assert iteration == 0, \
+                                f"Should have an entry only for iteration 0.\n" \
+                                f"{iteration}\n{node.full_unique_name}"
         else:
             role_to_records = iteration_to_role_to_records[iteration_value]
             value_is_independent_of_iterations = False

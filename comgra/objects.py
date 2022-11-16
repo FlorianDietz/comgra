@@ -47,35 +47,23 @@ class TensorRepresentation:
 
 
 @dataclasses.dataclass
+class TensorMetadata:
+    shape: List[int]
+    index_of_batch_dimension: Optional[int]
+
+
+@dataclasses.dataclass
 class Node:
     full_unique_name: str
     type_of_tensor: str
-    shape: List[int]
-    index_of_batch_dimension: Optional[int]
     items_to_record: List[str]
-
-    def get_size_of_tensor(self):
-        assert len(self.shape) == 2
-        return self.shape[1 - self.index_of_batch_dimension]
-
-    def get_all_items_to_record(self):
-        res = []
-        assert len(self.items_to_record) > 0, self.full_unique_name
-        for item in self.items_to_record:
-            if item in ['single_value', 'mean', 'abs_mean', 'std', 'abs_max']:
-                res.append((self.full_unique_name, item, None))
-            elif item == 'neurons':
-                for i in range(self.get_size_of_tensor()):
-                    res.append((self.full_unique_name, item, i))
-            else:
-                raise NotImplementedError(item)
-        return res
 
 
 @dataclasses.dataclass
 class TensorRecordings:
     training_step_to_iteration_to_configuration_type: Dict[str, Dict[int, str]] = dataclasses.field(default_factory=dict)
     training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records: Dict[int, Dict[str, Dict[Optional[int], Dict[int, Dict[str, Dict[Tuple[str, str, Any], Optional[Union[torch.Tensor, float]]]]]]]] = dataclasses.field(default_factory=dict)
+    node_to_role_to_tensor_metadata: Dict[str, Dict[str, TensorMetadata]] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
@@ -90,12 +78,6 @@ class StatusAndGraph:
     def __post_init__(self):
         for name, v in self.name_to_node.items():
             assert name == v.full_unique_name, (name, v.full_unique_name,)
-
-    def get_all_items_to_record(self):
-        res = []
-        for _, tr in sorted(list(self.name_to_node.items()), key=lambda a: a[0]):
-            res.extend(tr.get_all_items_to_record())
-        return res
 
     def build_dag_format(self, recorder: 'ComgraRecorder', name_to_tensor_representation: Dict[str, TensorRepresentation]):
         dependencies_of = collections.defaultdict(list)

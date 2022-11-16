@@ -9,7 +9,7 @@ from typing import List, Dict, Optional, Tuple
 import torch
 from torch import nn as torch_nn
 
-from comgra.objects import DecisionMakerForRecordings, StatusAndGraph, ModuleRepresentation, Node, ParameterRepresentation, TensorRecordings, TensorRepresentation
+from comgra.objects import DecisionMakerForRecordings, StatusAndGraph, ModuleRepresentation, Node, ParameterRepresentation, TensorRecordings, TensorRepresentation, TensorMetadata
 from comgra import utilities
 
 
@@ -45,10 +45,14 @@ class ComgraRecorder:
                     break
                 assert not a.startswith(b), \
                     f"Earlier prefixes for node grouping should be more specific than later ones.\n{a}\n{b}"
-        for i, a in enumerate(self.prefixes_for_grouping_module_parameters_in_nodes):
-            for j, b in enumerate(self.prefixes_for_grouping_module_parameters_visually):
+        for i, a in enumerate(self.prefixes_for_grouping_module_parameters_visually):
+            for j, b in enumerate(self.prefixes_for_grouping_module_parameters_in_nodes):
+                if b.startswith(a):
+                    break
                 assert not b.startswith(a) or a == b, \
-                    f"Earlier prefixes should be more specific than later ones.\n{a}\n{b}"
+                    f"The most specific visual grouping must not be more specific " \
+                    f"than the most specific node grouping.\n{a}\n{b}"
+        for j, a in enumerate(self.prefixes_for_grouping_module_parameters_in_nodes):
             assert any(b for b in self.prefixes_for_grouping_module_parameters_visually if a.startswith(b)), \
                 f"A prefix for node grouping does not have a prefix for visual grouping that is less restrictive." \
                 f"\n{a}"
@@ -455,10 +459,8 @@ class ComgraRecorder:
                     vv2 = v2[kk1]
                     vv1 = tuple(vv1) if isinstance(vv1, list) else vv1
                     vv2 = tuple(vv2) if isinstance(vv2, list) else vv2
-                    assert vv1 == vv2
+                    assert vv1 == vv2, f"{k1}\n{kk1}\n{vv1}\n{vv2}"
             assert tuple(new_version.types_of_tensor_recordings) == tuple(existing_version.types_of_tensor_recordings)
-            assert tuple(new_version.get_all_items_to_record()) == tuple(existing_version.get_all_items_to_record()), \
-                f"\n{new_version.get_all_items_to_record()}\n{existing_version.get_all_items_to_record()}"
             assert len(new_version.dag_format) == len(existing_version.dag_format)
             for a, b in zip(new_version.dag_format, existing_version.dag_format):
                 assert len(a) == len(b)
@@ -483,20 +485,24 @@ class ComgraRecorder:
         for (tensor_name, iteration), v in self.tensor_name_and_iteration_to_representation.items():
             if iteration == self.iteration or v.type_of_tensor == 'parameter':
                 node_name = self.tensor_name_to_node_name[tensor_name]
-                new_node = Node(
-                    full_unique_name=node_name,
-                    type_of_tensor=v.type_of_tensor,
+                tensor_metadata = TensorMetadata(
                     shape=list(v.shape),
                     index_of_batch_dimension=v.index_of_batch_dimension,
-                    items_to_record=list(v.items_to_record),
                 )
                 if node_name in name_to_node:
-                    existing_node = name_to_node[node_name]
-                    assert existing_node.type_of_tensor == new_node.type_of_tensor
-                    assert tuple(existing_node.shape) == tuple(new_node.shape)
-                    assert existing_node.index_of_batch_dimension == new_node.index_of_batch_dimension
-                    assert tuple(existing_node.items_to_record) == tuple(new_node.items_to_record)
-                name_to_node[node_name] = new_node
+                    node = name_to_node[node_name]
+                else:
+                    node = Node(
+                        full_unique_name=node_name,
+                        type_of_tensor=v.type_of_tensor,
+                        items_to_record=list(v.items_to_record),
+                    )
+                    name_to_node[node_name] = node
+                self.tensor_recordings.node_to_role_to_tensor_metadata.setdefault(node_name, {})[v.role_within_node] = \
+                    tensor_metadata
+                assert v.type_of_tensor == node.type_of_tensor, \
+                    f"Node {node_name} stores tensors with different type_of_tensor." \
+                    f"\n{v.type_of_tensor}\n{node.type_of_tensor}"
                 name_to_tensor_representation_relevant_for_graph_construction[tensor_name] = v
         status_and_graph = StatusAndGraph(
             configuration_type=self.configuration_type,
@@ -531,14 +537,12 @@ class ComgraRecorder:
                             all_tensors.append(tensor)
         combined_tensor = torch.stack(all_tensors)
         list_of_floats = combined_tensor.cpu().tolist()
-        all_valid_keys = set(self.configuration_type_to_status_and_graph[self.configuration_type].get_all_items_to_record())
         c = 0
         for batch_index_to_iteration_to_role_to_records in type_of_recording_to_batch_index_to_iteration_to_role_to_records.values():
             for iteration_to_role_to_records in batch_index_to_iteration_to_role_to_records.values():
                 for role_to_records in iteration_to_role_to_records.values():
                     for records in role_to_records.values():
                         for key in list(records.keys()):
-                            assert key in all_valid_keys, (key, all_valid_keys)
                             records[key] = list_of_floats[c]
                             c += 1
         assert c == len(list_of_floats)
