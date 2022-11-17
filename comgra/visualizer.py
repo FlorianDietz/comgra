@@ -126,12 +126,22 @@ class Visualization:
     @utilities.runtime_analysis_decorator
     def get_recordings_with_caching(self, trials_value) -> TensorRecordings:
         key = (trials_value,)
-        if key not in self.cache_for_tensor_recordings:
-            recordings_file = self.path / 'trials' / trials_value / 'recordings.pkl'
-            with open(recordings_file, 'rb') as f:
-                recordings: TensorRecordings = pickle.load(f)
-            self.cache_for_tensor_recordings[key] = recordings
-        return self.cache_for_tensor_recordings[key]
+        recordings, num_training_steps = self.cache_for_tensor_recordings.get(key, (None, 0))
+        recordings_path = self.path / 'trials' / trials_value / 'recordings'
+        recording_files = list(recordings_path.iterdir())
+        if len(recording_files) > num_training_steps:
+            print("updating recordings", len(recording_files), num_training_steps, key)
+            for recording_file in recording_files:
+                with open(recording_file, 'rb') as f:
+                    new_recordings: TensorRecordings = pickle.load(f)
+                    if recordings is None:
+                        recordings = new_recordings
+                    else:
+                        recordings.update_with_more_recordings(new_recordings)
+            num_training_steps = len(recording_files)
+            self.cache_for_tensor_recordings[key] = (recordings, num_training_steps)
+        assert num_training_steps == len(recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records)
+        return recordings
 
     @utilities.runtime_analysis_decorator
     def create_nodes_and_arrows(
@@ -287,8 +297,14 @@ class Visualization:
                 val = previous_value if previous_value in options_list else (options_list[0] if options_list else None)
                 options = [{'label': label_maker(a), 'value': a} for a in options_list]
                 return options, val
-            training_steps = sorted(list(recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records.keys()))
+
+            recordings_path = self.path / 'trials' / trials_value / 'recordings'
+            recording_files = list(recordings_path.iterdir())
+            training_steps = sorted([int(a.stem) for a in recording_files])
             assert len(training_steps) > 0
+            loaded_training_steps = sorted(list(recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records.keys()))
+            for a in loaded_training_steps:
+                assert a in training_steps, (a, training_steps)
             training_step_min, training_step_max, training_step_marks, training_step_value = create_slider_data_from_list(training_step_value, training_steps)
             type_of_recording_to_batch_index_to_iteration_to_role_to_records = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records[training_step_value]
             types_of_recordings = sorted(list(type_of_recording_to_batch_index_to_iteration_to_role_to_records.keys()))

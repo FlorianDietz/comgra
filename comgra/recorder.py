@@ -420,6 +420,8 @@ class ComgraRecorder:
         ]
         for tensor in final_tensors:
             traverse_graph_backwards(tensor.grad_fn, None)
+        status_and_graph, name_to_tensor_representation_relevant_for_graph_construction = \
+            self.build_global_status_and_graph_and_record_tensor_metadata()
         if self.configuration_type not in self.configuration_type_to_status_and_graph:
             assert sum([len(a.is_a_dependency_of) for a in self.tensor_name_and_iteration_to_representation.values()]) > 0, \
                 "No computational graph could be constructed. " \
@@ -427,7 +429,7 @@ class ComgraRecorder:
             #
             # Construct global status and graph information
             #
-            status_and_graph = self.build_global_status_and_graph()
+            status_and_graph.build_dag_format(self, name_to_tensor_representation_relevant_for_graph_construction)
             # Make sure the graph and global_status are only DERIVED once per run
             self.configuration_type_to_status_and_graph[self.configuration_type] = status_and_graph
             # Make sure the graph and global_status are only SAVED once per set of multiple trials.
@@ -445,7 +447,8 @@ class ComgraRecorder:
             #
             # Verify that the result is identical to previous results.
             #
-            new_version = self.build_global_status_and_graph()
+            new_version, name_to_tensor_representation_relevant_for_graph_construction = self.build_global_status_and_graph_and_record_tensor_metadata()
+            new_version.build_dag_format(self, name_to_tensor_representation_relevant_for_graph_construction)
             path = self.configuration_path / 'status_and_graph.pkl'
             with open(path, 'rb') as f:
                 existing_version: StatusAndGraph = pickle.load(f)
@@ -470,7 +473,7 @@ class ComgraRecorder:
                     assert c == d
 
     @utilities.runtime_analysis_decorator
-    def build_global_status_and_graph(self) -> StatusAndGraph:
+    def build_global_status_and_graph_and_record_tensor_metadata(self) -> Tuple[StatusAndGraph, Dict]:
         nodes = list(dict.fromkeys([
             v.node_name
             for (name, iteration), v in self.tensor_name_and_iteration_to_representation.items()
@@ -513,8 +516,7 @@ class ComgraRecorder:
             nodes=nodes,
             connections=connections,
         )
-        status_and_graph.build_dag_format(self, name_to_tensor_representation_relevant_for_graph_construction)
-        return status_and_graph
+        return status_and_graph, name_to_tensor_representation_relevant_for_graph_construction
 
     @utilities.runtime_analysis_decorator
     def finish_batch(self):

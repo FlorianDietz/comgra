@@ -65,6 +65,27 @@ class TensorRecordings:
     training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records: Dict[int, Dict[str, Dict[Optional[int], Dict[int, Dict[str, Dict[Tuple[str, str, Any], Optional[Union[torch.Tensor, float]]]]]]]] = dataclasses.field(default_factory=dict)
     node_to_role_to_tensor_metadata: Dict[str, Dict[str, TensorMetadata]] = dataclasses.field(default_factory=dict)
 
+    def update_with_more_recordings(self, other: 'TensorRecordings'):
+        my_steps = set(self.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records.keys())
+        other_steps = set(other.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records.keys())
+        assert len(my_steps) + len(other_steps) == len(my_steps | other_steps), \
+            f"The training steps overlap.\n{my_steps}\n{other_steps}"
+        self.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records.update(
+            other.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records
+        )
+        self.training_step_to_iteration_to_configuration_type.update(
+            other.training_step_to_iteration_to_configuration_type
+        )
+        assert len(self.node_to_role_to_tensor_metadata) == len(other.node_to_role_to_tensor_metadata), \
+            f"{len(self.node_to_role_to_tensor_metadata)}\n{len(other.node_to_role_to_tensor_metadata)}"
+        for node, role_to_tensor_metadata in self.node_to_role_to_tensor_metadata.items():
+            other_role_to_tensor_metadata = other.node_to_role_to_tensor_metadata[node]
+            for role, tensor_metadata in role_to_tensor_metadata.items():
+                if role in other_role_to_tensor_metadata:
+                    other_tensor_metadata = other_role_to_tensor_metadata[role]
+                    assert tensor_metadata == other_tensor_metadata
+            role_to_tensor_metadata.update(other_role_to_tensor_metadata)
+
 
 @dataclasses.dataclass
 class StatusAndGraph:
