@@ -52,3 +52,10 @@ def print_total_runtimes():
     names_and_times_and_num_calls.sort(key=lambda a: a[1], reverse=True)
     for name, time, num_calls in names_and_times_and_num_calls:
         print(f"{name:>50} -  {num_calls:>10}  -  {time:>15}")
+
+
+def the(a):
+    lngth = len(a)
+    if lngth != 1:
+        raise ValueError(f"Item should have exactly one element, but has {lngth}")
+    return list(a)[0]

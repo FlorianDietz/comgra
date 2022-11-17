@@ -210,10 +210,6 @@ class DecisionMakerForRecordings(abc.ABC):
     def is_record_on_this_iteration(self, training_step):
         pass
 
-    @abc.abstractmethod
-    def prune_recordings(self, training_step, tensor_recordings: TensorRecordings):
-        pass
-
 
 @dataclasses.dataclass
 class DecisionMakerForRecordingsHardcoded(DecisionMakerForRecordings):
@@ -222,30 +218,25 @@ class DecisionMakerForRecordingsHardcoded(DecisionMakerForRecordings):
     def is_record_on_this_iteration(self, training_step):
         return training_step in self.fixed_training_steps
 
-    def prune_recordings(self, training_step, tensor_recordings: TensorRecordings):
-        pass
 
-
-class DecisionMakerForRecordingsRegularlyDropHalf(DecisionMakerForRecordings):
+class DecisionMakerForRecordingsExponentialFalloff(DecisionMakerForRecordings):
     maximum_number_of_recordings: int
+    current_valid_steps: List
     current_step_size: int = 1
 
     def __init__(self, maximum_number_of_recordings, starting_step_size):
         super().__init__()
         assert maximum_number_of_recordings > 1
         self.maximum_number_of_recordings = maximum_number_of_recordings
+        self.current_valid_steps = []
         self.current_step_size = starting_step_size
 
     def is_record_on_this_iteration(self, training_step):
         if self.current_step_size * (self.maximum_number_of_recordings - 1) < training_step:
             self.current_step_size *= 2
-        return (training_step % self.current_step_size) == 0
-
-    def prune_recordings(self, training_step, tensor_recordings: TensorRecordings):
-        cut_training_steps = [
-            k for k in tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records
-            if k % self.current_step_size != 0
+        self.current_valid_steps = [
+            k for k in self.current_valid_steps
+            if k % self.current_step_size == 0
         ]
-        for k in cut_training_steps:
-            del tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records[k]
-        assert len(tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records) <= self.maximum_number_of_recordings
+        assert len(self.current_valid_steps) <= self.maximum_number_of_recordings
+        return (training_step % self.current_step_size) == 0

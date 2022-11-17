@@ -27,7 +27,8 @@ class ComgraRecorder:
         self.trial_id = trial_id
         self.group_path = comgra_root_path / group
         self.trial_path = self.group_path / 'trials' / trial_id
-        self.trial_path.mkdir(parents=True, exist_ok=True)
+        self.recordings_path = self.trial_path / 'recordings'
+        self.recordings_path.mkdir(parents=True, exist_ok=True)
         self.configuration_type = None
         self.configuration_path = None
         self.prefixes_for_grouping_module_parameters_visually = list(prefixes_for_grouping_module_parameters_visually)
@@ -70,14 +71,14 @@ class ComgraRecorder:
         self.current_stage = 'inactive'
         self.types_of_tensor_recordings = ['forward']
         self.current_type_of_tensor_recording = None
-        self.tensor_recordings = TensorRecordings()
         #
         # Things that are recorded once and then compared to
         #
         self.configuration_type_to_status_and_graph: Dict[str, StatusAndGraph] = {}
         #
-        # Per iteration
+        # Per training_step
         #
+        self.tensor_recordings: Optional[TensorRecordings] = None
         self.is_training_mode = False
         self.training_step = None
         self.iteration = None
@@ -156,6 +157,7 @@ class ComgraRecorder:
         self.tensor_name_to_node_name = {}
         self.tensor_name_and_iteration_to_representation = {}
         self.current_batch_size = current_batch_size
+        self.tensor_recordings = TensorRecordings()
 
     @utilities.runtime_analysis_decorator
     def register_tensor(
@@ -524,9 +526,6 @@ class ComgraRecorder:
         # Convert the TensorRecordings from tensor to float.
         # While doing so, minimize GPU-to-CPU transfers
         #
-        self.decision_maker_for_recordings.prune_recordings(
-            training_step=self.training_step, tensor_recordings=self.tensor_recordings
-        )
         type_of_recording_to_batch_index_to_iteration_to_role_to_records = self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records[self.training_step]
         all_tensors = []
         for batch_index_to_iteration_to_role_to_records in type_of_recording_to_batch_index_to_iteration_to_role_to_records.values():
@@ -546,7 +545,8 @@ class ComgraRecorder:
                             records[key] = list_of_floats[c]
                             c += 1
         assert c == len(list_of_floats)
-        with open(self.trial_path / 'recordings.pkl', 'wb') as f:
+        training_step = utilities.the(self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records.keys())
+        with open(self.recordings_path / f'{training_step}.pkl', 'wb') as f:
             pickle.dump(self.tensor_recordings, f)
         #
         c = 0
