@@ -562,6 +562,6 @@ class ComgraRecorder:
                         for records in role_to_records.values():
                             for _ in records.values():
                                 c += 1
-        print(f"Number of recorded training steps in memory: {len(self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records)}")
-        print(f"Number of tensors to record: {c}")
-        print(f"Recorded training steps: {res}")
+        # print(f"Number of recorded training steps in memory: {len(self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records)}")
+        # print(f"Number of tensors to record: {c}")
+        # print(f"Recorded training steps: {res}")

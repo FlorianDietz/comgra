@@ -51,6 +51,8 @@ from comgra import utilities
 
 utilities.PRINT_EACH_TIME = False
 
+DISPLAY_CONNECTIONS_GRAPHICALLY = False
+DISPLAY_NAMES_ON_NODES_GRAPHICALLY = False
 
 @dataclass
 class VisualizationParameters:
@@ -130,7 +132,6 @@ class Visualization:
         recordings_path = self.path / 'trials' / trials_value / 'recordings'
         recording_files = list(recordings_path.iterdir())
         if len(recording_files) > num_training_steps:
-            print("updating recordings", len(recording_files), num_training_steps, key)
             for recording_file in recording_files:
                 with open(recording_file, 'rb') as f:
                     new_recordings: TensorRecordings = pickle.load(f)
@@ -169,30 +170,31 @@ class Visualization:
                     'left': f'{left}px',
                     'top': f'{top}px',
                     'background': vp.node_type_to_color[node_type]
-                }, title=node[len("node__"):], children=[
-                    f'{node[len("node__"):]}'
-                ]))
+                }, title=node[len("node__"):], children=(
+                    [f'{node[len("node__"):]}'] if DISPLAY_NAMES_ON_NODES_GRAPHICALLY else [])
+                ))
         connection_names_to_source_and_target = {}
         node_to_incoming_and_outgoing_lines = {n: ([], []) for n in sag.nodes}
         svg_connection_lines = []
-        for connection in sag.connections:
-            source, target = tuple(connection)
-            source_left, source_top, _, _ = node_to_corners[source]
-            target_left, target_top, _, _ = node_to_corners[target]
-            source_x = int(source_left + width_per_box)
-            source_y = int(source_top + 0.5 * height_per_box)
-            target_x = int(target_left)
-            target_y = int(target_top + 0.5 * height_per_box)
-            connection_name = self._nodes_to_connection_dash_id(configuration_type, source, target)
-            svg_connection_lines.append(dash_svg.Line(
-                id=connection_name,
-                x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
-                stroke=vp.node_type_to_color[sag.name_to_node[source].type_of_tensor],
-                strokeWidth=1,
-            ))
-            connection_names_to_source_and_target[connection_name] = (source, target)
-            node_to_incoming_and_outgoing_lines[source][1].append(connection_name)
-            node_to_incoming_and_outgoing_lines[target][0].append(connection_name)
+        if DISPLAY_CONNECTIONS_GRAPHICALLY:
+            for connection in sag.connections:
+                source, target = tuple(connection)
+                source_left, source_top, _, _ = node_to_corners[source]
+                target_left, target_top, _, _ = node_to_corners[target]
+                source_x = int(source_left + width_per_box)
+                source_y = int(source_top + 0.5 * height_per_box)
+                target_x = int(target_left)
+                target_y = int(target_top + 0.5 * height_per_box)
+                connection_name = self._nodes_to_connection_dash_id(configuration_type, source, target)
+                svg_connection_lines.append(dash_svg.Line(
+                    id=connection_name,
+                    x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
+                    stroke=vp.node_type_to_color[sag.name_to_node[source].type_of_tensor],
+                    strokeWidth=1,
+                ))
+                connection_names_to_source_and_target[connection_name] = (source, target)
+                node_to_incoming_and_outgoing_lines[source][1].append(connection_name)
+                node_to_incoming_and_outgoing_lines[target][0].append(connection_name)
         elements_of_the_graph.append(dash_svg.Svg(svg_connection_lines, viewBox=f'0 0 {vp.total_display_width} {vp.total_display_height}'))
         return elements_of_the_graph
 

@@ -112,7 +112,6 @@ class StatusAndGraph:
             assert tr.role_within_node not in node_to_tensor_names[tr.node_name], \
                 f"A node has two tensors with the same name in it: {tr.node_name}, {tr.role_within_node}"
             node_to_tensor_names[tr.node_name].append(tr.role_within_node)
-        print(node_to_tensor_names)
         #
         # Logic for grouping:
         # * Inputs first (None of these have dependencies)
@@ -218,7 +217,9 @@ class StatusAndGraph:
                 for to_tensor in all_to_tensors:
                     assert [from_tensor, to_tensor] in self.connections, \
                         f"Not all tensors that were combined into nodes have a connection in common." \
-                        f"\n{from_node}, {to_node}\n{from_tensor}, {to_tensor}"
+                        f"\n{from_node}, {to_node}\n{from_tensor}, {to_tensor}" \
+                        f"\n{[a[0] for a in self.connections if a[1] == to_tensor]}" \
+                        f"\n{[a[1] for a in self.connections if a[0] == from_tensor]}"
         self.connections = node_level_connections
         assert sum([len(a) for a in dag_format]) == len(self.nodes), \
             (sum([len(a) for a in dag_format]), len(self.nodes), dag_format, self.nodes)
