@@ -1,5 +1,6 @@
 import collections
 import dataclasses
+import functools
 import json
 import re
 from pathlib import Path
@@ -255,26 +256,24 @@ class ComgraRecorder:
         tensor_name = tensor_representation.full_unique_name
         value_dimensions = tensor_representation.value_dimensions
         if tensor_representation.recording_type == 'single_value':
+            val = tensor.unsqueeze(0)
             self.store_value_of_tensor_helper(
                 'batch', tensor_representation.iteration,
-                tensor_representation, 'single_value', None, tensor
+                tensor_representation, 'single_value', val,
             )
         else:
             batch_size = self.current_batch_size if self.max_num_batch_size_to_record is None else min(self.current_batch_size, self.max_num_batch_size_to_record)
             batch_indices = ['batch'] + (list(range(batch_size)) if tensor_representation.record_per_batch_index else [])
             assert len(value_dimensions) > 0, tensor_name
-            items_with_metadata = []
+            items = []
             for item in tensor_representation.items_to_record:
                 if item == 'neurons':
                     assert len(value_dimensions) == 1, \
                         "This is not implemented yet for more than 1 dimension. To do so, use a view to combine " \
                         "all dimensions except the batch dimension."
-                    for metadata in range(tensor.shape[value_dimensions[0]]):
-                        items_with_metadata.append((item, metadata))
-                else:
-                    items_with_metadata.append((item, None))
-            for item, metadata in items_with_metadata:
-                # Aggregate over the value dimension, or extract the value at a given index of the value dimension
+                items.append(item)
+            for item in items:
+                # Aggregate over the value dimension
                 if item == 'mean':
                     val = tensor.mean(dim=value_dimensions)
                 elif item == 'abs_mean':
@@ -285,14 +284,11 @@ class ComgraRecorder:
                     val = torch.amax(tensor.abs(), dim=value_dimensions)
                 elif item == 'neurons':
                     assert len(value_dimensions) == 1
-                    if value_dimensions[0] == 0:
-                        val = tensor[metadata, :]
-                    elif value_dimensions[0] == 1:
-                        val = tensor[:, metadata]
-                    else:
-                        assert False, \
-                            f"With the current implementation of this, " \
-                            f"tensors are assumed to have only two dimensions, batch and value."
+                    total_size = functools.reduce((lambda x, y: x * y), [tensor.shape[a] for a in value_dimensions])
+                    # Special case: get all neurons. Make the first axis the batch.
+                    batch_dimension = 1 - value_dimensions[0]
+                    val = tensor.transpose(0, batch_dimension).view(self.current_batch_size, -1)
+                    assert val.shape == (self.current_batch_size, tensor.shape[value_dimensions[0]])
                 else:
                     raise NotImplementedError(item)
                 # Take the mean over the batch, if possible
@@ -300,21 +296,26 @@ class ComgraRecorder:
                     if tensor_representation.index_of_batch_dimension is None:
                         assert val.shape == (), (tensor_name, item, val.shape)
                         assert batch_index == 'batch'
-                        val_specific_to_batch_index = val
+                        val_specific_to_batch_index = val.unsqueeze(0)
                     else:
-                        assert val.shape == (self.current_batch_size,), (tensor_name, item, val.shape)
-                        assert tensor_representation.index_of_batch_dimension is not None or batch_index == 'batch'
-                        if batch_index == 'batch':
-                            val_specific_to_batch_index = val.mean()
+                        if val.shape == (self.current_batch_size,):
+                            assert tensor_representation.index_of_batch_dimension is not None or batch_index == 'batch'
+                            if batch_index == 'batch':
+                                val_specific_to_batch_index = val.mean(0, keepdim=True)
+                            else:
+                                val_specific_to_batch_index = val[batch_index:batch_index+1]
                         else:
-                            val_specific_to_batch_index = val[batch_index]
+                            if batch_index == 'batch':
+                                val_specific_to_batch_index = val.mean(dim=0)
+                            else:
+                                val_specific_to_batch_index = val[batch_index, :]
                     self.store_value_of_tensor_helper(
                         batch_index, tensor_representation.iteration,
-                        tensor_representation, item, metadata, val_specific_to_batch_index
+                        tensor_representation, item, val_specific_to_batch_index
                     )
 
     @utilities.runtime_analysis_decorator
-    def store_value_of_tensor_helper(self, batch_index, iteration, tensor_representation: TensorRepresentation, item, metadata, tensor):
+    def store_value_of_tensor_helper(self, batch_index, iteration, tensor_representation: TensorRepresentation, item, tensor):
         type_of_recording_to_batch_index_to_iteration_to_role_to_records = self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records.setdefault(
             self.training_step, {})
         batch_index_to_iteration_to_role_to_records = type_of_recording_to_batch_index_to_iteration_to_role_to_records.setdefault(
@@ -322,11 +323,11 @@ class ComgraRecorder:
         iteration_to_role_to_records = batch_index_to_iteration_to_role_to_records.setdefault(batch_index, {})
         role_to_records = iteration_to_role_to_records.setdefault(iteration, {})
         records = role_to_records.setdefault(tensor_representation.role_within_node, {})
-        key = (tensor_representation.node_name, item, metadata)
+        key = (tensor_representation.node_name, item,)
         assert key not in records, \
             f"Duplicate tensor recording for {self.training_step}, " \
             f"{self.current_type_of_tensor_recording}, {batch_index}, {key}"
-        assert tensor.shape == (), (tensor.shape, key)
+        assert len(tensor.shape) == 1, (key, batch_index)
         records[key] = tensor
 
     @utilities.runtime_analysis_decorator
@@ -536,16 +537,25 @@ class ComgraRecorder:
                     for records in role_to_records.values():
                         for tensor in records.values():
                             all_tensors.append(tensor)
-        combined_tensor = torch.stack(all_tensors)
+        combined_tensor = torch.cat(all_tensors)
         list_of_floats = combined_tensor.cpu().tolist()
         c = 0
         for batch_index_to_iteration_to_role_to_records in type_of_recording_to_batch_index_to_iteration_to_role_to_records.values():
             for iteration_to_role_to_records in batch_index_to_iteration_to_role_to_records.values():
                 for role_to_records in iteration_to_role_to_records.values():
                     for records in role_to_records.values():
-                        for key in list(records.keys()):
-                            records[key] = list_of_floats[c]
-                            c += 1
+                        for old_key, old_val in list(records.items()):
+                            node_name, item = old_key
+                            if item == 'neurons':
+                                variants = range(old_val.shape[0])
+                                assert len(old_val.shape) == 1, old_val.shape
+                            else:
+                                variants = [None]
+                            for metadata in variants:
+                                new_key = node_name, item, metadata
+                                records[new_key] = list_of_floats[c]
+                                c += 1
+                            del records[old_key]
         assert c == len(list_of_floats)
         training_step = utilities.the(self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records.keys())
         with open(self.recordings_path / f'{training_step}.pkl', 'wb') as f:
