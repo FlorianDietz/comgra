@@ -446,7 +446,9 @@ class Visualization:
             #
             # Display values based on the selected node
             #
-            iteration_to_role_to_records = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records[training_step_value][type_of_recording_value][batch_index_value]
+            batch_index_to_iteration_to_role_to_records = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records[training_step_value][type_of_recording_value]
+            iteration_to_role_to_records, value_is_independent_of_batch_index = self.pick_batch_index_for_nodes_without_batch_index_selection(
+                batch_index_value, node, batch_index_to_iteration_to_role_to_records)
             role_to_records, value_is_independent_of_iterations = self.pick_iteration_for_nodes_without_iteration_selection(
                 iteration_value, node, iteration_to_role_to_records)
             if role_of_tensor_in_node_value is None:
@@ -469,10 +471,11 @@ class Visualization:
                     html.Td(val),
                 ]
                 rows.append(html.Tr(row))
+            desc_text = node.type_of_tensor
+            if value_is_independent_of_batch_index:
+                desc_text += "  -  NOTE: Values are independent of the selected batch index. Displaying values for no selected index."
             if value_is_independent_of_iterations:
-                desc_text = f"{node.type_of_tensor}  -  NOTE: Values are independent of the selected iteration. Displaying values for iteration 0."
-            else:
-                desc_text = node.type_of_tensor
+                desc_text += "  -  NOTE: Values are independent of the selected iteration. Displaying values for iteration 0."
             tensor_shape = recordings.node_to_role_to_tensor_metadata[node.full_unique_name][role_of_tensor_in_node_value].shape
             children = [
                 html.Header(f"{node.full_unique_name} - {role_of_tensor_in_node_value}"),
@@ -481,6 +484,23 @@ class Visualization:
                 html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', 'value']])] + rows)
             ]
             return children, graph_overlay_for_selections_children
+
+    def pick_batch_index_for_nodes_without_batch_index_selection(self, batch_index_value, node, batch_index_to_iteration_to_role_to_records):
+        if node is not None and node.type_of_tensor == 'parameter':
+            iteration_to_role_to_records = batch_index_to_iteration_to_role_to_records['batch']
+            value_is_independent_of_batch_indices = True
+            for batch_index_, iteration_to_role_to_records_ in batch_index_to_iteration_to_role_to_records.items():
+                for iteration, role_to_records_ in iteration_to_role_to_records_.items():
+                    for records_ in role_to_records_.values():
+                        for nn, _, _ in records_.keys():
+                            if nn == node.full_unique_name:
+                                assert batch_index_ == 'batch', \
+                                    f"Should have an entry only for no batch_index.\n" \
+                                    f"{batch_index_}\n{node.full_unique_name}"
+        else:
+            iteration_to_role_to_records = batch_index_to_iteration_to_role_to_records[batch_index_value]
+            value_is_independent_of_batch_indices = False
+        return iteration_to_role_to_records, value_is_independent_of_batch_indices
 
     def pick_iteration_for_nodes_without_iteration_selection(self, iteration_value, node, iteration_to_role_to_records):
         if node is not None and node.type_of_tensor == 'parameter':
