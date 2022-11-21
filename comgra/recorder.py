@@ -21,6 +21,7 @@ class ComgraRecorder:
             prefixes_for_grouping_module_parameters_visually, prefixes_for_grouping_module_parameters_in_nodes,
             parameters_of_trial, decision_maker_for_recordings,
             comgra_is_active=True, max_num_batch_size_to_record=None,
+            max_num_mapping_to_retrieve_at_once=20000,
     ):
         comgra_root_path = Path(comgra_root_path)
         assert comgra_root_path.exists()
@@ -60,6 +61,7 @@ class ComgraRecorder:
                 f"\n{a}"
         self.parameters_of_trial = parameters_of_trial
         self.max_num_batch_size_to_record = max_num_batch_size_to_record
+        self.max_num_mapping_to_retrieve_at_once = max_num_mapping_to_retrieve_at_once
         #
         # Things that get updated
         #
@@ -255,80 +257,66 @@ class ComgraRecorder:
     def store_value_of_tensor(self, tensor: torch.Tensor, tensor_representation: TensorRepresentation):
         tensor_name = tensor_representation.full_unique_name
         value_dimensions = tensor_representation.value_dimensions
+        batch_size_to_record = self.current_batch_size if self.max_num_batch_size_to_record is None else min(
+            self.current_batch_size, self.max_num_batch_size_to_record)
         if tensor_representation.recording_type == 'single_value':
-            val = tensor.unsqueeze(0)
             self.store_value_of_tensor_helper(
-                'batch', tensor_representation.iteration,
-                tensor_representation, 'single_value', val,
+                'has_no_batch_dimension', tensor_representation.iteration,
+                tensor_representation, 'single_value', tensor.unsqueeze(dim=0).unsqueeze(dim=1),
             )
         else:
-            batch_size = self.current_batch_size if self.max_num_batch_size_to_record is None else min(self.current_batch_size, self.max_num_batch_size_to_record)
-            batch_indices = ['batch'] + (list(range(batch_size)) if tensor_representation.record_per_batch_index else [])
             assert len(value_dimensions) > 0, tensor_name
-            items = []
             for item in tensor_representation.items_to_record:
-                if item == 'neurons':
-                    assert len(value_dimensions) == 1, \
-                        "This is not implemented yet for more than 1 dimension. To do so, use a view to combine " \
-                        "all dimensions except the batch dimension."
-                items.append(item)
-            for item in items:
-                # Aggregate over the value dimension
+                if tensor_representation.index_of_batch_dimension is None:
+                    expansion_dim = 0
+                    assert len(tensor.shape) == len(value_dimensions)
+                else:
+                    expansion_dim = 1
+                    assert len(tensor.shape) == 1 + len(value_dimensions)
+                # Aggregate over the value dimensions
                 if item == 'mean':
-                    val = tensor.mean(dim=value_dimensions)
+                    val = tensor.mean(dim=value_dimensions).unsqueeze(dim=expansion_dim)
                 elif item == 'abs_mean':
-                    val = tensor.abs().mean(dim=value_dimensions)
+                    val = tensor.abs().mean(dim=value_dimensions).unsqueeze(dim=expansion_dim)
                 elif item == 'std':
-                    val = tensor.std(dim=value_dimensions)
+                    val = tensor.std(dim=value_dimensions).unsqueeze(dim=expansion_dim)
                 elif item == 'abs_max':
-                    val = torch.amax(tensor.abs(), dim=value_dimensions)
+                    val = torch.amax(tensor.abs(), dim=value_dimensions).unsqueeze(dim=expansion_dim)
                 elif item == 'neurons':
-                    assert len(value_dimensions) == 1
-                    total_size = functools.reduce((lambda x, y: x * y), [tensor.shape[a] for a in value_dimensions])
-                    # Special case: get all neurons. Make the first axis the batch.
-                    batch_dimension = 1 - value_dimensions[0]
-                    val = tensor.transpose(0, batch_dimension).view(self.current_batch_size, -1)
-                    assert val.shape == (self.current_batch_size, tensor.shape[value_dimensions[0]])
+                    assert len(value_dimensions) == 1, \
+                        "This is not implemented for multi-dimensional tensors, as it is unclear how best to portray that."
+                    val = tensor.transpose(0, tensor_representation.index_of_batch_dimension)
+                    assert len(val.shape) == 2 and val.shape[0] == self.current_batch_size, \
+                        (val.shape, tensor_representation.full_unique_name)
                 else:
                     raise NotImplementedError(item)
                 # Take the mean over the batch, if possible
-                for batch_index in batch_indices:
-                    if tensor_representation.index_of_batch_dimension is None:
-                        assert val.shape == (), (tensor_name, item, val.shape)
-                        assert batch_index == 'batch'
-                        val_specific_to_batch_index = val.unsqueeze(0)
+                batching_types = ((['has_no_batch_dimension'] if tensor_representation.index_of_batch_dimension is None else ['batch_mean']) +
+                                  (['individual_batch_indices'] if tensor_representation.record_per_batch_index else []))
+                for batching_type in batching_types:
+                    if batching_type == 'batch_mean':
+                        assert len(val.shape) == 2 and val.shape[0] == self.current_batch_size
+                        val1 = val.mean(dim=0).unsqueeze(dim=0)
+                    elif batching_type == 'has_no_batch_dimension':
+                        assert len(val.shape) == 1, (val.shape, tensor_representation.full_unique_name)
+                        val1 = val.unsqueeze(dim=0)
+                    elif batching_type == 'individual_batch_indices':
+                        assert len(val.shape) == 2 and val.shape[0] == self.current_batch_size, \
+                            (val.shape, self.current_batch_size, batch_size_to_record)
+                        val1 = val[0:batch_size_to_record, :]
                     else:
-                        if val.shape == (self.current_batch_size,):
-                            assert tensor_representation.index_of_batch_dimension is not None or batch_index == 'batch'
-                            if batch_index == 'batch':
-                                val_specific_to_batch_index = val.mean(0, keepdim=True)
-                            else:
-                                val_specific_to_batch_index = val[batch_index:batch_index+1]
-                        else:
-                            if batch_index == 'batch':
-                                val_specific_to_batch_index = val.mean(dim=0)
-                            else:
-                                val_specific_to_batch_index = val[batch_index, :]
+                        assert False, batching_type
                     self.store_value_of_tensor_helper(
-                        batch_index, tensor_representation.iteration,
-                        tensor_representation, item, val_specific_to_batch_index
+                        batching_type, tensor_representation.iteration,
+                        tensor_representation, item, val1,
                     )
 
     @utilities.runtime_analysis_decorator
-    def store_value_of_tensor_helper(self, batch_index, iteration, tensor_representation: TensorRepresentation, item, tensor):
-        type_of_recording_to_batch_index_to_iteration_to_role_to_records = self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records.setdefault(
-            self.training_step, {})
-        batch_index_to_iteration_to_role_to_records = type_of_recording_to_batch_index_to_iteration_to_role_to_records.setdefault(
-            self.current_type_of_tensor_recording, {})
-        iteration_to_role_to_records = batch_index_to_iteration_to_role_to_records.setdefault(batch_index, {})
-        role_to_records = iteration_to_role_to_records.setdefault(iteration, {})
-        records = role_to_records.setdefault(tensor_representation.role_within_node, {})
-        key = (tensor_representation.node_name, item,)
-        assert key not in records, \
-            f"Duplicate tensor recording for {self.training_step}, " \
-            f"{self.current_type_of_tensor_recording}, {batch_index}, {key}"
-        assert len(tensor.shape) == 1, (key, batch_index)
-        records[key] = tensor
+    def store_value_of_tensor_helper(self, batching_type, iteration, tensor_representation: TensorRepresentation, item, tensor):
+        key = (self.training_step, self.current_type_of_tensor_recording, batching_type, iteration, tensor_representation.node_name, tensor_representation.role_within_node, item)
+        assert key not in self.tensor_recordings.mapping_of_tensors_for_extracting_kpis, key
+        assert len(tensor.shape) == 2, (tensor.shape, key)
+        self.tensor_recordings.mapping_of_tensors_for_extracting_kpis[key] = (tensor, tensor_representation)
 
     @utilities.runtime_analysis_decorator
     def start_forward_pass(self, iteration, configuration_type):
@@ -527,51 +515,77 @@ class ComgraRecorder:
             return
         #
         # Convert the TensorRecordings from tensor to float.
-        # While doing so, minimize GPU-to-CPU transfers
+        # While doing so, minimize GPU-to-CPU transfers by batching the tensors,
+        # but don't batch too many at once to avoid overloading memory and causing a crash.
         #
-        type_of_recording_to_batch_index_to_iteration_to_role_to_records = self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records[self.training_step]
-        all_tensors = []
-        for batch_index_to_iteration_to_role_to_records in type_of_recording_to_batch_index_to_iteration_to_role_to_records.values():
-            for iteration_to_role_to_records in batch_index_to_iteration_to_role_to_records.values():
-                for role_to_records in iteration_to_role_to_records.values():
-                    for records in role_to_records.values():
-                        for tensor in records.values():
-                            all_tensors.append(tensor)
-        combined_tensor = torch.cat(all_tensors)
-        list_of_floats = combined_tensor.cpu().tolist()
-        c = 0
-        for batch_index_to_iteration_to_role_to_records in type_of_recording_to_batch_index_to_iteration_to_role_to_records.values():
-            for iteration_to_role_to_records in batch_index_to_iteration_to_role_to_records.values():
-                for role_to_records in iteration_to_role_to_records.values():
-                    for records in role_to_records.values():
-                        for old_key, old_val in list(records.items()):
-                            node_name, item = old_key
-                            if item == 'neurons':
-                                variants = range(old_val.shape[0])
-                                assert len(old_val.shape) == 1, old_val.shape
-                            else:
-                                variants = [None]
-                            for metadata in variants:
-                                new_key = node_name, item, metadata
-                                records[new_key] = list_of_floats[c]
-                                c += 1
-                            del records[old_key]
-        assert c == len(list_of_floats)
-        training_step = utilities.the(self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records.keys())
-        with open(self.recordings_path / f'{training_step}.pkl', 'wb') as f:
-            pickle.dump(self.tensor_recordings, f)
-        #
-        c = 0
-        res = []
-        for ts, type_of_recording_to_batch_index_to_iteration_to_role_to_records in \
-            self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records.items():
-            res.append(ts)
-            for batch_index_to_iteration_to_role_to_records in type_of_recording_to_batch_index_to_iteration_to_role_to_records.values():
-                for iteration_to_role_to_records in batch_index_to_iteration_to_role_to_records.values():
-                    for role_to_records in iteration_to_role_to_records.values():
-                        for records in role_to_records.values():
-                            for _ in records.values():
-                                c += 1
-        # print(f"Number of recorded training steps in memory: {len(self.tensor_recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records)}")
-        # print(f"Number of tensors to record: {c}")
-        # print(f"Recorded training steps: {res}")
+        print(123)
+        print(123)
+        batch_size_to_record = self.current_batch_size if self.max_num_batch_size_to_record is None else min(
+            self.current_batch_size, self.max_num_batch_size_to_record)
+        all_batch_indices = list(range(batch_size_to_record))
+        attributes_for_tensor_recordings = [
+            'training_step', 'type_of_tensor_recording', 'batch_aggregation', 'iteration',
+            'node_name', 'role_within_node', 'item', 'metadata'
+        ]
+        self.tensor_recordings.recordings = utilities.PseudoDb(attributes=attributes_for_tensor_recordings)
+        total_num_mappings = len(self.tensor_recordings.mapping_of_tensors_for_extracting_kpis)
+        print(1, total_num_mappings, int(total_num_mappings / self.max_num_mapping_to_retrieve_at_once))
+        all_tensors_to_combine = []
+        all_keys_to_process = []
+        sanity_check_c = 0
+        file_number = 0
+        for i, (key, (tensor, tensor_representation)) in enumerate(self.tensor_recordings.mapping_of_tensors_for_extracting_kpis.items()):
+            # Store the tensors, and remember in what format to retrieve them again later.
+            training_step, type_of_tensor_recording, batching_type, iteration, node_name, role_within_node, item = key
+            assert training_step == self.training_step
+            assert len(tensor.shape) == 2, (tensor.shape, key)
+            if batching_type == 'individual_batch_indices':
+                batch_values = all_batch_indices
+                assert tensor.shape[0] == batch_size_to_record, (tensor.shape, self.current_batch_size, batch_size_to_record)
+            else:
+                batch_values = [batching_type]
+                assert tensor.shape[0] == 1, (tensor.shape, self.current_batch_size, batch_size_to_record, key)
+            if item == 'neurons':
+                neuron_values = range(tensor.shape[1])
+            else:
+                neuron_values = [None]
+                assert tensor.shape[1] == 1
+            # TODO verify that the order this 2D tensor turns into is correct!
+            all_tensors_to_combine.append(tensor.reshape(-1))
+            assert tensor.numel() == len(batch_values) * len(neuron_values), (tensor.shape, len(batch_values), len(neuron_values))
+            assert tensor.numel() == tensor.reshape(-1).numel()
+            for batch_value in batch_values:
+                for neuron_value in neuron_values:
+                    metadata = neuron_value
+                    final_key = training_step, type_of_tensor_recording, batch_value, iteration, node_name, role_within_node, item, metadata
+                    all_keys_to_process.append(final_key)
+            # Combine and retrieve once enough tensors have been accumulated
+            if i % self.max_num_mapping_to_retrieve_at_once == 0 or i == total_num_mappings - 1:
+                print(111)
+                combined_tensor = torch.cat(all_tensors_to_combine)
+                assert len(combined_tensor.shape) == 1
+                print(112)
+                list_of_floats = combined_tensor.cpu().tolist()
+                assert len(list_of_floats) == len(all_keys_to_process), (len(list_of_floats), len(all_keys_to_process))
+                for key_to_process, float_value in zip(all_keys_to_process, list_of_floats):
+                    self.tensor_recordings.recordings.add_record(key_to_process, float_value)
+                    sanity_check_c += 1
+                all_tensors_to_combine = []
+                all_keys_to_process = []
+                print(2, len(list_of_floats), sanity_check_c)
+                print(i, total_num_mappings)
+                print(678)
+                recordings_path_folder = self.recordings_path / f'{self.training_step}'
+                # recordings_path_folder.mkdir(exist_ok=True)
+                # with open(recordings_path_folder / f'{file_number}.pkl', 'wb') as f:
+                #     pickle.dump(self.tensor_recordings, f, protocol=5)
+                file_number += 1
+                print(567)
+                self.tensor_recordings.recordings = utilities.PseudoDb(attributes=attributes_for_tensor_recordings)
+                print(678)
+        print(234)
+        assert len(all_tensors_to_combine) == 0
+        total_number_of_tensor_values = sum(t.numel() for t, tr in self.tensor_recordings.mapping_of_tensors_for_extracting_kpis.values())
+        assert sanity_check_c == total_number_of_tensor_values, (sanity_check_c, total_number_of_tensor_values)
+        self.tensor_recordings.mapping_of_tensors_for_extracting_kpis = {}
+        print(999)

@@ -1,6 +1,6 @@
 import collections
 from datetime import datetime, timedelta
-
+from typing import List, Any, Tuple, Dict, Set
 
 PRINT_EACH_TIME = False
 
@@ -59,3 +59,37 @@ def the(a):
     if lngth != 1:
         raise ValueError(f"Item should have exactly one element, but has {lngth}")
     return list(a)[0]
+
+
+class WildcardForComparison:
+    def __init__(self):
+        pass
+
+    def __eq__(self, other):
+        return isinstance(other, WildcardForComparison)
+
+class PseudoDb:
+    def __init__(self, attributes):
+        self.attributes: List[str] = attributes
+        self.record_set: Dict[Tuple, Any] = {}
+
+    def add_record(self, attr_values, result):
+        assert len(attr_values) == len(self.attributes)
+        assert attr_values not in self.record_set, attr_values
+        self.record_set[attr_values] = result
+
+    def get_matches(self, filters: Dict[str, Any]):
+        filters_with_indices = {self.attributes.index(k): v for k, v in filters.items()}
+        list_of_matches = []
+        possible_attribute_values = {k: set() for k in self.attributes}
+        for attr_values, result in self.record_set.items():
+            matches = True
+            for idx, filter_value in filters_with_indices.items():
+                if attr_values[idx] != filter_value or isinstance(attr_values[idx], WildcardForComparison):
+                    matches = False
+                    break
+            if matches:
+                list_of_matches.append((attr_values, result))
+                for attr_name, attr_val in zip(self.attributes, attr_values):
+                    possible_attribute_values[attr_name].add(attr_val)
+        return list_of_matches, possible_attribute_values

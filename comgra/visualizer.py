@@ -141,7 +141,6 @@ class Visualization:
                         recordings.update_with_more_recordings(new_recordings)
             num_training_steps = len(recording_files)
             self.cache_for_tensor_recordings[key] = (recordings, num_training_steps)
-        assert num_training_steps == len(recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records)
         return recordings
 
     @utilities.runtime_analysis_decorator
