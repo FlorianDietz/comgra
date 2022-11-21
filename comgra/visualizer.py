@@ -456,6 +456,7 @@ class Visualization:
                     for (n, _, _) in v.keys()
                     if n == node.full_unique_name
                 ]))
+                assert len(possible_roles) == 1, (len(possible_roles), node.full_unique_name)
                 role_of_tensor_in_node_value = possible_roles[0]
             records = role_to_records[role_of_tensor_in_node_value]
             rows = []

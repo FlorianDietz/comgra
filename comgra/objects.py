@@ -83,7 +83,7 @@ class TensorRecordings:
             for role, tensor_metadata in role_to_tensor_metadata.items():
                 if role in other_role_to_tensor_metadata:
                     other_tensor_metadata = other_role_to_tensor_metadata[role]
-                    assert tensor_metadata == other_tensor_metadata
+                    assert tensor_metadata == other_tensor_metadata, (node, role, tensor_metadata, other_tensor_metadata)
             role_to_tensor_metadata.update(other_role_to_tensor_metadata)
 
 
