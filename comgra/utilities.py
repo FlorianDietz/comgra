@@ -68,10 +68,45 @@ class WildcardForComparison:
     def __eq__(self, other):
         return isinstance(other, WildcardForComparison)
 
+
 class PseudoDb:
     def __init__(self, attributes):
         self.attributes: List[str] = attributes
         self.record_set: Dict[Tuple, Any] = {}
+
+    def merge(self, other: 'PseudoDb'):
+        # Sanity checks
+        assert self.attributes == other.attributes
+        my_recs = {a[0] for a in self.get_matches({})[0]}
+        other_recs = {a[0] for a in other.get_matches({})[0]}
+        assert all(len(a) == len(self.attributes) for a in my_recs)
+        assert all(len(a) == len(self.attributes) for a in other_recs)
+        merged_recs = my_recs | other_recs
+        assert len(my_recs) + len(other_recs) == len(merged_recs), "The recordings overlap."
+        # Update
+        self.record_set.update(other.record_set)
+
+    def serialize(self):
+        frequent_values = {}
+        encoded_records = []
+        for key, val in self.record_set.items():
+            encoded_keys = []
+            for attr, attr_val in zip(self.attributes, key):
+                if attr_val not in frequent_values:
+                    frequent_values[attr_val] = attr_val
+                encoded_keys.append(frequent_values[attr_val])
+            encoded_records.append([encoded_keys, val])
+        frequent_values = {v: k for k, v in frequent_values.items()}
+        res = [self.attributes, frequent_values, encoded_records]
+        return res
+
+    def deserialize(self, json_data):
+        attributes, frequent_values, encoded_records = tuple(json_data)
+        self.attributes = attributes
+        self.record_set = {
+            tuple([frequent_values[a] for a in val[0]]): val[1] for val in encoded_records
+        }
+        return self
 
     def add_record(self, attr_values, result):
         assert len(attr_values) == len(self.attributes)

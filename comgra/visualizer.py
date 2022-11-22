@@ -132,13 +132,17 @@ class Visualization:
         recordings_path = self.path / 'trials' / trials_value / 'recordings'
         recording_files = list(recordings_path.iterdir())
         if len(recording_files) > num_training_steps:
-            for recording_file in recording_files:
-                with open(recording_file, 'rb') as f:
-                    new_recordings: TensorRecordings = pickle.load(f)
-                    if recordings is None:
-                        recordings = new_recordings
-                    else:
-                        recordings.update_with_more_recordings(new_recordings)
+            for subfiles in recording_files:
+                subfiles = subfiles.iterdir()
+                for recording_file in subfiles:
+                    with open(recording_file, 'r') as f:
+                        new_recordings_json = json.load(f)
+                        new_recordings: TensorRecordings = TensorRecordings(**new_recordings_json)
+                        new_recordings.recordings = utilities.PseudoDb([]).deserialize(new_recordings.recordings)
+                        if recordings is None:
+                            recordings = new_recordings
+                        else:
+                            recordings.update_with_more_recordings(new_recordings)
             num_training_steps = len(recording_files)
             self.cache_for_tensor_recordings[key] = (recordings, num_training_steps)
         return recordings

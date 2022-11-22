@@ -528,13 +528,15 @@ class ComgraRecorder:
             'node_name', 'role_within_node', 'item', 'metadata'
         ]
         self.tensor_recordings.recordings = utilities.PseudoDb(attributes=attributes_for_tensor_recordings)
-        total_num_mappings = len(self.tensor_recordings.mapping_of_tensors_for_extracting_kpis)
+        mapping_of_tensors_for_extracting_kpis = self.tensor_recordings.mapping_of_tensors_for_extracting_kpis
+        self.tensor_recordings.mapping_of_tensors_for_extracting_kpis = {}
+        total_num_mappings = len(mapping_of_tensors_for_extracting_kpis)
         print(1, total_num_mappings, int(total_num_mappings / self.max_num_mapping_to_retrieve_at_once))
         all_tensors_to_combine = []
         all_keys_to_process = []
         sanity_check_c = 0
         file_number = 0
-        for i, (key, (tensor, tensor_representation)) in enumerate(self.tensor_recordings.mapping_of_tensors_for_extracting_kpis.items()):
+        for i, (key, (tensor, tensor_representation)) in enumerate(mapping_of_tensors_for_extracting_kpis.items()):
             # Store the tensors, and remember in what format to retrieve them again later.
             training_step, type_of_tensor_recording, batching_type, iteration, node_name, role_within_node, item = key
             assert training_step == self.training_step
@@ -576,16 +578,17 @@ class ComgraRecorder:
                 print(i, total_num_mappings)
                 print(678)
                 recordings_path_folder = self.recordings_path / f'{self.training_step}'
-                # recordings_path_folder.mkdir(exist_ok=True)
-                # with open(recordings_path_folder / f'{file_number}.pkl', 'wb') as f:
-                #     pickle.dump(self.tensor_recordings, f, protocol=5)
+                recordings_path_folder.mkdir(exist_ok=True)
+                with open(recordings_path_folder / f'{file_number}.json', 'w') as f:
+                    dump_dict = dataclasses.asdict(self.tensor_recordings)
+                    dump_dict['recordings'] = dump_dict['recordings'].serialize()
+                    json.dump(dump_dict, f)
                 file_number += 1
                 print(567)
                 self.tensor_recordings.recordings = utilities.PseudoDb(attributes=attributes_for_tensor_recordings)
                 print(678)
         print(234)
         assert len(all_tensors_to_combine) == 0
-        total_number_of_tensor_values = sum(t.numel() for t, tr in self.tensor_recordings.mapping_of_tensors_for_extracting_kpis.values())
+        total_number_of_tensor_values = sum(t.numel() for t, tr in mapping_of_tensors_for_extracting_kpis.values())
         assert sanity_check_c == total_number_of_tensor_values, (sanity_check_c, total_number_of_tensor_values)
-        self.tensor_recordings.mapping_of_tensors_for_extracting_kpis = {}
         print(999)

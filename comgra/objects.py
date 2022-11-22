@@ -70,16 +70,7 @@ class TensorRecordings:
 
     @utilities.runtime_analysis_decorator
     def update_with_more_recordings(self, other: 'TensorRecordings'):
-        # Sanity checks
-        assert self.recordings.attributes == other.recordings.attributes
-        my_recs = {a[0] for a in self.recordings.get_matches({})[0]}
-        other_recs = {a[0] for a in other.recordings.get_matches({})[0]}
-        assert all(len(a) == len(self.recordings.attributes) for a in my_recs)
-        assert all(len(a) == len(self.recordings.attributes) for a in other_recs)
-        merged_recs = my_recs | other_recs
-        assert len(my_recs) + len(other_recs) == len(merged_recs), "The recordings overlap."
-        # Update
-        self.recordings.record_set.extend(other.recordings.record_set)
+        self.recordings.merge(other.recordings)
 
 
 @dataclasses.dataclass
