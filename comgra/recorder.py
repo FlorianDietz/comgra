@@ -549,7 +549,6 @@ class ComgraRecorder:
             else:
                 neuron_values = [None]
                 assert tensor.shape[1] == 1
-            # TODO verify that the order this 2D tensor turns into is correct!
             all_tensors_to_combine.append(tensor.reshape(-1))
             assert tensor.numel() == len(batch_values) * len(neuron_values), (tensor.shape, len(batch_values), len(neuron_values))
             assert tensor.numel() == tensor.reshape(-1).numel()

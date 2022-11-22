@@ -46,7 +46,7 @@ import plotly.express as px
 import pandas as pd
 import torch
 
-from comgra.objects import StatusAndGraph, ModuleRepresentation, ParameterRepresentation, TensorRepresentation, TensorRecordings
+from comgra.objects import StatusAndGraph, ModuleRepresentation, ParameterRepresentation, TensorRepresentation, TensorRecordings, TensorMetadata
 from comgra import utilities
 
 utilities.PRINT_EACH_TIME = True
@@ -143,6 +143,18 @@ class Visualization:
                             new_recordings_json = json.load(f)
                             new_recordings: TensorRecordings = TensorRecordings(**new_recordings_json)
                             new_recordings.recordings = utilities.PseudoDb([]).deserialize(new_recordings.recordings)
+                            new_recordings.training_step_to_iteration_to_configuration_type = {
+                                int(k1): {
+                                    int(k2): v2 for k2, v2 in v1.items()
+                                }
+                                for k1, v1 in new_recordings.training_step_to_iteration_to_configuration_type.items()
+                            }
+                            new_recordings.node_to_role_to_tensor_metadata = {
+                                k1: {
+                                    k2: TensorMetadata(**v2) for k2, v2 in v1.items()
+                                }
+                                for k1, v1 in new_recordings.node_to_role_to_tensor_metadata.items()
+                            }
                             if recordings is None:
                                 recordings = new_recordings
                             else:
@@ -296,77 +308,120 @@ class Visualization:
                 iteration_value, role_of_tensor_in_node_value
         ):
             recordings = self.get_recordings_with_caching(trials_value)
+
             def create_slider_data_from_list(value, options_list):
                 assert value in options_list, (value, options_list)
                 options_list = sorted(options_list)
                 marks = {a: str(a) for a in options_list}
                 min_, max_ = (options_list[0], options_list[-1]) if options_list else (0, 100)
                 return min_, max_, marks, value
+
             def create_options_and_value_from_list(value, options_list, label_maker=lambda a: str(a)):
                 assert value in options_list, (value, options_list)
                 options = [{'label': label_maker(a), 'value': a} for a in options_list]
                 return options, value
 
+            def query_database_using_current_values(attributes_to_ignore, current_params_dict_for_querying_database):
+                filters = {}
+                for name, val in current_params_dict_for_querying_database.items():
+                    if val is not None and name not in attributes_to_ignore:
+                        filters[name] = val
+                list_of_matches, possible_attribute_values = db.get_matches(filters)
+                return list_of_matches, possible_attribute_values
             #
             # Selection of valid values for control elements.
             #
-            # Training steps come from file names.
+            # Training steps come from file names,
+            # while all other attributes are held by the contents of the files that training steps are named after.
             recordings_path = self.path / 'trials' / trials_value / 'recordings'
             recording_files = list(recordings_path.iterdir())
             training_steps = sorted([int(a.stem) for a in recording_files])
             assert len(training_steps) > 0
             training_step_min, training_step_max, training_step_marks, training_step_value = create_slider_data_from_list(
                 training_step_value if training_step_value is not None else training_steps[0], training_steps)
-            # All other attributes are held by the contents of the files that training steps are named after.
+            #
+            # Query the database to determine the best-fitting record to set the current value.
+            #
             db: utilities.PseudoDb = recordings.recordings
-            filters = {}
-            for name, val in [
-                ('training_step', training_step_value),
-                ('type_of_tensor_recording', type_of_recording_value),
-                ('batch_aggregation', batch_index_value),
-                ('iteration', iteration_value),
-                ('node_name', name_of_selected_node),
-                ('role_within_node', role_of_tensor_in_node_value),
-                ('item', None),
-                ('metadata', None),
-            ]:
-                if val is not None:
-                    filters[name] = val
-            print('filters', filters)
-            list_of_matches, possible_attribute_values = db.get_matches(filters)
-            assert len(list_of_matches) > 0
-            selected_record_values = {
-                attr: val
-                for attr, val in zip(db.attributes, list_of_matches[0][0])
+            current_params_dict_for_querying_database = {
+                'training_step': training_step_value,
+                'type_of_tensor_recording': type_of_recording_value,
+                'batch_aggregation': batch_index_value,
+                'iteration': iteration_value,
+                'node_name': name_of_selected_node,
+                'role_within_node': role_of_tensor_in_node_value,
+                'item': None,
+                'metadata': None,
             }
-            print('matches', len(list_of_matches))
-            print(list_of_matches[:3])
-            print('possible_attribute_values', len(possible_attribute_values))
-            print(list(possible_attribute_values.keys()))
-            print(possible_attribute_values)
+            list_of_matches = []
+            attributes_to_ignore_in_order = ['role_within_node', 'batch_aggregation', 'type_of_tensor_recording', 'training_step', 'iteration']
+            for i in range(len(attributes_to_ignore_in_order) + 1):
+                # If it is not possible to find a match, set the filters to None one by one until a match is found.
+                # This can happen e.g. if you select a different node
+                # and there is no role_within_node for which that is valid
+                list_of_matches, _ = query_database_using_current_values(
+                    attributes_to_ignore_in_order[:i], current_params_dict_for_querying_database
+                )
+                if list_of_matches:
+                    break
+            assert list_of_matches
+            selected_record_values = tuple(list_of_matches[0][0])
+            training_step_value, type_of_recording_value, batch_index_value, iteration_value, name_of_selected_node, role_of_tensor_in_node_value, item, metadata = selected_record_values
+            for attr, val in zip(db.attributes, selected_record_values):
+                assert attr in current_params_dict_for_querying_database, attr
+                current_params_dict_for_querying_database[attr] = val
+            #
+            # Query a second time, using that record as the filter,
+            # to determine which alternative values are legal for each attribute.
+            #
+            print(123)
             print(selected_record_values)
-            assert selected_record_values['training_step'] == training_step_value, (training_step_value, selected_record_values)
-            type_of_recording_options, type_of_recording_value = create_options_and_value_from_list(
-                selected_record_values['type_of_tensor_recording'], possible_attribute_values['type_of_tensor_recording'],
+            print(current_params_dict_for_querying_database)
+            _, possible_attribute_values = query_database_using_current_values(
+                [], current_params_dict_for_querying_database
             )
+            print(possible_attribute_values)
+            # Query a third time:
+            # We want to always display all possible values for some of the selectors
+            # based on only the training_step, and not the concrete values of the record.
+            current_params_dict_for_querying_database = {
+                'training_step': training_step_value,
+                'type_of_tensor_recording': None,
+                'batch_aggregation': None,
+                'iteration': None,
+                'node_name': None,
+                'role_within_node': None,
+                'item': None,
+                'metadata': None,
+            }
+            _, override_possible_attribute_values = query_database_using_current_values(
+                [], current_params_dict_for_querying_database
+            )
+            for attr in ['iteration', 'batch_aggregation']:
+                assert all(a in override_possible_attribute_values[attr] for a in possible_attribute_values[attr]), \
+                    (possible_attribute_values, override_possible_attribute_values)
+                possible_attribute_values[attr] = override_possible_attribute_values[attr]
+            # Get the values to return
+            type_of_recording_options, type_of_recording_value = create_options_and_value_from_list(
+                type_of_recording_value, possible_attribute_values['type_of_tensor_recording'],
+            )
+            type_of_recording_options.sort(key=lambda a: a['value'])
             batch_index_options, batch_index_value = create_options_and_value_from_list(
-                selected_record_values['batch_aggregation'], possible_attribute_values['batch_aggregation'],
+                batch_index_value, possible_attribute_values['batch_aggregation'],
                 label_maker=lambda a: "Mean over the batch" if a == 'batch_mean' else ("Has no batch dimension" if a == 'has_no_batch_dimension' else f"batch index {a}")
             )
+            batch_index_options.sort(key=lambda a: -1 if a['value'] == 'batch_mean' else (-2 if a['value'] == 'has_no_batch_dimension' else a['value']))
             iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
-                selected_record_values['iteration'], possible_attribute_values['iteration'],
+                iteration_value, possible_attribute_values['iteration'],
             )
             role_of_tensor_in_node_options, role_of_tensor_in_node_value = create_options_and_value_from_list(
-                selected_record_values['role_within_node'], possible_attribute_values['role_within_node'],
+                role_of_tensor_in_node_value, possible_attribute_values['role_within_node'],
             )
+            role_of_tensor_in_node_options.sort(key=lambda a: a['value'])
             #
-            # Graph
+            # Hide or show different graphs
             #
-            assert False, "Current problem is that training steps and iterations turn into strings at some point."
-            print(123, recordings.training_step_to_iteration_to_configuration_type)
             configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][iteration_value]
-            sag = self.configuration_type_to_status_and_graph[configuration_type]
-            node = sag.name_to_node.get(name_of_selected_node, None)
             graph_container_visibilities = [
                 'active' if conf_type == configuration_type else 'inactive'
                 for conf_type in self.configuration_type_to_status_and_graph.keys()
@@ -478,36 +533,34 @@ class Visualization:
             #
             # Display values based on the selected node
             #
-            batch_index_to_iteration_to_role_to_records = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records[training_step_value][type_of_recording_value]
-            iteration_to_role_to_records, value_is_independent_of_batch_index = self.pick_batch_index_for_nodes_without_batch_index_selection(
-                batch_index_value, node, batch_index_to_iteration_to_role_to_records)
-            role_to_records, value_is_independent_of_iterations = self.pick_iteration_for_nodes_without_iteration_selection(
-                iteration_value, node, iteration_to_role_to_records)
-            if role_of_tensor_in_node_value is None:
-                possible_roles = list(dict.fromkeys([
-                    role
-                    for role, v in role_to_records.items()
-                    for (n, _, _) in v.keys()
-                    if n == node.full_unique_name
-                ]))
-                assert len(possible_roles) == 1, (len(possible_roles), node.full_unique_name)
-                role_of_tensor_in_node_value = possible_roles[0]
-            records = role_to_records[role_of_tensor_in_node_value]
+            db: utilities.PseudoDb = recordings.recordings
+            filters = {}
+            for name, val in [
+                ('training_step', training_step_value),
+                ('type_of_tensor_recording', type_of_recording_value),
+                ('batch_aggregation', batch_index_value),
+                ('iteration', iteration_value),
+                ('node_name', node_name),
+                ('role_within_node', role_of_tensor_in_node_value),
+                ('item', None),
+                ('metadata', None),
+            ]:
+                if val is not None:
+                    filters[name] = val
+                assert name in ['item', 'metadata'] or val is not None, (name,)
+            list_of_matches, possible_attribute_values = db.get_matches(filters)
+            assert len(list_of_matches) > 0
             rows = []
-            for (nn, item, metadata), val in records.items():
-                if nn != node_name:
-                    continue
+            index_of_item = db.attributes.index('item')
+            index_of_metadata = db.attributes.index('metadata')
+            for key, val in list_of_matches:
                 row = [
-                    html.Td(item),
-                    html.Td(metadata),
+                    html.Td(key[index_of_item]),
+                    html.Td(key[index_of_metadata]),
                     html.Td(val),
                 ]
                 rows.append(html.Tr(row))
             desc_text = node.type_of_tensor
-            if value_is_independent_of_batch_index:
-                desc_text += "  -  NOTE: Values are independent of the selected batch index. Displaying values for no selected index."
-            if value_is_independent_of_iterations:
-                desc_text += "  -  NOTE: Values are independent of the selected iteration. Displaying values for iteration 0."
             tensor_shape = recordings.node_to_role_to_tensor_metadata[node.full_unique_name][role_of_tensor_in_node_value].shape
             children = [
                 html.Header(f"{node.full_unique_name} - {role_of_tensor_in_node_value}"),
@@ -516,36 +569,3 @@ class Visualization:
                 html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', 'value']])] + rows)
             ]
             return children, graph_overlay_for_selections_children
-
-    def pick_batch_index_for_nodes_without_batch_index_selection(self, batch_index_value, node, batch_index_to_iteration_to_role_to_records):
-        if node is not None and node.type_of_tensor == 'parameter':
-            iteration_to_role_to_records = batch_index_to_iteration_to_role_to_records['batch']
-            value_is_independent_of_batch_indices = True
-            for batch_index_, iteration_to_role_to_records_ in batch_index_to_iteration_to_role_to_records.items():
-                for iteration, role_to_records_ in iteration_to_role_to_records_.items():
-                    for records_ in role_to_records_.values():
-                        for nn, _, _ in records_.keys():
-                            if nn == node.full_unique_name:
-                                assert batch_index_ == 'batch', \
-                                    f"Should have an entry only for no batch_index.\n" \
-                                    f"{batch_index_}\n{node.full_unique_name}"
-        else:
-            iteration_to_role_to_records = batch_index_to_iteration_to_role_to_records[batch_index_value]
-            value_is_independent_of_batch_indices = False
-        return iteration_to_role_to_records, value_is_independent_of_batch_indices
-
-    def pick_iteration_for_nodes_without_iteration_selection(self, iteration_value, node, iteration_to_role_to_records):
-        if node is not None and node.type_of_tensor == 'parameter':
-            role_to_records = iteration_to_role_to_records[0]
-            value_is_independent_of_iterations = True
-            for iteration, role_to_records_ in iteration_to_role_to_records.items():
-                for records_ in role_to_records_.values():
-                    for nn, _, _ in records_.keys():
-                        if nn == node.full_unique_name:
-                            assert iteration == 0, \
-                                f"Should have an entry only for iteration 0.\n" \
-                                f"{iteration}\n{node.full_unique_name}"
-        else:
-            role_to_records = iteration_to_role_to_records[iteration_value]
-            value_is_independent_of_iterations = False
-        return role_to_records, value_is_independent_of_iterations
