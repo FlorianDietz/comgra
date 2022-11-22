@@ -49,10 +49,13 @@ import torch
 from comgra.objects import StatusAndGraph, ModuleRepresentation, ParameterRepresentation, TensorRepresentation, TensorRecordings
 from comgra import utilities
 
-utilities.PRINT_EACH_TIME = False
+utilities.PRINT_EACH_TIME = True
 
 DISPLAY_CONNECTIONS_GRAPHICALLY = False
 DISPLAY_NAMES_ON_NODES_GRAPHICALLY = False
+
+LOCK_FOR_RECORDINGS = threading.Lock()
+
 
 @dataclass
 class VisualizationParameters:
@@ -127,25 +130,26 @@ class Visualization:
 
     @utilities.runtime_analysis_decorator
     def get_recordings_with_caching(self, trials_value) -> TensorRecordings:
-        key = (trials_value,)
-        recordings, num_training_steps = self.cache_for_tensor_recordings.get(key, (None, 0))
-        recordings_path = self.path / 'trials' / trials_value / 'recordings'
-        recording_files = list(recordings_path.iterdir())
-        if len(recording_files) > num_training_steps:
-            for subfiles in recording_files:
-                subfiles = subfiles.iterdir()
-                for recording_file in subfiles:
-                    with open(recording_file, 'r') as f:
-                        new_recordings_json = json.load(f)
-                        new_recordings: TensorRecordings = TensorRecordings(**new_recordings_json)
-                        new_recordings.recordings = utilities.PseudoDb([]).deserialize(new_recordings.recordings)
-                        if recordings is None:
-                            recordings = new_recordings
-                        else:
-                            recordings.update_with_more_recordings(new_recordings)
-            num_training_steps = len(recording_files)
-            self.cache_for_tensor_recordings[key] = (recordings, num_training_steps)
-        return recordings
+        with LOCK_FOR_RECORDINGS:
+            key = (trials_value,)
+            recordings, num_training_steps = self.cache_for_tensor_recordings.get(key, (None, 0))
+            recordings_path = self.path / 'trials' / trials_value / 'recordings'
+            recording_files = sorted(list(recordings_path.iterdir()))
+            if len(recording_files) > num_training_steps:
+                for subfiles in recording_files:
+                    subfiles = sorted(list(subfiles.iterdir()))
+                    for recording_file in subfiles:
+                        with open(recording_file, 'r') as f:
+                            new_recordings_json = json.load(f)
+                            new_recordings: TensorRecordings = TensorRecordings(**new_recordings_json)
+                            new_recordings.recordings = utilities.PseudoDb([]).deserialize(new_recordings.recordings)
+                            if recordings is None:
+                                recordings = new_recordings
+                            else:
+                                recordings.update_with_more_recordings(new_recordings)
+                num_training_steps = len(recording_files)
+                self.cache_for_tensor_recordings[key] = (recordings, num_training_steps)
+            return recordings
 
     @utilities.runtime_analysis_decorator
     def create_nodes_and_arrows(

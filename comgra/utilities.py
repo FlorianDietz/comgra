@@ -93,15 +93,16 @@ class PseudoDb:
             encoded_keys = []
             for attr, attr_val in zip(self.attributes, key):
                 if attr_val not in frequent_values:
-                    frequent_values[attr_val] = attr_val
+                    frequent_values[attr_val] = len(frequent_values)
                 encoded_keys.append(frequent_values[attr_val])
             encoded_records.append([encoded_keys, val])
-        frequent_values = {v: k for k, v in frequent_values.items()}
+        frequent_values = {str(v): k for k, v in frequent_values.items()}
         res = [self.attributes, frequent_values, encoded_records]
         return res
 
     def deserialize(self, json_data):
         attributes, frequent_values, encoded_records = tuple(json_data)
+        frequent_values = {int(k): v for k, v in frequent_values.items()}
         self.attributes = attributes
         self.record_set = {
             tuple([frequent_values[a] for a in val[0]]): val[1] for val in encoded_records
@@ -113,7 +114,7 @@ class PseudoDb:
         assert attr_values not in self.record_set, attr_values
         self.record_set[attr_values] = result
 
-    def get_matches(self, filters: Dict[str, Any]):
+    def get_matches(self, filters: Dict[str, Any]) -> Tuple[List[Tuple[Tuple[Any, ...], Any]], Dict[str, Set]]:
         filters_with_indices = {self.attributes.index(k): v for k, v in filters.items()}
         list_of_matches = []
         possible_attribute_values = {k: set() for k in self.attributes}
