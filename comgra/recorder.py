@@ -518,8 +518,6 @@ class ComgraRecorder:
         # While doing so, minimize GPU-to-CPU transfers by batching the tensors,
         # but don't batch too many at once to avoid overloading memory and causing a crash.
         #
-        print(123)
-        print(123)
         batch_size_to_record = self.current_batch_size if self.max_num_batch_size_to_record is None else min(
             self.current_batch_size, self.max_num_batch_size_to_record)
         all_batch_indices = list(range(batch_size_to_record))
@@ -531,7 +529,6 @@ class ComgraRecorder:
         mapping_of_tensors_for_extracting_kpis = self.tensor_recordings.mapping_of_tensors_for_extracting_kpis
         self.tensor_recordings.mapping_of_tensors_for_extracting_kpis = {}
         total_num_mappings = len(mapping_of_tensors_for_extracting_kpis)
-        print(1, total_num_mappings, int(total_num_mappings / self.max_num_mapping_to_retrieve_at_once))
         all_tensors_to_combine = []
         all_keys_to_process = []
         sanity_check_c = 0
@@ -563,10 +560,8 @@ class ComgraRecorder:
                     all_keys_to_process.append(final_key)
             # Combine and retrieve once enough tensors have been accumulated
             if i % self.max_num_mapping_to_retrieve_at_once == 0 or i == total_num_mappings - 1:
-                print(111)
                 combined_tensor = torch.cat(all_tensors_to_combine)
                 assert len(combined_tensor.shape) == 1
-                print(112)
                 list_of_floats = combined_tensor.cpu().tolist()
                 assert len(list_of_floats) == len(all_keys_to_process), (len(list_of_floats), len(all_keys_to_process))
                 for key_to_process, float_value in zip(all_keys_to_process, list_of_floats):
@@ -574,9 +569,6 @@ class ComgraRecorder:
                     sanity_check_c += 1
                 all_tensors_to_combine = []
                 all_keys_to_process = []
-                print(2, len(list_of_floats), sanity_check_c)
-                print(i, total_num_mappings)
-                print(678)
                 recordings_path_folder = self.recordings_path / f'{self.training_step}'
                 recordings_path_folder.mkdir(exist_ok=True)
                 with open(recordings_path_folder / f'{file_number}.json', 'w') as f:
@@ -584,11 +576,7 @@ class ComgraRecorder:
                     dump_dict['recordings'] = dump_dict['recordings'].serialize()
                     json.dump(dump_dict, f)
                 file_number += 1
-                print(567)
                 self.tensor_recordings.recordings = utilities.PseudoDb(attributes=attributes_for_tensor_recordings)
-                print(678)
-        print(234)
         assert len(all_tensors_to_combine) == 0
         total_number_of_tensor_values = sum(t.numel() for t, tr in mapping_of_tensors_for_extracting_kpis.values())
         assert sanity_check_c == total_number_of_tensor_values, (sanity_check_c, total_number_of_tensor_values)
-        print(999)
