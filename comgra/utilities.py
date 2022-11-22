@@ -118,14 +118,22 @@ class PseudoDb:
         filters_with_indices = {self.attributes.index(k): v for k, v in filters.items()}
         list_of_matches = []
         possible_attribute_values = {k: set() for k in self.attributes}
+        # TODO possible_attribute_values should contain a value if the filter on that attribute (if one is given) is the only reason it isn't a match
         for attr_values, result in self.record_set.items():
-            matches = True
+            num_mismatches = 0
             for idx, filter_value in filters_with_indices.items():
-                if attr_values[idx] != filter_value or isinstance(attr_values[idx], WildcardForComparison):
-                    matches = False
-                    break
-            if matches:
+                if attr_values[idx] != filter_value and not isinstance(attr_values[idx], WildcardForComparison):
+                    num_mismatches += 1
+                    if num_mismatches == 2:
+                        break
+            if num_mismatches == 0:
                 list_of_matches.append((attr_values, result))
-                for attr_name, attr_val in zip(self.attributes, attr_values):
-                    possible_attribute_values[attr_name].add(attr_val)
+            if num_mismatches < 2:
+                for idx, attr_name, in enumerate(self.attributes):
+                    # If the record either matches, or doesn't match but only because of the attribute in question,
+                    # then that attribute value is a legal value for selection.
+                    if num_mismatches == 0 or \
+                            (num_mismatches == 1 and idx in filters_with_indices and
+                             (attr_values[idx] != filters_with_indices[idx] and not isinstance(attr_values[idx], WildcardForComparison))):
+                        possible_attribute_values[attr_name].add(attr_values[idx])
         return list_of_matches, possible_attribute_values

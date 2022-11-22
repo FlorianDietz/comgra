@@ -296,40 +296,74 @@ class Visualization:
                 iteration_value, role_of_tensor_in_node_value
         ):
             recordings = self.get_recordings_with_caching(trials_value)
-            def create_slider_data_from_list(previous_value, options_list):
+            def create_slider_data_from_list(value, options_list):
+                assert value in options_list, (value, options_list)
                 options_list = sorted(options_list)
-                val = previous_value if previous_value in options_list else (options_list[0] if options_list else None)
                 marks = {a: str(a) for a in options_list}
                 min_, max_ = (options_list[0], options_list[-1]) if options_list else (0, 100)
-                return min_, max_, marks, val
-            def create_options_and_value_from_list(previous_value, options_list, label_maker=lambda a: str(a)):
-                val = previous_value if previous_value in options_list else (options_list[0] if options_list else None)
+                return min_, max_, marks, value
+            def create_options_and_value_from_list(value, options_list, label_maker=lambda a: str(a)):
+                assert value in options_list, (value, options_list)
                 options = [{'label': label_maker(a), 'value': a} for a in options_list]
-                return options, val
+                return options, value
 
+            #
+            # Selection of valid values for control elements.
+            #
+            # Training steps come from file names.
             recordings_path = self.path / 'trials' / trials_value / 'recordings'
             recording_files = list(recordings_path.iterdir())
             training_steps = sorted([int(a.stem) for a in recording_files])
             assert len(training_steps) > 0
-            loaded_training_steps = sorted(list(recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records.keys()))
-            for a in loaded_training_steps:
-                assert a in training_steps, (a, training_steps)
-            training_step_min, training_step_max, training_step_marks, training_step_value = create_slider_data_from_list(training_step_value, training_steps)
-            type_of_recording_to_batch_index_to_iteration_to_role_to_records = recordings.training_step_to_type_of_recording_to_batch_index_to_iteration_to_role_to_records[training_step_value]
-            types_of_recordings = sorted(list(type_of_recording_to_batch_index_to_iteration_to_role_to_records.keys()))
-            assert len(types_of_recordings) > 0
-            type_of_recording_options, type_of_recording_value = create_options_and_value_from_list(type_of_recording_value, types_of_recordings)
-            batch_index_to_iteration_to_role_to_records = type_of_recording_to_batch_index_to_iteration_to_role_to_records[type_of_recording_value]
-            batch_indices = sorted(list(batch_index_to_iteration_to_role_to_records.keys()), key=lambda x: -1 if isinstance(x, str) else x)
-            assert len(batch_indices) > 0
-            batch_index_options, batch_index_value = create_options_and_value_from_list(
-                batch_index_value, batch_indices,
-                label_maker=lambda a: "mean over the batch" if a == 'batch' else f"batch index {a}"
+            training_step_min, training_step_max, training_step_marks, training_step_value = create_slider_data_from_list(
+                training_step_value if training_step_value is not None else training_steps[0], training_steps)
+            # All other attributes are held by the contents of the files that training steps are named after.
+            db: utilities.PseudoDb = recordings.recordings
+            filters = {}
+            for name, val in [
+                ('training_step', training_step_value),
+                ('type_of_tensor_recording', type_of_recording_value),
+                ('batch_aggregation', batch_index_value),
+                ('iteration', iteration_value),
+                ('node_name', name_of_selected_node),
+                ('role_within_node', role_of_tensor_in_node_value),
+                ('item', None),
+                ('metadata', None),
+            ]:
+                if val is not None:
+                    filters[name] = val
+            print('filters', filters)
+            list_of_matches, possible_attribute_values = db.get_matches(filters)
+            assert len(list_of_matches) > 0
+            selected_record_values = {
+                attr: val
+                for attr, val in zip(db.attributes, list_of_matches[0][0])
+            }
+            print('matches', len(list_of_matches))
+            print(list_of_matches[:3])
+            print('possible_attribute_values', len(possible_attribute_values))
+            print(list(possible_attribute_values.keys()))
+            print(possible_attribute_values)
+            print(selected_record_values)
+            assert selected_record_values['training_step'] == training_step_value, (training_step_value, selected_record_values)
+            type_of_recording_options, type_of_recording_value = create_options_and_value_from_list(
+                selected_record_values['type_of_tensor_recording'], possible_attribute_values['type_of_tensor_recording'],
             )
-            iteration_to_role_to_records = batch_index_to_iteration_to_role_to_records[batch_index_value]
-            iteration_steps = sorted(list(iteration_to_role_to_records.keys()))
-            assert len(iteration_steps) > 0
-            iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(iteration_value, iteration_steps)
+            batch_index_options, batch_index_value = create_options_and_value_from_list(
+                selected_record_values['batch_aggregation'], possible_attribute_values['batch_aggregation'],
+                label_maker=lambda a: "Mean over the batch" if a == 'batch_mean' else ("Has no batch dimension" if a == 'has_no_batch_dimension' else f"batch index {a}")
+            )
+            iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
+                selected_record_values['iteration'], possible_attribute_values['iteration'],
+            )
+            role_of_tensor_in_node_options, role_of_tensor_in_node_value = create_options_and_value_from_list(
+                selected_record_values['role_within_node'], possible_attribute_values['role_within_node'],
+            )
+            #
+            # Graph
+            #
+            assert False, "Current problem is that training steps and iterations turn into strings at some point."
+            print(123, recordings.training_step_to_iteration_to_configuration_type)
             configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][iteration_value]
             sag = self.configuration_type_to_status_and_graph[configuration_type]
             node = sag.name_to_node.get(name_of_selected_node, None)
@@ -337,15 +371,6 @@ class Visualization:
                 'active' if conf_type == configuration_type else 'inactive'
                 for conf_type in self.configuration_type_to_status_and_graph.keys()
             ]
-            role_to_records, value_is_independent_of_iterations = self.pick_iteration_for_nodes_without_iteration_selection(
-                iteration_value, node, iteration_to_role_to_records)
-            possible_roles = list(dict.fromkeys([
-                role
-                for role, v in role_to_records.items()
-                for (node, _, _) in v.keys()
-                if node == name_of_selected_node
-            ]))
-            role_of_tensor_in_node_options, role_of_tensor_in_node_value = create_options_and_value_from_list(role_of_tensor_in_node_value, possible_roles)
             res = [
                       training_step_min, training_step_max, training_step_marks, training_step_value,
                       type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value,
