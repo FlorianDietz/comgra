@@ -96,6 +96,7 @@ class Visualization:
         self.app = dash.Dash(__name__, assets_folder=str(assets_path))
         self.configuration_type_to_status_and_graph: Dict[str, StatusAndGraph] = {}
         self.configuration_type_to_node_to_corners: Dict[str, Dict[str, Tuple[int, int, int, int]]] = {}
+        self.configuration_type_to_grid_of_nodes: Dict[str, List[List[str]]] = {}
         self._sanity_check_cache_to_avoid_duplicates = {}
         self.cache_for_tensor_recordings = {}
 
@@ -169,12 +170,16 @@ class Visualization:
     ) -> List:
         assert configuration_type not in self.configuration_type_to_node_to_corners, configuration_type
         node_to_corners = self.configuration_type_to_node_to_corners.setdefault(configuration_type, {})
+        grid_of_nodes = self.configuration_type_to_grid_of_nodes.setdefault(configuration_type, [])
         highest_number_of_nodes = max(len(a) for a in sag.dag_format)
         height_per_box = int((vp.total_display_height - vp.padding_top - vp.padding_bottom) / (highest_number_of_nodes + (highest_number_of_nodes - 1) * vp.ratio_of_space_between_nodes_to_node_size))
         width_per_box = int((vp.total_display_width - vp.padding_left - vp.padding_right) / (len(sag.dag_format) + (len(sag.dag_format) - 1) * vp.ratio_of_space_between_nodes_to_node_size))
         elements_of_the_graph = []
         for i, nodes in enumerate(sag.dag_format):
+            list_of_nodes_for_grid = []
+            grid_of_nodes.append(list_of_nodes_for_grid)
             for j, node in enumerate(nodes):
+                list_of_nodes_for_grid.append(node)
                 left = int(vp.padding_left + i * (1 + vp.ratio_of_space_between_nodes_to_node_size) * width_per_box)
                 top = int(vp.padding_top + j * (1 + vp.ratio_of_space_between_nodes_to_node_size) * height_per_box)
                 right = int(left + width_per_box)
@@ -251,7 +256,13 @@ class Visualization:
             ]),
             dcc.Tooltip(id="graph-tooltip"),
             html.Div(id='controls-container', children=[
-                html.Button('Refresh', id='refresh-button', n_clicks=0),
+                html.Div(id='controls-buttons-container', children=[
+                    html.Button('Refresh', id='refresh-button', n_clicks=0),
+                    html.Button('Left', id='navigate-left-button', n_clicks=0),
+                    html.Button('Right', id='navigate-right-button', n_clicks=0),
+                    html.Button('Up', id='navigate-up-button', n_clicks=0),
+                    html.Button('Down', id='navigate-down-button', n_clicks=0),
+                ]),
                 dcc.Dropdown(id='trials-dropdown', options=[], value=None),
                 dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None),
                 dcc.RadioItems(id='type-of-recording-radio-buttons', options=[], value=None),
@@ -437,7 +448,12 @@ class Visualization:
         @app.callback(Output('dummy-for-selecting-a-node', 'className'),
                       [Input('trials-dropdown', 'value'),
                        Input('training-step-slider', 'value'),
-                       Input('iteration-slider', 'value')] +
+                       Input('iteration-slider', 'value'),
+                       Input('dummy-for-selecting-a-node', 'className'),
+                       Input('navigate-left-button', 'n_clicks_timestamp'),
+                       Input('navigate-right-button', 'n_clicks_timestamp'),
+                       Input('navigate-up-button', 'n_clicks_timestamp'),
+                       Input('navigate-down-button', 'n_clicks_timestamp')] +
                       [Input(self._node_name_to_dash_id(configuration_type, node), 'n_clicks_timestamp')
                        for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
                        for node in sag.name_to_node.keys()])
@@ -446,7 +462,9 @@ class Visualization:
             trials_value = lsts[0]
             training_step_value = lsts[1]
             iteration_value = lsts[2]
-            clicks_per_object = lsts[3:]
+            previous_name_of_selected_node = lsts[3]
+            navigation_button_clicks = lsts[4:8]
+            clicks_per_node = lsts[8:]
             recordings = self.get_recordings_with_caching(trials_value)
             names = [
                 node
@@ -458,15 +476,61 @@ class Visualization:
                 node for node in
                 self.configuration_type_to_status_and_graph[selected_configuration_type].name_to_node.keys()
             }
-            assert len(clicks_per_object) == len(names)
-            # Identify the most recently clicked object
-            max_index = [0 if a is None else 1 for a in names].index(1)
-            max_val = 0
-            for i, (clicks, name) in enumerate(zip(clicks_per_object, names)):
-                if name in names_that_exist_in_the_selected_configuration and clicks is not None and clicks > max_val:
-                    max_val = clicks
-                    max_index = i
-            name_of_selected_node = names[max_index]
+            assert len(clicks_per_node) == len(names)
+            # Identify the most recently clicked navigation button
+            max_index_navigation = -1
+            max_val_navigation = 0
+            for i, clicks in enumerate(navigation_button_clicks):
+                if clicks is not None and clicks > max_val_navigation:
+                    max_val_navigation = clicks
+                    max_index_navigation = i
+            # Identify the most recently clicked nodes
+            max_index_nodes = [0 if a is None else 1 for a in names].index(1)
+            max_val_nodes = 0
+            for i, (clicks, name) in enumerate(zip(clicks_per_node, names)):
+                if name in names_that_exist_in_the_selected_configuration and clicks is not None and clicks > max_val_nodes:
+                    max_val_nodes = clicks
+                    max_index_nodes = i
+            # Select a node based either on navigation buttons or based on clicking on that node,
+            # whichever happened more recently.
+            if max_val_nodes >= max_val_navigation:
+                name_of_selected_node = names[max_index_nodes]
+            else:
+                print(345)
+                assert previous_name_of_selected_node is not None
+                grid_of_nodes = self.configuration_type_to_grid_of_nodes[selected_configuration_type]
+                x, y = None, None
+                for x, column in enumerate(grid_of_nodes):
+                    for y, nn in enumerate(column):
+                        if nn == previous_name_of_selected_node:
+                            break
+                    else:
+                        continue
+                    break
+                print(x, y, previous_name_of_selected_node)
+                # left / right
+                if max_index_navigation == 0:
+                    x -= 1
+                elif max_index_navigation == 1:
+                    x += 1
+                if x < 0:
+                    x = len(grid_of_nodes) - 1
+                if x >= len(grid_of_nodes):
+                    x = 0
+                column = grid_of_nodes[x]
+                if y >= len(column):
+                    y = len(column) - 1
+                # up / down
+                if max_index_navigation == 2:
+                    y -= 1
+                elif max_index_navigation == 3:
+                    y += 1
+                if y < 0:
+                    y = len(column) - 1
+                if y >= len(column):
+                    y = 0
+                name_of_selected_node = column[y]
+                print(x, y, name_of_selected_node)
             assert name_of_selected_node is not None
             return name_of_selected_node
 

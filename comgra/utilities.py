@@ -106,6 +106,7 @@ class PseudoDb:
         assert attr_values not in self.record_set, attr_values
         self.record_set[attr_values] = result
 
+    @runtime_analysis_decorator
     def get_matches(self, filters: Dict[str, Any]) -> Tuple[List[Tuple[Tuple[Any, ...], Any]], Dict[str, Set]]:
         filters_with_indices = {self.attributes.index(k): v for k, v in filters.items()}
         list_of_matches = []
