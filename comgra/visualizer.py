@@ -496,7 +496,6 @@ class Visualization:
             if max_val_nodes >= max_val_navigation:
                 name_of_selected_node = names[max_index_nodes]
             else:
-                print(345)
                 assert previous_name_of_selected_node is not None
                 grid_of_nodes = self.configuration_type_to_grid_of_nodes[selected_configuration_type]
                 x, y = None, None
@@ -507,7 +506,6 @@ class Visualization:
                     else:
                         continue
                     break
-                print(x, y, previous_name_of_selected_node)
                 # left / right
                 if max_index_navigation == 0:
                     x -= 1
@@ -530,7 +528,6 @@ class Visualization:
                 if y >= len(column):
                     y = 0
                 name_of_selected_node = column[y]
-                print(x, y, name_of_selected_node)
             assert name_of_selected_node is not None
             return name_of_selected_node
 
