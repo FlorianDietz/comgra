@@ -100,6 +100,7 @@ class Visualization:
         self._sanity_check_cache_to_avoid_duplicates = {}
         self.cache_for_tensor_recordings = {}
         self.attribute_selection_fallback_values = collections.defaultdict(list)
+        self.last_navigation_click_event_time = -1
 
     def _node_name_to_dash_id(self, configuration_type, node_name):
         conversion = node_name.replace('.', '__')
@@ -387,7 +388,6 @@ class Visualization:
             # but you would like to return to your previous selection when you select a previously selected node again.
             # Logic: Switch to the last possible value in the fallback list, unless that is the very last element.
             # Then update the fallback list by removing all alternative values, and add the new selected value to the end of it.
-            # TODO batch 0. right. left. batch mean. --> [0, has_no__batch_dimension, 0]
             print(123)
             attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid = ['iteration', 'batch_aggregation', 'role_within_node']
             for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
@@ -406,12 +406,16 @@ class Visualization:
                     )
                     assert list_of_matches
                     selected_record_values = tuple(list_of_matches[0][0])
-                    for attr, val in zip(db.attributes, selected_record_values):
-                        assert attr in current_params_dict_for_querying_database, attr
-                        current_params_dict_for_querying_database[attr] = val
+                    for attr_, val_ in zip(db.attributes, selected_record_values):
+                        assert attr_ in current_params_dict_for_querying_database, attr_
+                        current_params_dict_for_querying_database[attr_] = val_
+                print(555)
+                print(possible_attribute_values[attr])
+                print(fallback_list)
                 for a in possible_attribute_values[attr]:
                     while a in fallback_list:
                         fallback_list.remove(a)
+                print(fallback_list)
             for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
                 fallback_list = self.attribute_selection_fallback_values[attr]
                 val = current_params_dict_for_querying_database[attr]
@@ -513,7 +517,8 @@ class Visualization:
             # whichever happened more recently.
             if max_val_nodes >= max_val_navigation:
                 name_of_selected_node = names[max_index_nodes]
-            else:
+            elif max_val_navigation > self.last_navigation_click_event_time:
+                self.last_navigation_click_event_time = max_val_navigation
                 assert previous_name_of_selected_node is not None
                 grid_of_nodes = self.configuration_type_to_grid_of_nodes[selected_configuration_type]
                 x, y = None, None
@@ -546,6 +551,8 @@ class Visualization:
                 if y >= len(column):
                     y = 0
                 name_of_selected_node = column[y]
+            else:
+                name_of_selected_node = previous_name_of_selected_node
             assert name_of_selected_node is not None
             return name_of_selected_node
 
@@ -565,6 +572,7 @@ class Visualization:
                 node_name, trials_value, training_step_value, type_of_recording_value,
                 batch_index_value, iteration_value, role_of_tensor_in_node_value,
         ):
+            print('select node', node_name)
             recordings = self.get_recordings_with_caching(trials_value)
             configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][iteration_value]
             sag = self.configuration_type_to_status_and_graph[configuration_type]
