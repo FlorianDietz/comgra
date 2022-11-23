@@ -99,6 +99,7 @@ class Visualization:
         self.configuration_type_to_grid_of_nodes: Dict[str, List[List[str]]] = {}
         self._sanity_check_cache_to_avoid_duplicates = {}
         self.cache_for_tensor_recordings = {}
+        self.attribute_selection_fallback_values = collections.defaultdict(list)
 
     def _node_name_to_dash_id(self, configuration_type, node_name):
         conversion = node_name.replace('.', '__')
@@ -365,53 +366,70 @@ class Visualization:
                 'metadata': None,
             }
             list_of_matches = []
+            possible_attribute_values = {}
             attributes_to_ignore_in_order = ['role_within_node', 'batch_aggregation', 'type_of_tensor_recording', 'training_step', 'iteration']
             for i in range(len(attributes_to_ignore_in_order) + 1):
                 # If it is not possible to find a match, set the filters to None one by one until a match is found.
                 # This can happen e.g. if you select a different node
                 # and there is no role_within_node for which that is valid
-                list_of_matches, _ = query_database_using_current_values(
+                list_of_matches, possible_attribute_values = query_database_using_current_values(
                     attributes_to_ignore_in_order[:i], current_params_dict_for_querying_database
                 )
                 if list_of_matches:
                     break
             assert list_of_matches
             selected_record_values = tuple(list_of_matches[0][0])
-            training_step_value, type_of_recording_value, batch_index_value, iteration_value, name_of_selected_node, role_of_tensor_in_node_value, item, metadata = selected_record_values
             for attr, val in zip(db.attributes, selected_record_values):
                 assert attr in current_params_dict_for_querying_database, attr
                 current_params_dict_for_querying_database[attr] = val
+            # Use fallback values if possible.
+            # This is useful if you e.g. switch between nodes in such a way that some selections are temporarily invalid,
+            # but you would like to return to your previous selection when you select a previously selected node again.
+            # Logic: Switch to the last possible value in the fallback list, unless that is the very last element.
+            # Then update the fallback list by removing all alternative values, and add the new selected value to the end of it.
+            # TODO batch 0. right. left. batch mean. --> [0, has_no__batch_dimension, 0]
+            print(123)
+            attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid = ['iteration', 'batch_aggregation', 'role_within_node']
+            for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
+                print(123, attr)
+                print(current_params_dict_for_querying_database)
+                fallback_list = self.attribute_selection_fallback_values[attr]
+                val = current_params_dict_for_querying_database[attr]
+                value_to_switch_to = next((a for a in fallback_list[::-1] if a in possible_attribute_values[attr]), None)
+                print(fallback_list)
+                print(val, value_to_switch_to)
+                if value_to_switch_to is not None and val != value_to_switch_to and value_to_switch_to != fallback_list[-1]:
+                    print('switch', attr, val, value_to_switch_to)
+                    current_params_dict_for_querying_database[attr] = value_to_switch_to
+                    list_of_matches, possible_attribute_values = query_database_using_current_values(
+                        [], current_params_dict_for_querying_database
+                    )
+                    assert list_of_matches
+                    selected_record_values = tuple(list_of_matches[0][0])
+                    for attr, val in zip(db.attributes, selected_record_values):
+                        assert attr in current_params_dict_for_querying_database, attr
+                        current_params_dict_for_querying_database[attr] = val
+                for a in possible_attribute_values[attr]:
+                    while a in fallback_list:
+                        fallback_list.remove(a)
+            for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
+                fallback_list = self.attribute_selection_fallback_values[attr]
+                val = current_params_dict_for_querying_database[attr]
+                fallback_list.append(val)
+            print('attribute_selection_fallback_values', self.attribute_selection_fallback_values)
+            # Get the values of the selected record
+            training_step_value, type_of_recording_value, batch_index_value, iteration_value, name_of_selected_node, role_of_tensor_in_node_value, item, metadata = selected_record_values
             #
-            # Query a second time, using that record as the filter,
+            # Query again, using that record as the filter,
             # to determine which alternative values are legal for each attribute.
             #
-            print(123)
+            print(999)
             print(selected_record_values)
             print(current_params_dict_for_querying_database)
             _, possible_attribute_values = query_database_using_current_values(
                 [], current_params_dict_for_querying_database
             )
             print(possible_attribute_values)
-            # Query a third time:
-            # We want to always display all possible values for some of the selectors
-            # based on only the training_step, and not the concrete values of the record.
-            current_params_dict_for_querying_database = {
-                'training_step': training_step_value,
-                'type_of_tensor_recording': None,
-                'batch_aggregation': None,
-                'iteration': None,
-                'node_name': None,
-                'role_within_node': None,
-                'item': None,
-                'metadata': None,
-            }
-            _, override_possible_attribute_values = query_database_using_current_values(
-                [], current_params_dict_for_querying_database
-            )
-            for attr in ['iteration', 'batch_aggregation']:
-                assert all(a in override_possible_attribute_values[attr] for a in possible_attribute_values[attr]), \
-                    (possible_attribute_values, override_possible_attribute_values)
-                possible_attribute_values[attr] = override_possible_attribute_values[attr]
             # Get the values to return
             type_of_recording_options, type_of_recording_value = create_options_and_value_from_list(
                 type_of_recording_value, possible_attribute_values['type_of_tensor_recording'],
@@ -610,6 +628,8 @@ class Visualization:
                     filters[name] = val
                 assert name in ['item', 'metadata'] or val is not None, (name,)
             list_of_matches, possible_attribute_values = db.get_matches(filters)
+            print(888, filters)
+            print(possible_attribute_values)
             assert len(list_of_matches) > 0
             rows = []
             index_of_item = db.attributes.index('item')
