@@ -321,6 +321,20 @@ class Visualization:
                 iteration_value, role_of_tensor_in_node_value
         ):
             recordings = self.get_recordings_with_caching(trials_value)
+            is_parameter_node = False
+            original_iteration_value = iteration_value
+            if name_of_selected_node is not None:
+                # Special handling for parameters:
+                # They are independent of iterations, and all their values are stored for iteration 0.
+                # But we do not want to change the iteration slider when they are selected,
+                # and also the layout of the graph may actually change when the iteration changes,
+                # so that should be avoided as well.
+                configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][
+                    iteration_value]
+                sag = self.configuration_type_to_status_and_graph[configuration_type]
+                node = sag.name_to_node[name_of_selected_node]
+                if node.type_of_tensor == 'parameter':
+                    is_parameter_node = True
 
             def create_slider_data_from_list(value, options_list):
                 assert value in options_list, (value, options_list)
@@ -360,7 +374,7 @@ class Visualization:
                 'training_step': training_step_value,
                 'type_of_tensor_recording': type_of_recording_value,
                 'batch_aggregation': batch_index_value,
-                'iteration': iteration_value,
+                'iteration': None if is_parameter_node else iteration_value,
                 'node_name': name_of_selected_node,
                 'role_within_node': role_of_tensor_in_node_value,
                 'item': None,
@@ -444,9 +458,14 @@ class Visualization:
                 label_maker=lambda a: "Mean over the batch" if a == 'batch_mean' else ("Has no batch dimension" if a == 'has_no_batch_dimension' else f"batch index {a}")
             )
             batch_index_options.sort(key=lambda a: -1 if a['value'] == 'batch_mean' else (-2 if a['value'] == 'has_no_batch_dimension' else a['value']))
-            iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
-                iteration_value, possible_attribute_values['iteration'],
-            )
+            if is_parameter_node:
+                iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
+                    original_iteration_value, list(recordings.training_step_to_iteration_to_configuration_type[training_step_value].keys()),
+                )
+            else:
+                iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
+                    iteration_value, possible_attribute_values['iteration'],
+                )
             role_of_tensor_in_node_options, role_of_tensor_in_node_value = create_options_and_value_from_list(
                 role_of_tensor_in_node_value, possible_attribute_values['role_within_node'],
             )
@@ -576,6 +595,15 @@ class Visualization:
             recordings = self.get_recordings_with_caching(trials_value)
             configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][iteration_value]
             sag = self.configuration_type_to_status_and_graph[configuration_type]
+            if node_name is not None:
+                # Special handling for parameters:
+                # They are independent of iterations, and all their values are stored for iteration 0.
+                # But we do not want to change the iteration slider when they are selected,
+                # and also the layout of the graph may actually change when the iteration changes,
+                # so that should be avoided as well.
+                node = sag.name_to_node[node_name]
+                if node.type_of_tensor == 'parameter':
+                    iteration_value = 0
             #
             # Select the node and visually highlight it.
             #
