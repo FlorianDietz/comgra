@@ -558,7 +558,7 @@ class ComgraRecorder:
                     final_key = training_step, type_of_tensor_recording, batch_value, iteration, node_name, role_within_node, item, metadata
                     all_keys_to_process.append(final_key)
             # Combine and retrieve once enough tensors have been accumulated
-            if i % self.max_num_mapping_to_retrieve_at_once == 0 or i == total_num_mappings - 1:
+            if (i + 1) % self.max_num_mapping_to_retrieve_at_once == 0 or i == total_num_mappings - 1:
                 combined_tensor = torch.cat(all_tensors_to_combine)
                 assert len(combined_tensor.shape) == 1
                 list_of_floats = combined_tensor.cpu().tolist()
