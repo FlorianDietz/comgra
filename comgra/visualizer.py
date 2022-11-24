@@ -132,38 +132,35 @@ class Visualization:
         self.app.run_server(debug=True, port=port)
 
     @utilities.runtime_analysis_decorator
-    def get_recordings_with_caching(self, trials_value) -> TensorRecordings:
+    def get_recordings_with_caching(self, trials_value, training_step_value) -> TensorRecordings:
         with LOCK_FOR_RECORDINGS:
-            key = (trials_value,)
-            recordings, num_training_steps = self.cache_for_tensor_recordings.get(key, (None, 0))
-            recordings_path = self.path / 'trials' / trials_value / 'recordings'
-            recording_files = sorted(list(recordings_path.iterdir()))
-            if len(recording_files) > num_training_steps:
-                for subfiles in recording_files:
-                    subfiles = sorted(list(subfiles.iterdir()))
-                    for recording_file in subfiles:
-                        with open(recording_file, 'r') as f:
-                            new_recordings_json = json.load(f)
-                            new_recordings: TensorRecordings = TensorRecordings(**new_recordings_json)
-                            new_recordings.recordings = utilities.PseudoDb([]).deserialize(new_recordings.recordings)
-                            new_recordings.training_step_to_iteration_to_configuration_type = {
-                                int(k1): {
-                                    int(k2): v2 for k2, v2 in v1.items()
-                                }
-                                for k1, v1 in new_recordings.training_step_to_iteration_to_configuration_type.items()
+            key = (trials_value, training_step_value,)
+            recordings = self.cache_for_tensor_recordings.get(key, None)
+            if recordings is None:
+                recordings_path = self.path / 'trials' / trials_value / 'recordings' / f'{training_step_value}'
+                recording_files = sorted(list(recordings_path.iterdir()))
+                for recording_file in recording_files:
+                    with open(recording_file, 'r') as f:
+                        new_recordings_json = json.load(f)
+                        new_recordings: TensorRecordings = TensorRecordings(**new_recordings_json)
+                        new_recordings.recordings = utilities.PseudoDb([]).deserialize(new_recordings.recordings)
+                        new_recordings.training_step_to_iteration_to_configuration_type = {
+                            int(k1): {
+                                int(k2): v2 for k2, v2 in v1.items()
                             }
-                            new_recordings.node_to_role_to_tensor_metadata = {
-                                k1: {
-                                    k2: TensorMetadata(**v2) for k2, v2 in v1.items()
-                                }
-                                for k1, v1 in new_recordings.node_to_role_to_tensor_metadata.items()
+                            for k1, v1 in new_recordings.training_step_to_iteration_to_configuration_type.items()
+                        }
+                        new_recordings.node_to_role_to_tensor_metadata = {
+                            k1: {
+                                k2: TensorMetadata(**v2) for k2, v2 in v1.items()
                             }
-                            if recordings is None:
-                                recordings = new_recordings
-                            else:
-                                recordings.update_with_more_recordings(new_recordings)
-                num_training_steps = len(recording_files)
-                self.cache_for_tensor_recordings[key] = (recordings, num_training_steps)
+                            for k1, v1 in new_recordings.node_to_role_to_tensor_metadata.items()
+                        }
+                        if recordings is None:
+                            recordings = new_recordings
+                        else:
+                            recordings.update_with_more_recordings(new_recordings)
+                self.cache_for_tensor_recordings[key] = recordings
             return recordings
 
     @utilities.runtime_analysis_decorator
@@ -320,21 +317,6 @@ class Visualization:
                 trials_value, training_step_value, type_of_recording_value, batch_index_value,
                 iteration_value, role_of_tensor_in_node_value
         ):
-            recordings = self.get_recordings_with_caching(trials_value)
-            is_parameter_node = False
-            original_iteration_value = iteration_value
-            if name_of_selected_node is not None:
-                # Special handling for parameters:
-                # They are independent of iterations, and all their values are stored for iteration 0.
-                # But we do not want to change the iteration slider when they are selected,
-                # and also the layout of the graph may actually change when the iteration changes,
-                # so that should be avoided as well.
-                configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][
-                    iteration_value]
-                sag = self.configuration_type_to_status_and_graph[configuration_type]
-                node = sag.name_to_node[name_of_selected_node]
-                if node.type_of_tensor == 'parameter':
-                    is_parameter_node = True
 
             def create_slider_data_from_list(value, options_list):
                 assert value in options_list, (value, options_list)
@@ -356,7 +338,7 @@ class Visualization:
                 list_of_matches, possible_attribute_values = db.get_matches(filters)
                 return list_of_matches, possible_attribute_values
             #
-            # Selection of valid values for control elements.
+            # Selection of valid values for training steps.
             #
             # Training steps come from file names,
             # while all other attributes are held by the contents of the files that training steps are named after.
@@ -366,6 +348,24 @@ class Visualization:
             assert len(training_steps) > 0
             training_step_min, training_step_max, training_step_marks, training_step_value = create_slider_data_from_list(
                 training_step_value if training_step_value is not None else training_steps[0], training_steps)
+            #
+            # Get the recordings.
+            #
+            recordings = self.get_recordings_with_caching(trials_value, training_step_value)
+            is_parameter_node = False
+            original_iteration_value = iteration_value
+            if name_of_selected_node is not None:
+                # Special handling for parameters:
+                # They are independent of iterations, and all their values are stored for iteration 0.
+                # But we do not want to change the iteration slider when they are selected,
+                # and also the layout of the graph may actually change when the iteration changes,
+                # so that should be avoided as well.
+                configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][
+                    iteration_value]
+                sag = self.configuration_type_to_status_and_graph[configuration_type]
+                node = sag.name_to_node[name_of_selected_node]
+                if node.type_of_tensor == 'parameter':
+                    is_parameter_node = True
             #
             # Query the database to determine the best-fitting record to set the current value.
             #
@@ -491,7 +491,7 @@ class Visualization:
             previous_name_of_selected_node = lsts[3]
             navigation_button_clicks = lsts[4:8]
             clicks_per_node = lsts[8:]
-            recordings = self.get_recordings_with_caching(trials_value)
+            recordings = self.get_recordings_with_caching(trials_value, training_step_value)
             names = [
                 node
                 for _, sag in self.configuration_type_to_status_and_graph.items()
@@ -576,7 +576,7 @@ class Visualization:
                 node_name, trials_value, training_step_value, type_of_recording_value,
                 batch_index_value, iteration_value, role_of_tensor_in_node_value,
         ):
-            recordings = self.get_recordings_with_caching(trials_value)
+            recordings = self.get_recordings_with_caching(trials_value, training_step_value)
             configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][iteration_value]
             sag = self.configuration_type_to_status_and_graph[configuration_type]
             if node_name is not None:

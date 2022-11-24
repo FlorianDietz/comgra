@@ -74,7 +74,8 @@ class PseudoDb:
         assert all(len(a) == len(self.attributes) for a in my_recs)
         assert all(len(a) == len(self.attributes) for a in other_recs)
         merged_recs = my_recs | other_recs
-        assert len(my_recs) + len(other_recs) == len(merged_recs), "The recordings overlap."
+        if len(my_recs) + len(other_recs) != len(merged_recs):
+            print(f"The recordings overlap:\n{len(my_recs)=}\n{len(other_recs)=}\n{len(merged_recs)=}")
         # Update
         self.record_set.update(other.record_set)
 
