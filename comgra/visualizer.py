@@ -402,18 +402,12 @@ class Visualization:
             # but you would like to return to your previous selection when you select a previously selected node again.
             # Logic: Switch to the last possible value in the fallback list, unless that is the very last element.
             # Then update the fallback list by removing all alternative values, and add the new selected value to the end of it.
-            print(123)
             attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid = ['iteration', 'batch_aggregation', 'role_within_node']
             for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
-                print(123, attr)
-                print(current_params_dict_for_querying_database)
                 fallback_list = self.attribute_selection_fallback_values[attr]
                 val = current_params_dict_for_querying_database[attr]
                 value_to_switch_to = next((a for a in fallback_list[::-1] if a in possible_attribute_values[attr]), None)
-                print(fallback_list)
-                print(val, value_to_switch_to)
                 if value_to_switch_to is not None and val != value_to_switch_to and value_to_switch_to != fallback_list[-1]:
-                    print('switch', attr, val, value_to_switch_to)
                     current_params_dict_for_querying_database[attr] = value_to_switch_to
                     list_of_matches, possible_attribute_values = query_database_using_current_values(
                         [], current_params_dict_for_querying_database
@@ -423,31 +417,22 @@ class Visualization:
                     for attr_, val_ in zip(db.attributes, selected_record_values):
                         assert attr_ in current_params_dict_for_querying_database, attr_
                         current_params_dict_for_querying_database[attr_] = val_
-                print(555)
-                print(possible_attribute_values[attr])
-                print(fallback_list)
                 for a in possible_attribute_values[attr]:
                     while a in fallback_list:
                         fallback_list.remove(a)
-                print(fallback_list)
             for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
                 fallback_list = self.attribute_selection_fallback_values[attr]
                 val = current_params_dict_for_querying_database[attr]
                 fallback_list.append(val)
-            print('attribute_selection_fallback_values', self.attribute_selection_fallback_values)
             # Get the values of the selected record
             training_step_value, type_of_recording_value, batch_index_value, iteration_value, name_of_selected_node, role_of_tensor_in_node_value, item, metadata = selected_record_values
             #
             # Query again, using that record as the filter,
             # to determine which alternative values are legal for each attribute.
             #
-            print(999)
-            print(selected_record_values)
-            print(current_params_dict_for_querying_database)
             _, possible_attribute_values = query_database_using_current_values(
                 [], current_params_dict_for_querying_database
             )
-            print(possible_attribute_values)
             # Get the values to return
             type_of_recording_options, type_of_recording_value = create_options_and_value_from_list(
                 type_of_recording_value, possible_attribute_values['type_of_tensor_recording'],
@@ -591,7 +576,6 @@ class Visualization:
                 node_name, trials_value, training_step_value, type_of_recording_value,
                 batch_index_value, iteration_value, role_of_tensor_in_node_value,
         ):
-            print('select node', node_name)
             recordings = self.get_recordings_with_caching(trials_value)
             configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][iteration_value]
             sag = self.configuration_type_to_status_and_graph[configuration_type]
@@ -664,8 +648,6 @@ class Visualization:
                     filters[name] = val
                 assert name in ['item', 'metadata'] or val is not None, (name,)
             list_of_matches, possible_attribute_values = db.get_matches(filters)
-            print(888, filters)
-            print(possible_attribute_values)
             assert len(list_of_matches) > 0
             rows = []
             index_of_item = db.attributes.index('item')
