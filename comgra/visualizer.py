@@ -154,6 +154,7 @@ class Visualization:
                             recordings = new_recordings
                         else:
                             recordings.update_with_more_recordings(new_recordings)
+                recordings.recordings.create_index(['training_step', 'record_type', 'node_name', 'role_within_node', 'batch_aggregation', 'iteration'])
                 self.cache_for_tensor_recordings[key] = recordings
             return recordings
 

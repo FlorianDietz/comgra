@@ -1,6 +1,6 @@
 import collections
 from datetime import datetime, timedelta
-from typing import List, Any, Tuple, Dict, Set
+from typing import List, Any, Tuple, Dict, Set, Optional
 
 PRINT_EACH_TIME = False
 
@@ -64,7 +64,10 @@ def the(a):
 class PseudoDb:
     def __init__(self, attributes):
         self.attributes: List[str] = attributes
-        self.record_set: Dict[Tuple, Any] = {}
+        self.record_set: Optional[Dict[Tuple, Any]] = {}
+        # Set later, when create_index() is used, to replace record_set
+        self.index_attributes: Optional[List[str]] = None
+        self.index_tree: Optional[Dict] = None
 
     def merge(self, other: 'PseudoDb'):
         # Sanity checks
@@ -108,11 +111,57 @@ class PseudoDb:
         self.record_set[attr_values] = result
 
     @runtime_analysis_decorator
+    def create_index(self, index_attributes):
+        assert all(a in self.attributes for a in index_attributes)
+        self.index_attributes = list(index_attributes)
+        index_attribute_indices = [self.attributes.index(a) for a in self.index_attributes]
+        self.index_tree = {}
+        for key, val in self.record_set.items():
+            tree = self.index_tree
+            for idx in index_attribute_indices:
+                tree = tree.setdefault(key[idx], {})
+            tree[key] = val
+        self.record_set = None
+
+    @runtime_analysis_decorator
     def get_matches(self, filters: Dict[str, Any]) -> Tuple[List[Tuple[Tuple[Any, ...], Any]], Dict[str, Set]]:
         filters_with_indices = {self.attributes.index(k): v for k, v in filters.items()}
+        # Filter using an index.
+        # While doing so, up to max_num_mismatches_to_allow many attributes may be mismatched
+        # while going through the index.
+        # (This is important for determining possible_attribute_values later).
+        max_num_mismatches_to_allow = 1
+        if self.index_attributes is None:
+            assert self.index_tree is None
+            record_set = self.record_set
+        else:
+            assert self.record_set is None
+            index_attribute_indices = [self.attributes.index(a) for a in self.index_attributes]
+            trees_to_process = [([], self.index_tree)]
+            for idx in index_attribute_indices:
+                next_level_of_trees_to_process = []
+                has_filter = (idx in filters_with_indices)
+                if has_filter:
+                    filter_value = filters_with_indices[idx]
+                    for mismatches, tree in trees_to_process:
+                        if filter_value in tree:
+                            next_level_of_trees_to_process.append((mismatches, tree[filter_value]))
+                        if len(mismatches) < max_num_mismatches_to_allow:
+                            for a, subtree in tree.items():
+                                if a != filter_value or ((a is None) != (filter_value is None)):
+                                    next_level_of_trees_to_process.append((mismatches + [idx], subtree))
+                else:
+                    for mismatches, tree in trees_to_process:
+                        for subtree in tree.values():
+                            next_level_of_trees_to_process.append((mismatches, subtree))
+                trees_to_process = next_level_of_trees_to_process
+            record_set = {}
+            for mismatches, d in trees_to_process:
+                record_set.update(d)
+        # Search for records
         list_of_matches = []
         possible_attribute_values = {k: set() for k in self.attributes}
-        for attr_values, result in self.record_set.items():
+        for attr_values, result in record_set.items():
             num_mismatches = 0
             for idx, filter_value in filters_with_indices.items():
                 if attr_values[idx] != filter_value:
