@@ -10,7 +10,7 @@ from typing import List, Dict, Optional, Tuple
 import torch
 from torch import nn as torch_nn
 
-from comgra.objects import DecisionMakerForRecordings, StatusAndGraph, ModuleRepresentation, Node, ParameterRepresentation, TensorRecordings, TensorRepresentation, TensorMetadata
+from comgra.objects import DecisionMakerForRecordings, StatusAndGraph, ModuleRepresentation, Node, ParameterRepresentation, TensorRecordings, TensorRepresentation
 from comgra import utilities
 
 
@@ -82,6 +82,7 @@ class ComgraRecorder:
         # Per training_step
         #
         self.tensor_recordings: Optional[TensorRecordings] = None
+        self.mapping_of_tensors_for_extracting_kpis: Dict[Tuple[int, str, Optional[int], Optional[int], str, str, str], Tuple[torch.Tensor, TensorRepresentation]] = {}
         self.is_training_mode = False
         self.training_step = None
         self.iteration = None
@@ -161,6 +162,7 @@ class ComgraRecorder:
         self.tensor_name_and_iteration_to_representation = {}
         self.current_batch_size = current_batch_size
         self.tensor_recordings = TensorRecordings()
+        self.mapping_of_tensors_for_extracting_kpis = {}
 
     @utilities.runtime_analysis_decorator
     def register_tensor(
@@ -314,9 +316,9 @@ class ComgraRecorder:
     @utilities.runtime_analysis_decorator
     def store_value_of_tensor_helper(self, batching_type, iteration, tensor_representation: TensorRepresentation, item, tensor):
         key = (self.training_step, self.current_type_of_tensor_recording, batching_type, iteration, tensor_representation.node_name, tensor_representation.role_within_node, item)
-        assert key not in self.tensor_recordings.mapping_of_tensors_for_extracting_kpis, key
+        assert key not in self.mapping_of_tensors_for_extracting_kpis, key
         assert len(tensor.shape) == 2, (tensor.shape, key)
-        self.tensor_recordings.mapping_of_tensors_for_extracting_kpis[key] = (tensor, tensor_representation)
+        self.mapping_of_tensors_for_extracting_kpis[key] = (tensor, tensor_representation)
 
     @utilities.runtime_analysis_decorator
     def start_forward_pass(self, iteration, configuration_type):
@@ -479,10 +481,6 @@ class ComgraRecorder:
         for (tensor_name, iteration), v in self.tensor_name_and_iteration_to_representation.items():
             if iteration == self.iteration or v.type_of_tensor == 'parameter':
                 node_name = self.tensor_name_to_node_name[tensor_name]
-                tensor_metadata = TensorMetadata(
-                    shape=list(v.shape),
-                    index_of_batch_dimension=v.index_of_batch_dimension,
-                )
                 if node_name in name_to_node:
                     node = name_to_node[node_name]
                 else:
@@ -492,8 +490,6 @@ class ComgraRecorder:
                         items_to_record=list(v.items_to_record),
                     )
                     name_to_node[node_name] = node
-                self.tensor_recordings.node_to_role_to_tensor_metadata.setdefault(node_name, {})[v.role_within_node] = \
-                    tensor_metadata
                 assert v.type_of_tensor == node.type_of_tensor, \
                     f"Node {node_name} stores tensors with different type_of_tensor." \
                     f"\n{v.type_of_tensor}\n{node.type_of_tensor}"
@@ -518,22 +514,43 @@ class ComgraRecorder:
         # While doing so, minimize GPU-to-CPU transfers by batching the tensors,
         # but don't batch too many at once to avoid overloading memory and causing a crash.
         #
+        file_number = 0
+
+        def save_recordings_so_far():
+            nonlocal file_number
+            recordings_path_folder = self.recordings_path / f'{self.training_step}'
+            recordings_path_folder.mkdir(exist_ok=True)
+            with open(recordings_path_folder / f'{file_number}.json', 'w') as f:
+                dump_dict = dataclasses.asdict(self.tensor_recordings)
+                dump_dict['recordings'] = dump_dict['recordings'].serialize()
+                json.dump(dump_dict, f)
+            file_number += 1
+            self.tensor_recordings.recordings = utilities.PseudoDb(attributes=attributes_for_tensor_recordings)
         batch_size_to_record = self.current_batch_size if self.max_num_batch_size_to_record is None else min(
             self.current_batch_size, self.max_num_batch_size_to_record)
         all_batch_indices = list(range(batch_size_to_record))
         attributes_for_tensor_recordings = [
             'training_step', 'type_of_tensor_recording', 'batch_aggregation', 'iteration',
-            'node_name', 'role_within_node', 'item', 'metadata'
+            'node_name', 'role_within_node', 'record_type', 'item', 'metadata',
         ]
         self.tensor_recordings.recordings = utilities.PseudoDb(attributes=attributes_for_tensor_recordings)
-        mapping_of_tensors_for_extracting_kpis = self.tensor_recordings.mapping_of_tensors_for_extracting_kpis
-        self.tensor_recordings.mapping_of_tensors_for_extracting_kpis = {}
-        total_num_mappings = len(mapping_of_tensors_for_extracting_kpis)
+        # Save a preliminary file with information about each tensor.
+        # (This is saved in the database just in case the values differ between different iterations, etc.)
+        # (For example, the shape of a tensor may in rare cases depend on the iteration.)
+        for (tensor_name, iteration), tr in self.tensor_name_and_iteration_to_representation.items():
+            for item, metadata, val in [
+                ('tensor_shape', None, list(tr.shape)),
+                ('index_of_batch_dimension', None, tr.index_of_batch_dimension),
+            ]:
+                final_key = self.training_step, 'not_applicable', 'not_applicable', iteration, tr.node_name, tr.role_within_node, 'meta_information', item, metadata
+                self.tensor_recordings.recordings.add_record(final_key, val)
+        save_recordings_so_far()
+        # Get the KPIs from tensors
+        total_num_mappings = len(self.mapping_of_tensors_for_extracting_kpis)
         all_tensors_to_combine = []
         all_keys_to_process = []
         sanity_check_c = 0
-        file_number = 0
-        for i, (key, (tensor, tensor_representation)) in enumerate(mapping_of_tensors_for_extracting_kpis.items()):
+        for i, (key, (tensor, tensor_representation)) in enumerate(self.mapping_of_tensors_for_extracting_kpis.items()):
             # Store the tensors, and remember in what format to retrieve them again later.
             training_step, type_of_tensor_recording, batching_type, iteration, node_name, role_within_node, item = key
             assert training_step == self.training_step
@@ -555,7 +572,7 @@ class ComgraRecorder:
             for batch_value in batch_values:
                 for neuron_value in neuron_values:
                     metadata = neuron_value
-                    final_key = training_step, type_of_tensor_recording, batch_value, iteration, node_name, role_within_node, item, metadata
+                    final_key = training_step, type_of_tensor_recording, batch_value, iteration, node_name, role_within_node, 'data', item, metadata
                     all_keys_to_process.append(final_key)
             # Combine and retrieve once enough tensors have been accumulated
             if (i + 1) % self.max_num_mapping_to_retrieve_at_once == 0 or i == total_num_mappings - 1:
@@ -568,14 +585,7 @@ class ComgraRecorder:
                     sanity_check_c += 1
                 all_tensors_to_combine = []
                 all_keys_to_process = []
-                recordings_path_folder = self.recordings_path / f'{self.training_step}'
-                recordings_path_folder.mkdir(exist_ok=True)
-                with open(recordings_path_folder / f'{file_number}.json', 'w') as f:
-                    dump_dict = dataclasses.asdict(self.tensor_recordings)
-                    dump_dict['recordings'] = dump_dict['recordings'].serialize()
-                    json.dump(dump_dict, f)
-                file_number += 1
-                self.tensor_recordings.recordings = utilities.PseudoDb(attributes=attributes_for_tensor_recordings)
+                save_recordings_so_far()
         assert len(all_tensors_to_combine) == 0
-        total_number_of_tensor_values = sum(t.numel() for t, tr in mapping_of_tensors_for_extracting_kpis.values())
+        total_number_of_tensor_values = sum(t.numel() for t, tr in self.mapping_of_tensors_for_extracting_kpis.values())
         assert sanity_check_c == total_number_of_tensor_values, (sanity_check_c, total_number_of_tensor_values)

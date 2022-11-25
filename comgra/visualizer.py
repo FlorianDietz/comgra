@@ -46,7 +46,7 @@ import plotly.express as px
 import pandas as pd
 import torch
 
-from comgra.objects import StatusAndGraph, ModuleRepresentation, ParameterRepresentation, TensorRepresentation, TensorRecordings, TensorMetadata
+from comgra.objects import StatusAndGraph, ModuleRepresentation, ParameterRepresentation, TensorRepresentation, TensorRecordings
 from comgra import utilities
 
 utilities.PRINT_EACH_TIME = True
@@ -149,12 +149,6 @@ class Visualization:
                                 int(k2): v2 for k2, v2 in v1.items()
                             }
                             for k1, v1 in new_recordings.training_step_to_iteration_to_configuration_type.items()
-                        }
-                        new_recordings.node_to_role_to_tensor_metadata = {
-                            k1: {
-                                k2: TensorMetadata(**v2) for k2, v2 in v1.items()
-                            }
-                            for k1, v1 in new_recordings.node_to_role_to_tensor_metadata.items()
                         }
                         if recordings is None:
                             recordings = new_recordings
@@ -312,7 +306,7 @@ class Visualization:
                        Input('iteration-slider', 'value'),
                        Input('role-of-tensor-in-node-dropdown', 'value')])
         @utilities.runtime_analysis_decorator
-        def update_dropboxes(
+        def update_selectors(
                 name_of_selected_node,
                 trials_value, training_step_value, type_of_recording_value, batch_index_value,
                 iteration_value, role_of_tensor_in_node_value
@@ -377,6 +371,7 @@ class Visualization:
                 'iteration': None if is_parameter_node else iteration_value,
                 'node_name': name_of_selected_node,
                 'role_within_node': role_of_tensor_in_node_value,
+                'record_type': 'data',
                 'item': None,
                 'metadata': None,
             }
@@ -425,7 +420,7 @@ class Visualization:
                 val = current_params_dict_for_querying_database[attr]
                 fallback_list.append(val)
             # Get the values of the selected record
-            training_step_value, type_of_recording_value, batch_index_value, iteration_value, name_of_selected_node, role_of_tensor_in_node_value, item, metadata = selected_record_values
+            training_step_value, type_of_recording_value, batch_index_value, iteration_value, name_of_selected_node, role_of_tensor_in_node_value, record_type, item, metadata = selected_record_values
             #
             # Query again, using that record as the filter,
             # to determine which alternative values are legal for each attribute.
@@ -633,6 +628,7 @@ class Visualization:
             # Display values based on the selected node
             #
             db: utilities.PseudoDb = recordings.recordings
+            # Get the data
             filters = {}
             for name, val in [
                 ('training_step', training_step_value),
@@ -641,6 +637,7 @@ class Visualization:
                 ('iteration', iteration_value),
                 ('node_name', node_name),
                 ('role_within_node', role_of_tensor_in_node_value),
+                ('record_type', 'data'),
                 ('item', None),
                 ('metadata', None),
             ]:
@@ -649,9 +646,37 @@ class Visualization:
                 assert name in ['item', 'metadata'] or val is not None, (name,)
             list_of_matches, possible_attribute_values = db.get_matches(filters)
             assert len(list_of_matches) > 0
-            rows = []
+            # Get helper information
+            filters = {}
+            for name, val in [
+                ('training_step', training_step_value),
+                ('type_of_tensor_recording', 'not_applicable'),
+                ('batch_aggregation', 'not_applicable'),
+                ('iteration', iteration_value),
+                ('node_name', node_name),
+                ('role_within_node', role_of_tensor_in_node_value),
+                ('record_type', 'meta_information'),
+                ('item', None),
+                ('metadata', None),
+            ]:
+                if val is not None:
+                    filters[name] = val
+                assert name in ['item', 'metadata'] or val is not None, (name,)
+            list_of_matches_for_information_things, _ = db.get_matches(filters)
+            assert len(list_of_matches_for_information_things) == 2, (len(list_of_matches_for_information_things))
             index_of_item = db.attributes.index('item')
             index_of_metadata = db.attributes.index('metadata')
+            tensor_shape = None
+            index_of_batch_dimension = None
+            for key, val in list_of_matches_for_information_things:
+                if key[index_of_item] == 'tensor_shape':
+                    tensor_shape = val
+                elif key[index_of_item] == 'index_of_batch_dimension':
+                    index_of_batch_dimension = val
+                else:
+                    raise ValueError(key[index_of_item])
+            # Create the graphical display
+            rows = []
             for key, val in list_of_matches:
                 row = [
                     html.Td(key[index_of_item]),
@@ -660,7 +685,6 @@ class Visualization:
                 ]
                 rows.append(html.Tr(row))
             desc_text = node.type_of_tensor
-            tensor_shape = recordings.node_to_role_to_tensor_metadata[node.full_unique_name][role_of_tensor_in_node_value].shape
             children = [
                 html.Header(f"{node.full_unique_name} - {role_of_tensor_in_node_value}"),
                 html.P(desc_text),

@@ -49,12 +49,6 @@ class TensorRepresentation:
 
 
 @dataclasses.dataclass
-class TensorMetadata:
-    shape: List[int]
-    index_of_batch_dimension: Optional[int]
-
-
-@dataclasses.dataclass
 class Node:
     full_unique_name: str
     type_of_tensor: str
@@ -64,8 +58,6 @@ class Node:
 @dataclasses.dataclass
 class TensorRecordings:
     training_step_to_iteration_to_configuration_type: Dict[int, Dict[int, str]] = dataclasses.field(default_factory=dict)
-    node_to_role_to_tensor_metadata: Dict[str, Dict[str, TensorMetadata]] = dataclasses.field(default_factory=dict)
-    mapping_of_tensors_for_extracting_kpis: Dict[Tuple[int, str, Optional[int], Optional[int], str, str, str], Tuple[torch.Tensor, TensorRepresentation]] = dataclasses.field(default_factory=dict)
     recordings: Optional[utilities.PseudoDb] = None
 
     @utilities.runtime_analysis_decorator
