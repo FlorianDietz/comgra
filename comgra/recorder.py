@@ -2,6 +2,7 @@ import collections
 import dataclasses
 import functools
 import json
+import math
 import re
 from pathlib import Path
 import pickle
@@ -282,6 +283,9 @@ class ComgraRecorder:
                     val = tensor.abs().mean(dim=value_dimensions).unsqueeze(dim=expansion_dim)
                 elif item == 'std':
                     val = tensor.std(dim=value_dimensions).unsqueeze(dim=expansion_dim)
+                    total_number_of_values_per_batch_index = functools.reduce((lambda x, y: x * y), [tensor.shape[dim] for dim in value_dimensions])
+                    if total_number_of_values_per_batch_index == 1:
+                        val = torch.zeros(val.shape, device=val.device)
                 elif item == 'abs_max':
                     val = torch.amax(tensor.abs(), dim=value_dimensions).unsqueeze(dim=expansion_dim)
                 elif item == 'neurons':
@@ -591,6 +595,7 @@ class ComgraRecorder:
                 list_of_floats = combined_tensor.cpu().tolist()
                 assert len(list_of_floats) == len(all_keys_to_process), (len(list_of_floats), len(all_keys_to_process))
                 for key_to_process, float_value in zip(all_keys_to_process, list_of_floats):
+                    assert isinstance(float_value, float) and not math.isnan(float_value), (float_value, key_to_process)
                     self.tensor_recordings.recordings.add_record(key_to_process, float_value)
                     sanity_check_c += 1
                 all_tensors_to_combine = []
