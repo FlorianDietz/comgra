@@ -86,6 +86,7 @@ class ComgraRecorder:
         self.mapping_of_tensors_for_extracting_kpis: Dict[Tuple[int, str, Optional[int], Optional[int], str, str, str], Tuple[torch.Tensor, TensorRepresentation]] = {}
         self.is_training_mode = False
         self.training_step = None
+        self.type_of_execution_for_diversity_of_recordings = None
         self.iteration = None
         self.record_all_tensors_per_batch_index_by_default = False
         self.computation_step_to_tensor = {}
@@ -96,7 +97,9 @@ class ComgraRecorder:
 
     @property
     def recording_is_active(self):
-        return self.comgra_is_active and self.is_training_mode and self.decision_maker_for_recordings.is_record_on_this_iteration(self.training_step)
+        return self.comgra_is_active and self.is_training_mode and self.decision_maker_for_recordings.is_record_on_this_iteration(
+            self.training_step, self.type_of_execution_for_diversity_of_recordings,
+        )
 
     def _verify_uniqueness_of_name(self, name, type_of_name):
         if type_of_name == 'module':
@@ -147,10 +150,12 @@ class ComgraRecorder:
     @utilities.runtime_analysis_decorator
     def start_next_recording(
             self, training_step, current_batch_size, is_training_mode,
+            type_of_execution_for_diversity_of_recordings,
             record_all_tensors_per_batch_index_by_default=False,
     ):
         self.is_training_mode = is_training_mode
         self.training_step = training_step
+        self.type_of_execution_for_diversity_of_recordings = type_of_execution_for_diversity_of_recordings
         self.iteration = 0
         self.record_all_tensors_per_batch_index_by_default = record_all_tensors_per_batch_index_by_default
         assert self.current_stage == 'inactive', self.current_stage
@@ -333,6 +338,7 @@ class ComgraRecorder:
         self.configuration_type = configuration_type
         self.configuration_path = self.group_path / 'configs' / configuration_type
         self.tensor_recordings.training_step_to_iteration_to_configuration_type.setdefault(self.training_step, {})[self.iteration] = configuration_type
+        self.tensor_recordings.training_step_to_type_of_execution_for_diversity_of_recordings[self.training_step] = self.type_of_execution_for_diversity_of_recordings
         if not self.recording_is_active:
             return
 

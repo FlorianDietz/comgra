@@ -150,6 +150,10 @@ class Visualization:
                             }
                             for k1, v1 in new_recordings.training_step_to_iteration_to_configuration_type.items()
                         }
+                        new_recordings.training_step_to_type_of_execution_for_diversity_of_recordings = {
+                            int(k1): v1
+                            for k1, v1 in new_recordings.training_step_to_type_of_execution_for_diversity_of_recordings.items()
+                        }
                         if recordings is None:
                             recordings = new_recordings
                         else:
@@ -526,6 +530,7 @@ class Visualization:
         ):
             recordings = self.get_recordings_with_caching(trials_value, training_step_value)
             configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][iteration_value]
+            type_of_execution_for_diversity_of_recordings = recordings.training_step_to_type_of_execution_for_diversity_of_recordings[training_step_value]
             sag = self.configuration_type_to_status_and_graph[configuration_type]
             if node_name is not None:
                 # Special handling for parameters:
@@ -639,7 +644,8 @@ class Visualization:
                 rows.append(html.Tr(row))
             desc_text = node.type_of_tensor
             children = [
-                html.Header(f"{node.full_unique_name} - {role_of_tensor_in_node_value}"),
+                html.Header(f"Recording type: {type_of_execution_for_diversity_of_recordings}"),
+                html.Header(f"Node: {node.full_unique_name} - {role_of_tensor_in_node_value}"),
                 html.P(desc_text),
                 html.P(f"Shape: [{', '.join([str(a) for a in tensor_shape])}]"),
                 html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', 'value']])] + rows)
