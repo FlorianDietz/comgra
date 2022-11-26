@@ -510,9 +510,19 @@ class ComgraRecorder:
         if not self.recording_is_active:
             return
         #
+        # Get the KPIs and serialize them.
+        #
+        # Notes on how this code works, and why:
         # Convert the TensorRecordings from tensor to float.
         # While doing so, minimize GPU-to-CPU transfers by batching the tensors,
         # but don't batch too many at once to avoid overloading memory and causing a crash.
+        # It also appears that a crash is caused more often by pickle than by json,
+        # which is why this uses json, even though it's slower.
+        # To further reduce the chances of a crash, the data is split into several smaller files.
+        # This is done by the same mechanism that also regulates how large the GPU/CPU transfer tensor may get.
+        # (max_num_mappings_to_save_at_once_during_serialization)
+        # The large number of tensors are chunked and loaded as large tensors to save GPU-CPU bandwidth,
+        # and each batch is then saved separately in its own file to avoid a SIGKILL.
         #
         file_number = 0
 
