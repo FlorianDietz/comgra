@@ -21,7 +21,7 @@ class ComgraRecorder:
             prefixes_for_grouping_module_parameters_visually, prefixes_for_grouping_module_parameters_in_nodes,
             parameters_of_trial, decision_maker_for_recordings,
             comgra_is_active=True, max_num_batch_size_to_record=None,
-            max_num_mapping_to_retrieve_at_once=20000,
+            max_num_mappings_to_save_at_once_during_serialization=20000,
     ):
         comgra_root_path = Path(comgra_root_path)
         assert comgra_root_path.exists()
@@ -61,7 +61,7 @@ class ComgraRecorder:
                 f"\n{a}"
         self.parameters_of_trial = parameters_of_trial
         self.max_num_batch_size_to_record = max_num_batch_size_to_record
-        self.max_num_mapping_to_retrieve_at_once = max_num_mapping_to_retrieve_at_once
+        self.max_num_mappings_to_save_at_once_during_serialization = max_num_mappings_to_save_at_once_during_serialization
         #
         # Things that get updated
         #
@@ -575,7 +575,7 @@ class ComgraRecorder:
                     final_key = training_step, type_of_tensor_recording, batch_value, iteration, node_name, role_within_node, 'data', item, metadata
                     all_keys_to_process.append(final_key)
             # Combine and retrieve once enough tensors have been accumulated
-            if (i + 1) % self.max_num_mapping_to_retrieve_at_once == 0 or i == total_num_mappings - 1:
+            if (i + 1) % self.max_num_mappings_to_save_at_once_during_serialization == 0 or i == total_num_mappings - 1:
                 combined_tensor = torch.cat(all_tensors_to_combine)
                 assert len(combined_tensor.shape) == 1
                 list_of_floats = combined_tensor.cpu().tolist()
