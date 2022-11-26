@@ -155,6 +155,10 @@ class ComgraRecorder:
     ):
         self.is_training_mode = is_training_mode
         self.training_step = training_step
+        assert type_of_execution_for_diversity_of_recordings is not None, type_of_execution_for_diversity_of_recordings
+        assert type_of_execution_for_diversity_of_recordings != 'any_value', type_of_execution_for_diversity_of_recordings
+        assert not type_of_execution_for_diversity_of_recordings.startswith('__'), type_of_execution_for_diversity_of_recordings
+        assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution_for_diversity_of_recordings)
         self.type_of_execution_for_diversity_of_recordings = type_of_execution_for_diversity_of_recordings
         self.iteration = 0
         self.record_all_tensors_per_batch_index_by_default = record_all_tensors_per_batch_index_by_default
@@ -334,7 +338,7 @@ class ComgraRecorder:
         assert self.current_stage in ['started', 'after_iteration'], self.current_stage
         self.current_stage = 'forward'
         self.iteration = iteration
-        assert isinstance(configuration_type, str) and re.match(r'[a-zA-Z_-]+', configuration_type), configuration_type
+        assert isinstance(configuration_type, str) and re.match(r'^[a-zA-Z0-9-_]+$', configuration_type), configuration_type
         self.configuration_type = configuration_type
         self.configuration_path = self.group_path / 'configs' / configuration_type
         self.tensor_recordings.training_step_to_iteration_to_configuration_type.setdefault(self.training_step, {})[self.iteration] = configuration_type
@@ -538,7 +542,7 @@ class ComgraRecorder:
 
         def save_recordings_so_far():
             nonlocal file_number
-            recordings_path_folder = self.recordings_path / f'{self.training_step}'
+            recordings_path_folder = self.recordings_path / f'{self.training_step}__{self.type_of_execution_for_diversity_of_recordings}'
             recordings_path_folder.mkdir(exist_ok=True)
             with open(recordings_path_folder / f'{file_number}.json', 'w') as f:
                 dump_dict = dataclasses.asdict(self.tensor_recordings)
