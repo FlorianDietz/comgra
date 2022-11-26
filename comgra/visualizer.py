@@ -283,7 +283,8 @@ class Visualization:
             return options, options[0]['value']
         refresh_all(0)
 
-        @app.callback(([Output('training-step-slider', 'min'),
+        @app.callback(([Output('dummy-for-selecting-a-node', 'className'),
+                       Output('training-step-slider', 'min'),
                        Output('training-step-slider', 'max'),
                        Output('training-step-slider', 'marks'),
                        Output('training-step-slider', 'value'),
@@ -299,19 +300,29 @@ class Visualization:
                        Output('role-of-tensor-in-node-dropdown', 'value')] +
                       [Output(f'graph_container__{configuration_type}', 'className')
                        for configuration_type in self.configuration_type_to_status_and_graph.keys()]),
-                      [Input('dummy-for-selecting-a-node', 'className'),
-                       Input('trials-dropdown', 'value'),
-                       Input('training-step-slider', 'value'),
-                       Input('type-of-recording-radio-buttons', 'value'),
-                       Input('batch-index-dropdown', 'value'),
-                       Input('iteration-slider', 'value'),
-                       Input('role-of-tensor-in-node-dropdown', 'value')])
+                      ([Input('trials-dropdown', 'value'),
+                        Input('training-step-slider', 'value'),
+                        Input('type-of-recording-radio-buttons', 'value'),
+                        Input('batch-index-dropdown', 'value'),
+                        Input('iteration-slider', 'value'),
+                        Input('role-of-tensor-in-node-dropdown', 'value'),
+                        Input('dummy-for-selecting-a-node', 'className'),
+                        Input('navigate-left-button', 'n_clicks_timestamp'),
+                        Input('navigate-right-button', 'n_clicks_timestamp'),
+                        Input('navigate-up-button', 'n_clicks_timestamp'),
+                        Input('navigate-down-button', 'n_clicks_timestamp')] +
+                       [Input(self._node_name_to_dash_id(configuration_type, node), 'n_clicks_timestamp')
+                        for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
+                        for node in sag.name_to_node.keys()]))
         @utilities.runtime_analysis_decorator
         def update_selectors(
-                name_of_selected_node,
                 trials_value, training_step_value, type_of_recording_value, batch_index_value,
-                iteration_value, role_of_tensor_in_node_value
+                iteration_value, role_of_tensor_in_node_value, previous_name_of_selected_node,
+                *lsts,
         ):
+            navigation_button_clicks = lsts[0:4]
+            clicks_per_node = lsts[4:]
+            program_is_initializing = (training_step_value is None)
 
             def create_slider_data_from_list(value, options_list):
                 assert value in options_list, (value, options_list)
@@ -343,13 +354,30 @@ class Visualization:
             assert len(training_steps) > 0
             training_step_min, training_step_max, training_step_marks, training_step_value = create_slider_data_from_list(
                 training_step_value if training_step_value is not None else training_steps[0], training_steps)
-            #
-            # Get the recordings.
-            #
             recordings = self.get_recordings_with_caching(trials_value, training_step_value)
-            is_parameter_node = False
-            original_iteration_value = iteration_value
-            if name_of_selected_node is not None:
+            db: utilities.PseudoDb = recordings.recordings
+            if program_is_initializing:
+                # Initialize everything
+                current_params_dict_for_querying_database = {
+                    'record_type': 'data',
+                }
+                list_of_matches, possible_attribute_values = query_database_using_current_values(
+                    [], current_params_dict_for_querying_database,
+                )
+                assert list_of_matches
+                selected_record_values = tuple(list_of_matches[0][0])
+            else:
+                # Select the node, or change it if the user clicked something.
+                name_of_selected_node = self.get_or_change_selected_node(
+                    trials_value, training_step_value, iteration_value, previous_name_of_selected_node,
+                    navigation_button_clicks, clicks_per_node,
+                )
+                print(123, program_is_initializing, name_of_selected_node)
+                #
+                # Get the recordings.
+                #
+                is_parameter_node = False
+                original_iteration_value = iteration_value
                 # Special handling for parameters:
                 # They are independent of iterations, and all their values are stored for iteration 0.
                 # But we do not want to change the iteration slider when they are selected,
@@ -361,67 +389,79 @@ class Visualization:
                 node = sag.name_to_node[name_of_selected_node]
                 if node.type_of_tensor == 'parameter':
                     is_parameter_node = True
-            #
-            # Query the database to determine the best-fitting record to set the current value.
-            #
-            db: utilities.PseudoDb = recordings.recordings
-            current_params_dict_for_querying_database = {
-                'training_step': training_step_value,
-                'type_of_tensor_recording': type_of_recording_value,
-                'batch_aggregation': batch_index_value,
-                'iteration': None if is_parameter_node else iteration_value,
-                'node_name': name_of_selected_node,
-                'role_within_node': role_of_tensor_in_node_value,
-                'record_type': 'data',
-                'item': None,
-                'metadata': None,
-            }
-            list_of_matches = []
-            possible_attribute_values = {}
-            attributes_to_ignore_in_order = ['role_within_node', 'batch_aggregation', 'type_of_tensor_recording', 'training_step', 'iteration']
-            for i in range(len(attributes_to_ignore_in_order) + 1):
-                # If it is not possible to find a match, set the filters to None one by one until a match is found.
-                # This can happen e.g. if you select a different node
-                # and there is no role_within_node for which that is valid
-                list_of_matches, possible_attribute_values = query_database_using_current_values(
-                    attributes_to_ignore_in_order[:i], current_params_dict_for_querying_database
-                )
-                if list_of_matches:
-                    break
-            assert list_of_matches
-            selected_record_values = tuple(list_of_matches[0][0])
-            for attr, val in zip(db.attributes, selected_record_values):
-                assert attr in current_params_dict_for_querying_database, attr
-                current_params_dict_for_querying_database[attr] = val
-            # Use fallback values if possible.
-            # This is useful if you e.g. switch between nodes in such a way that some selections are temporarily invalid,
-            # but you would like to return to your previous selection when you select a previously selected node again.
-            # Logic: Switch to the last possible value in the fallback list, unless that is the very last element.
-            # Then update the fallback list by removing all alternative values, and add the new selected value to the end of it.
-            attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid = ['iteration', 'batch_aggregation', 'role_within_node']
-            for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
-                fallback_list = self.attribute_selection_fallback_values[attr]
-                val = current_params_dict_for_querying_database[attr]
-                value_to_switch_to = next((a for a in fallback_list[::-1] if a in possible_attribute_values[attr]), None)
-                if value_to_switch_to is not None and val != value_to_switch_to and value_to_switch_to != fallback_list[-1]:
-                    current_params_dict_for_querying_database[attr] = value_to_switch_to
+                #
+                # Query the database to determine the best-fitting record to set the current value.
+                #
+                current_params_dict_for_querying_database = {
+                    'training_step': training_step_value,
+                    'type_of_tensor_recording': type_of_recording_value,
+                    'batch_aggregation': batch_index_value,
+                    'iteration': None if is_parameter_node else iteration_value,
+                    'node_name': name_of_selected_node,
+                    'role_within_node': role_of_tensor_in_node_value,
+                    'record_type': 'data',
+                    'item': None,
+                    'metadata': None,
+                }
+                list_of_matches = []
+                possible_attribute_values = {}
+                attributes_to_ignore_in_order = ['role_within_node', 'batch_aggregation', 'type_of_tensor_recording', 'training_step', 'iteration']
+                for i in range(len(attributes_to_ignore_in_order) + 1):
+                    # If it is not possible to find a match, set the filters to None one by one until a match is found.
+                    # This can happen e.g. if you select a different node
+                    # and there is no role_within_node for which that is valid
                     list_of_matches, possible_attribute_values = query_database_using_current_values(
-                        [], current_params_dict_for_querying_database
+                        attributes_to_ignore_in_order[:i], current_params_dict_for_querying_database
                     )
-                    assert list_of_matches
-                    selected_record_values = tuple(list_of_matches[0][0])
-                    for attr_, val_ in zip(db.attributes, selected_record_values):
-                        assert attr_ in current_params_dict_for_querying_database, attr_
-                        current_params_dict_for_querying_database[attr_] = val_
-                for a in possible_attribute_values[attr]:
-                    while a in fallback_list:
-                        fallback_list.remove(a)
-            for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
-                fallback_list = self.attribute_selection_fallback_values[attr]
-                val = current_params_dict_for_querying_database[attr]
-                fallback_list.append(val)
-            # Get the values of the selected record
+                    if list_of_matches:
+                        break
+                assert list_of_matches
+                selected_record_values = tuple(list_of_matches[0][0])
+                for attr, val in zip(db.attributes, selected_record_values):
+                    assert attr in current_params_dict_for_querying_database, attr
+                    current_params_dict_for_querying_database[attr] = val
+                # Use fallback values if possible.
+                # This is useful if you e.g. switch between nodes in such a way that some selections are temporarily invalid,
+                # but you would like to return to your previous selection when you select a previously selected node again.
+                # Logic: Switch to the last possible value in the fallback list, unless that is the very last element.
+                # Then update the fallback list by removing all alternative values, and add the new selected value to the end of it.
+                attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid = ['iteration', 'batch_aggregation', 'role_within_node']
+                for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
+                    fallback_list = self.attribute_selection_fallback_values[attr]
+                    val = current_params_dict_for_querying_database[attr]
+                    value_to_switch_to = next((a for a in fallback_list[::-1] if a in possible_attribute_values[attr]), None)
+                    if value_to_switch_to is not None and val != value_to_switch_to and value_to_switch_to != fallback_list[-1]:
+                        current_params_dict_for_querying_database[attr] = value_to_switch_to
+                        list_of_matches, possible_attribute_values = query_database_using_current_values(
+                            [], current_params_dict_for_querying_database
+                        )
+                        assert list_of_matches
+                        selected_record_values = tuple(list_of_matches[0][0])
+                        for attr_, val_ in zip(db.attributes, selected_record_values):
+                            assert attr_ in current_params_dict_for_querying_database, attr_
+                            current_params_dict_for_querying_database[attr_] = val_
+                    for a in possible_attribute_values[attr]:
+                        while a in fallback_list:
+                            fallback_list.remove(a)
+                for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
+                    fallback_list = self.attribute_selection_fallback_values[attr]
+                    val = current_params_dict_for_querying_database[attr]
+                    fallback_list.append(val)
+            #
+            # Get the values of the selected record.
+            # These overwrite any previously used values and are used from now on.
+            #
             training_step_value, type_of_recording_value, batch_index_value, iteration_value, name_of_selected_node, role_of_tensor_in_node_value, record_type, item, metadata = selected_record_values
+            assert len(db.attributes) == len(selected_record_values)
+            current_params_dict_for_querying_database = {
+                k: v for k, v in zip(db.attributes, selected_record_values)
+            }
+            # Re-derive is_parameter_node, which may have changed.
+            configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][
+                iteration_value]
+            sag = self.configuration_type_to_status_and_graph[configuration_type]
+            node = sag.name_to_node[name_of_selected_node]
+            is_parameter_node = (node.type_of_tensor == 'parameter')
             #
             # Query again, using that record as the filter,
             # to determine which alternative values are legal for each attribute.
@@ -460,101 +500,13 @@ class Visualization:
                 for conf_type in self.configuration_type_to_status_and_graph.keys()
             ]
             res = [
+                      name_of_selected_node,
                       training_step_min, training_step_max, training_step_marks, training_step_value,
                       type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value,
                       iteration_min, iteration_max, iteration_marks, iteration_value,
                       role_of_tensor_in_node_options, role_of_tensor_in_node_value,
                   ] + graph_container_visibilities
             return res
-
-        @app.callback(Output('dummy-for-selecting-a-node', 'className'),
-                      [Input('trials-dropdown', 'value'),
-                       Input('training-step-slider', 'value'),
-                       Input('iteration-slider', 'value'),
-                       Input('dummy-for-selecting-a-node', 'className'),
-                       Input('navigate-left-button', 'n_clicks_timestamp'),
-                       Input('navigate-right-button', 'n_clicks_timestamp'),
-                       Input('navigate-up-button', 'n_clicks_timestamp'),
-                       Input('navigate-down-button', 'n_clicks_timestamp')] +
-                      [Input(self._node_name_to_dash_id(configuration_type, node), 'n_clicks_timestamp')
-                       for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
-                       for node in sag.name_to_node.keys()])
-        @utilities.runtime_analysis_decorator
-        def update_visibility(*lsts):
-            trials_value = lsts[0]
-            training_step_value = lsts[1]
-            iteration_value = lsts[2]
-            previous_name_of_selected_node = lsts[3]
-            navigation_button_clicks = lsts[4:8]
-            clicks_per_node = lsts[8:]
-            recordings = self.get_recordings_with_caching(trials_value, training_step_value)
-            names = [
-                node
-                for _, sag in self.configuration_type_to_status_and_graph.items()
-                for node in sag.name_to_node.keys()
-            ]
-            selected_configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][iteration_value]
-            names_that_exist_in_the_selected_configuration = {
-                node for node in
-                self.configuration_type_to_status_and_graph[selected_configuration_type].name_to_node.keys()
-            }
-            assert len(clicks_per_node) == len(names)
-            # Identify the most recently clicked navigation button
-            max_index_navigation = -1
-            max_val_navigation = 0
-            for i, clicks in enumerate(navigation_button_clicks):
-                if clicks is not None and clicks > max_val_navigation:
-                    max_val_navigation = clicks
-                    max_index_navigation = i
-            # Identify the most recently clicked nodes
-            max_index_nodes = [0 if a is None else 1 for a in names].index(1)
-            max_val_nodes = 0
-            for i, (clicks, name) in enumerate(zip(clicks_per_node, names)):
-                if name in names_that_exist_in_the_selected_configuration and clicks is not None and clicks > max_val_nodes:
-                    max_val_nodes = clicks
-                    max_index_nodes = i
-            # Select a node based either on navigation buttons or based on clicking on that node,
-            # whichever happened more recently.
-            if max_val_nodes >= max_val_navigation:
-                name_of_selected_node = names[max_index_nodes]
-            elif max_val_navigation > self.last_navigation_click_event_time:
-                self.last_navigation_click_event_time = max_val_navigation
-                assert previous_name_of_selected_node is not None
-                grid_of_nodes = self.configuration_type_to_grid_of_nodes[selected_configuration_type]
-                x, y = None, None
-                for x, column in enumerate(grid_of_nodes):
-                    for y, nn in enumerate(column):
-                        if nn == previous_name_of_selected_node:
-                            break
-                    else:
-                        continue
-                    break
-                # left / right
-                if max_index_navigation == 0:
-                    x -= 1
-                elif max_index_navigation == 1:
-                    x += 1
-                if x < 0:
-                    x = len(grid_of_nodes) - 1
-                if x >= len(grid_of_nodes):
-                    x = 0
-                column = grid_of_nodes[x]
-                if y >= len(column):
-                    y = len(column) - 1
-                # up / down
-                if max_index_navigation == 2:
-                    y -= 1
-                elif max_index_navigation == 3:
-                    y += 1
-                if y < 0:
-                    y = len(column) - 1
-                if y >= len(column):
-                    y = 0
-                name_of_selected_node = column[y]
-            else:
-                name_of_selected_node = previous_name_of_selected_node
-            assert name_of_selected_node is not None
-            return name_of_selected_node
 
         @app.callback(
             [Output('selected-item-details-container', 'children'),
@@ -568,7 +520,7 @@ class Visualization:
              Input('role-of-tensor-in-node-dropdown', 'value')]
         )
         @utilities.runtime_analysis_decorator
-        def select_node(
+        def update_kpis_to_display_for_selection(
                 node_name, trials_value, training_step_value, type_of_recording_value,
                 batch_index_value, iteration_value, role_of_tensor_in_node_value,
         ):
@@ -646,7 +598,7 @@ class Visualization:
                     filters[name] = val
                 assert name in ['item', 'metadata'] or val is not None, (name,)
             list_of_matches, possible_attribute_values = db.get_matches(filters)
-            assert len(list_of_matches) > 0
+            assert len(list_of_matches) > 0, (filters,)
             # Get helper information
             filters = {}
             for name, val in [
@@ -693,3 +645,80 @@ class Visualization:
                 html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', 'value']])] + rows)
             ]
             return children, graph_overlay_for_selections_children
+
+    @utilities.runtime_analysis_decorator
+    def get_or_change_selected_node(
+            self, trials_value, training_step_value, iteration_value, previous_name_of_selected_node,
+            navigation_button_clicks, clicks_per_node,
+    ):
+        recordings = self.get_recordings_with_caching(trials_value, training_step_value)
+        # Identify which Nodes exist in the selected configuration
+        names = [
+            node
+            for _, sag in self.configuration_type_to_status_and_graph.items()
+            for node in sag.name_to_node.keys()
+        ]
+        selected_configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][
+            iteration_value]
+        names_that_exist_in_the_selected_configuration = {
+            node for node in
+            self.configuration_type_to_status_and_graph[selected_configuration_type].name_to_node.keys()
+        }
+        assert len(clicks_per_node) == len(names)
+        # Identify the most recently clicked navigation button
+        max_index_navigation = -1
+        max_val_navigation = 0
+        for i, clicks in enumerate(navigation_button_clicks):
+            if clicks is not None and clicks > max_val_navigation:
+                max_val_navigation = clicks
+                max_index_navigation = i
+        # Identify the most recently clicked nodes
+        max_index_nodes = [0 if a is None else 1 for a in names].index(1)
+        max_val_nodes = 0
+        for i, (clicks, name) in enumerate(zip(clicks_per_node, names)):
+            if name in names_that_exist_in_the_selected_configuration and clicks is not None and clicks > max_val_nodes:
+                max_val_nodes = clicks
+                max_index_nodes = i
+        # Select a node based either on navigation buttons or based on clicking on that node,
+        # whichever happened more recently.
+        if max_val_nodes >= max_val_navigation and max_val_nodes > self.last_navigation_click_event_time:
+            self.last_navigation_click_event_time = max_val_nodes
+            name_of_selected_node = names[max_index_nodes]
+        elif max_val_navigation > self.last_navigation_click_event_time:
+            self.last_navigation_click_event_time = max_val_navigation
+            assert previous_name_of_selected_node is not None
+            grid_of_nodes = self.configuration_type_to_grid_of_nodes[selected_configuration_type]
+            x, y = None, None
+            for x, column in enumerate(grid_of_nodes):
+                for y, nn in enumerate(column):
+                    if nn == previous_name_of_selected_node:
+                        break
+                else:
+                    continue
+                break
+            # left / right
+            if max_index_navigation == 0:
+                x -= 1
+            elif max_index_navigation == 1:
+                x += 1
+            if x < 0:
+                x = len(grid_of_nodes) - 1
+            if x >= len(grid_of_nodes):
+                x = 0
+            column = grid_of_nodes[x]
+            if y >= len(column):
+                y = len(column) - 1
+            # up / down
+            if max_index_navigation == 2:
+                y -= 1
+            elif max_index_navigation == 3:
+                y += 1
+            if y < 0:
+                y = len(column) - 1
+            if y >= len(column):
+                y = 0
+            name_of_selected_node = column[y]
+        else:
+            name_of_selected_node = previous_name_of_selected_node
+        assert name_of_selected_node is not None
+        return name_of_selected_node
