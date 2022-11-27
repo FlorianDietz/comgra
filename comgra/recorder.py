@@ -605,7 +605,7 @@ class ComgraRecorder:
                 list_of_floats = combined_tensor.cpu().tolist()
                 assert len(list_of_floats) == len(all_keys_to_process), (len(list_of_floats), len(all_keys_to_process))
                 for key_to_process, float_value in zip(all_keys_to_process, list_of_floats):
-                    assert isinstance(float_value, float) and not math.isnan(float_value), (float_value, key_to_process)
+                    assert isinstance(float_value, float), (float_value, key_to_process)
                     self.tensor_recordings.recordings.add_record(key_to_process, float_value)
                     sanity_check_c += 1
                 all_tensors_to_combine = []
