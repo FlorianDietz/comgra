@@ -101,6 +101,7 @@ class Visualization:
         self.cache_for_tensor_recordings = {}
         self.attribute_selection_fallback_values = collections.defaultdict(list)
         self.last_navigation_click_event_time = -1
+        self.node_is_a_parameter: Dict[str, bool] = {}
 
     def _node_name_to_dash_id(self, configuration_type, node_name):
         conversion = node_name.replace('.', '__')
@@ -125,6 +126,27 @@ class Visualization:
             with open(config_folder / 'status_and_graph.pkl', 'rb') as f:
                 status_and_graph: StatusAndGraph = pickle.load(f)
             self.configuration_type_to_status_and_graph[configuration_type] = status_and_graph
+        #
+        # Get helper data
+        #
+        # Special handling for parameters:
+        # They are independent of iterations, and all their values are stored for iteration 0.
+        # But we do not want to change the iteration slider when they are selected,
+        # and also the layout of the graph may actually change when the iteration changes,
+        # so that should be avoided as well.
+        all_node_names = set([
+            node_name
+            for sag in self.configuration_type_to_status_and_graph.values()
+            for node_name in sag.name_to_node.keys()
+        ])
+        for node_name in all_node_names:
+            is_parameter_node = set([
+                sag.name_to_node[node_name].type_of_tensor == 'parameter'
+                for sag in self.configuration_type_to_status_and_graph.values()
+                if node_name in sag.name_to_node
+            ])
+            is_parameter_node = utilities.the(is_parameter_node)
+            self.node_is_a_parameter[node_name] = is_parameter_node
         #
         # Visualize
         #
@@ -404,23 +426,7 @@ class Visualization:
                     training_step_value, iteration_value, previous_name_of_selected_node,
                     navigation_button_clicks, clicks_per_node,
                 )
-                print(123, program_is_initializing, name_of_selected_node)
-                #
-                # Get the recordings.
-                #
-                is_parameter_node = False
                 original_iteration_value = iteration_value
-                # Special handling for parameters:
-                # They are independent of iterations, and all their values are stored for iteration 0.
-                # But we do not want to change the iteration slider when they are selected,
-                # and also the layout of the graph may actually change when the iteration changes,
-                # so that should be avoided as well.
-                configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][
-                    iteration_value]
-                sag = self.configuration_type_to_status_and_graph[configuration_type]
-                node = sag.name_to_node[name_of_selected_node]
-                if node.type_of_tensor == 'parameter':
-                    is_parameter_node = True
                 #
                 # Query the database to determine the best-fitting record to set the current value.
                 #
@@ -428,7 +434,7 @@ class Visualization:
                     'training_step': training_step_value,
                     'type_of_tensor_recording': type_of_recording_value,
                     'batch_aggregation': batch_index_value,
-                    'iteration': None if is_parameter_node else iteration_value,
+                    'iteration': None if self.node_is_a_parameter[name_of_selected_node] else iteration_value,
                     'node_name': name_of_selected_node,
                     'role_within_node': role_of_tensor_in_node_value,
                     'record_type': 'data',
@@ -488,12 +494,6 @@ class Visualization:
             current_params_dict_for_querying_database = {
                 k: v for k, v in zip(db.attributes, selected_record_values)
             }
-            # Re-derive is_parameter_node, which may have changed.
-            configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][
-                iteration_value]
-            sag = self.configuration_type_to_status_and_graph[configuration_type]
-            node = sag.name_to_node[name_of_selected_node]
-            is_parameter_node = (node.type_of_tensor == 'parameter')
             #
             # Query again, using that record as the filter,
             # to determine which alternative values are legal for each attribute.
@@ -511,9 +511,13 @@ class Visualization:
                 label_maker=lambda a: "Mean over the batch" if a == 'batch_mean' else ("Has no batch dimension" if a == 'has_no_batch_dimension' else f"batch index {a}")
             )
             batch_index_options.sort(key=lambda a: -1 if a['value'] == 'batch_mean' else (-2 if a['value'] == 'has_no_batch_dimension' else a['value']))
-            if is_parameter_node:
+            if self.node_is_a_parameter[name_of_selected_node]:
+                iteration_options = list(recordings.training_step_to_iteration_to_configuration_type[training_step_value].keys())
                 iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
-                    original_iteration_value, list(recordings.training_step_to_iteration_to_configuration_type[training_step_value].keys()),
+                    original_iteration_value
+                    if self.node_is_a_parameter[name_of_selected_node] and original_iteration_value in iteration_options
+                    else iteration_value,
+                    iteration_options,
                 )
             else:
                 iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
@@ -563,15 +567,8 @@ class Visualization:
             configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][iteration_value]
             type_of_execution_for_diversity_of_recordings = recordings.training_step_to_type_of_execution_for_diversity_of_recordings[training_step_value]
             sag = self.configuration_type_to_status_and_graph[configuration_type]
-            if node_name is not None:
-                # Special handling for parameters:
-                # They are independent of iterations, and all their values are stored for iteration 0.
-                # But we do not want to change the iteration slider when they are selected,
-                # and also the layout of the graph may actually change when the iteration changes,
-                # so that should be avoided as well.
-                node = sag.name_to_node[node_name]
-                if node.type_of_tensor == 'parameter':
-                    iteration_value = 0
+            if self.node_is_a_parameter[node_name]:
+                iteration_value = 0
             #
             # Select the node and visually highlight it.
             #
@@ -690,6 +687,9 @@ class Visualization:
             navigation_button_clicks, clicks_per_node,
     ):
         recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution_for_diversity_of_recordings)
+        # Special case: If nothing was clicked, just return the previous_name_of_selected_node
+        if max([-1 if a is None else a for a in navigation_button_clicks + clicks_per_node]) <= self.last_navigation_click_event_time:
+            return previous_name_of_selected_node
         # Identify which Nodes exist in the selected configuration
         names = [
             node
