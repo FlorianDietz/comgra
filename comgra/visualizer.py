@@ -667,7 +667,7 @@ class Visualization:
                 row = [
                     html.Td(key[index_of_item]),
                     html.Td(key[index_of_metadata]),
-                    html.Td(val),
+                    html.Td(f"{val:17.10f}     -     {val}" if isinstance(val, numbers.Number) else val),
                 ]
                 rows.append(html.Tr(row))
             desc_text = node.type_of_tensor

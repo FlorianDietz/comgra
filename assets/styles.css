@@ -1,0 +1,10 @@
+.node {
+    border: 1px solid black;
+}
+.inactive {
+    display: none;
+}
+#selected-item-details-container td {
+    white-space: pre;
+    font-family: monospace;
+}

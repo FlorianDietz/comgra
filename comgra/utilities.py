@@ -76,8 +76,8 @@ class PseudoDb:
     def merge(self, other: 'PseudoDb'):
         # Sanity checks
         assert self.attributes == other.attributes
-        my_recs = {a[0] for a in self.get_matches({})[0]}
-        other_recs = {a[0] for a in other.get_matches({})[0]}
+        my_recs = set(self.record_set.keys())
+        other_recs = set(other.record_set.keys())
         assert all(len(a) == len(self.attributes) for a in my_recs)
         assert all(len(a) == len(self.attributes) for a in other_recs)
         merged_recs = my_recs | other_recs
