@@ -355,11 +355,11 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def record_current_gradients(self, name_of_loss_group):
+        if not self.recording_is_active:
+            return
         assert name_of_loss_group not in self.types_of_tensor_recordings
         self.types_of_tensor_recordings.append(name_of_loss_group)
         self.current_type_of_tensor_recording = name_of_loss_group
-        if not self.recording_is_active:
-            return
         for tensor, k in self.tensor_to_name_and_iteration.items():
             tr = self.tensor_name_and_iteration_to_representation[k]
             gradient = torch.zeros(tensor.shape, device=tensor.device) if tensor.grad is None else tensor.grad
