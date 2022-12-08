@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="lsv_server_cluster_test_0" type="PythonConfigurationType" factoryName="Python">
-    <module name="comgra" />
+    <module name="erg" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
