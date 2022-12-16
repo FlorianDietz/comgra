@@ -26,6 +26,7 @@ class ComgraRecorder:
             parameters_of_trial, decision_maker_for_recordings,
             comgra_is_active=True, max_num_batch_size_to_record=None,
             max_num_mappings_to_save_at_once_during_serialization=20000,
+            type_of_serialization='msgpack',
     ):
         comgra_root_path = Path(comgra_root_path)
         assert comgra_root_path.exists()
@@ -37,6 +38,7 @@ class ComgraRecorder:
         self.recordings_path.mkdir(parents=True, exist_ok=True)
         self.configuration_type = None
         self.configuration_path = None
+        self.type_of_serialization = type_of_serialization
         self.prefixes_for_grouping_module_parameters_visually = list(prefixes_for_grouping_module_parameters_visually)
         self.prefixes_for_grouping_module_parameters_in_nodes = list(prefixes_for_grouping_module_parameters_in_nodes)
         assert all(isinstance(a, str) for a in prefixes_for_grouping_module_parameters_visually)
@@ -551,11 +553,18 @@ class ComgraRecorder:
             recordings_path_folder.mkdir(exist_ok=True)
             dump_dict = dataclasses.asdict(self.tensor_recordings)
             dump_dict['recordings'] = dump_dict['recordings'].serialize()
-            self.save_json(dump_dict, recordings_path_folder, file_number)
-            self.save_zip_json(dump_dict, recordings_path_folder, file_number)
-            self.save_pickle(dump_dict, recordings_path_folder, file_number)
-            self.save_msgpack(dump_dict, recordings_path_folder, file_number)
-            self.save_zip_msgpack(dump_dict, recordings_path_folder, file_number)
+            if self.type_of_serialization == 'json':
+                self.save_json(dump_dict, recordings_path_folder, file_number)
+            elif self.type_of_serialization == 'zip_json':
+                self.save_zip_json(dump_dict, recordings_path_folder, file_number)
+            elif self.type_of_serialization == 'pkl':
+                self.save_pickle(dump_dict, recordings_path_folder, file_number)
+            elif self.type_of_serialization == 'msgpack':
+                self.save_msgpack(dump_dict, recordings_path_folder, file_number)
+            elif self.type_of_serialization == 'zip_msgpack':
+                self.save_zip_msgpack(dump_dict, recordings_path_folder, file_number)
+            else:
+                raise ValueError(self.type_of_serialization)
             file_number += 1
             self.tensor_recordings.recordings = utilities.PseudoDb(attributes=attributes_for_tensor_recordings)
         batch_size_to_record = self.current_batch_size if self.max_num_batch_size_to_record is None else min(

@@ -83,6 +83,7 @@ class PseudoDb:
         merged_recs = my_recs | other_recs
         if len(my_recs) + len(other_recs) != len(merged_recs):
             print(f"The recordings overlap:\n{len(my_recs)=}\n{len(other_recs)=}\n{len(merged_recs)=}")
+            assert False
         # Update
         self.record_set.update(other.record_set)
 
