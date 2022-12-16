@@ -545,9 +545,13 @@ class Visualization:
             type_of_recording_options.sort(key=lambda a: a['value'])
             batch_index_options, batch_index_value = create_options_and_value_from_list(
                 batch_index_value, possible_attribute_values['batch_aggregation'],
-                label_maker=lambda a: "Mean over the batch" if a == 'batch_mean' else ("Has no batch dimension" if a == 'has_no_batch_dimension' else f"batch index {a}")
+                label_maker=lambda a: {
+                    'batch_mean': "Mean over the batch",
+                    'batch_std': "STD over the batch",
+                    'has_no_batch_dimension': "Has no batch dimension",
+                }.get(a, f"batch index {a}")
             )
-            batch_index_options.sort(key=lambda a: -1 if a['value'] == 'batch_mean' else (-2 if a['value'] == 'has_no_batch_dimension' else a['value']))
+            batch_index_options.sort(key=lambda a: -1 if a['value'] in ['batch_mean', 'batch_std'] else (-2 if a['value'] == 'has_no_batch_dimension' else a['value']))
             if self.node_is_a_parameter[name_of_selected_node]:
                 iteration_options = list(recordings.training_step_to_iteration_to_configuration_type[training_step_value].keys())
                 iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
@@ -709,7 +713,7 @@ class Visualization:
                 rows.append(html.Tr(row))
             desc_text = node.type_of_tensor
             children = [
-                html.Header(f"{trials_value}"),
+                html.Header(f"{trials_value}   -   {training_step_value}"),
                 html.Header(f"Recording type: {type_of_execution_for_diversity_of_recordings}"),
                 html.Header(f"Node: {node.full_unique_name} - {role_of_tensor_in_node_value}"),
                 html.Div(desc_text),

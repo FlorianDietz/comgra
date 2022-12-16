@@ -99,12 +99,14 @@ class ComgraRecorder:
         self.tensor_name_to_node_name = {}
         self.tensor_name_and_iteration_to_representation: Dict[Tuple[str, int], TensorRepresentation] = {}
         self.current_batch_size = None
+        self.override__recording_is_active = None
 
-    @property
     def recording_is_active(self):
-        return self.comgra_is_active and self.is_training_mode and self.decision_maker_for_recordings.is_record_on_this_iteration(
-            self.training_step, self.type_of_execution_for_diversity_of_recordings,
-        )
+        if self.override__recording_is_active is None:
+            return self.comgra_is_active and self.is_training_mode and self.decision_maker_for_recordings.is_record_on_this_iteration(
+                self.training_step, self.type_of_execution_for_diversity_of_recordings,
+            )
+        return self.override__recording_is_active
 
     def _verify_uniqueness_of_name(self, name, type_of_name):
         if type_of_name == 'module':
@@ -157,6 +159,7 @@ class ComgraRecorder:
             self, training_step, current_batch_size, is_training_mode,
             type_of_execution_for_diversity_of_recordings,
             record_all_tensors_per_batch_index_by_default=False,
+            override__recording_is_active=None,
     ):
         self.is_training_mode = is_training_mode
         self.training_step = training_step
@@ -178,6 +181,7 @@ class ComgraRecorder:
         self.current_batch_size = current_batch_size
         self.tensor_recordings = TensorRecordings()
         self.mapping_of_tensors_for_extracting_kpis = {}
+        self.override__recording_is_active = override__recording_is_active
 
     @utilities.runtime_analysis_decorator
     def register_tensor(
@@ -187,7 +191,7 @@ class ComgraRecorder:
             recording_type=None, record_per_batch_index=None,
             node_name=None, role_within_node=None
     ):
-        if not self.recording_is_active:
+        if not self.recording_is_active():
             return
         assert (1 if is_input else 0) + (1 if is_parameter else 0) + (1 if is_output else 0) + \
                (1 if is_target else 0) + (1 if is_loss else 0) <= 1, tensor_name
@@ -311,12 +315,15 @@ class ComgraRecorder:
                 else:
                     raise NotImplementedError(item)
                 # Take the mean over the batch, if possible
-                batching_types = ((['has_no_batch_dimension'] if tensor_representation.index_of_batch_dimension is None else ['batch_mean']) +
+                batching_types = ((['has_no_batch_dimension'] if tensor_representation.index_of_batch_dimension is None else ['batch_mean', 'batch_std']) +
                                   (['individual_batch_indices'] if tensor_representation.record_per_batch_index else []))
                 for batching_type in batching_types:
                     if batching_type == 'batch_mean':
                         assert len(val.shape) == 2 and val.shape[0] == self.current_batch_size
                         val1 = val.mean(dim=0).unsqueeze(dim=0)
+                    elif batching_type == 'batch_std':
+                        assert len(val.shape) == 2 and val.shape[0] == self.current_batch_size
+                        val1 = val.std(dim=0).unsqueeze(dim=0)
                     elif batching_type == 'has_no_batch_dimension':
                         assert len(val.shape) == 1, (val.shape, tensor_representation.full_unique_name)
                         val1 = val.unsqueeze(dim=0)
@@ -348,19 +355,19 @@ class ComgraRecorder:
         self.configuration_path = self.group_path / 'configs' / configuration_type
         self.tensor_recordings.training_step_to_iteration_to_configuration_type.setdefault(self.training_step, {})[self.iteration] = configuration_type
         self.tensor_recordings.training_step_to_type_of_execution_for_diversity_of_recordings[self.training_step] = self.type_of_execution_for_diversity_of_recordings
-        if not self.recording_is_active:
+        if not self.recording_is_active():
             return
 
     @utilities.runtime_analysis_decorator
     def start_backward_pass(self):
         assert self.current_stage == 'forward', self.current_stage
         self.current_stage = 'backward'
-        if not self.recording_is_active:
+        if not self.recording_is_active():
             return
 
     @utilities.runtime_analysis_decorator
     def record_current_gradients(self, name_of_loss_group, set_gradients_to_zero_if_not_a_parameter=False):
-        if not self.recording_is_active:
+        if not self.recording_is_active():
             return
         assert name_of_loss_group not in self.types_of_tensor_recordings
         self.types_of_tensor_recordings.append(name_of_loss_group)
@@ -377,7 +384,7 @@ class ComgraRecorder:
         assert self.current_stage in ['forward', 'backward'], self.current_stage
         self.current_stage = 'after_iteration'
         self.current_type_of_tensor_recording = 'forward'  # This will be used when the parameters get recorded in traverse_graph_backwards
-        if not self.recording_is_active:
+        if not self.recording_is_active():
             return
         #
         # Go backwards through the computation graph, starting from outputs, targets, and losses.
@@ -528,7 +535,7 @@ class ComgraRecorder:
     def finish_batch(self):
         assert self.current_stage == 'after_iteration', self.current_stage
         self.current_stage = 'inactive'
-        if not self.recording_is_active:
+        if not self.recording_is_active():
             return
         #
         # Get the KPIs and serialize them.
