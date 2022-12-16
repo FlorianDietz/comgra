@@ -8,6 +8,7 @@ import copy
 from dataclasses import dataclass
 import datetime
 import functools
+import gzip
 import hashlib
 import heapq
 import importlib
@@ -41,6 +42,7 @@ from dash import dcc, html, no_update
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 import dash_svg
+import msgpack
 import numpy as np
 import plotly.express as px
 import pandas as pd
@@ -170,27 +172,62 @@ class Visualization:
                     recordings_path = recordings_path_base / f'{training_step_value}__{type_of_execution_for_diversity_of_recordings}'
                 recording_files = sorted(list(recordings_path.iterdir()))
                 for recording_file in recording_files:
-                    with open(recording_file, 'r') as f:
-                        new_recordings_json = json.load(f)
-                        new_recordings: TensorRecordings = TensorRecordings(**new_recordings_json)
-                        new_recordings.recordings = utilities.PseudoDb([]).deserialize(new_recordings.recordings)
-                        new_recordings.training_step_to_iteration_to_configuration_type = {
-                            int(k1): {
-                                int(k2): v2 for k2, v2 in v1.items()
-                            }
-                            for k1, v1 in new_recordings.training_step_to_iteration_to_configuration_type.items()
+                    if recording_file.suffix == '.json':
+                        new_recordings_data = self.load_json(recording_file)
+                    elif recording_file.suffix == '.zip_json':
+                        new_recordings_data = self.load_zip_json(recording_file)
+                    elif recording_file.suffix == '.pkl':
+                        new_recordings_data = self.load_pickle(recording_file)
+                    elif recording_file.suffix == '.msgpack':
+                        new_recordings_data = self.load_msgpack(recording_file)
+                    elif recording_file.suffix == '.zip_msgpack':
+                        new_recordings_data = self.load_zip_msgpack(recording_file)
+                    else:
+                        raise ValueError(recording_file)
+                    new_recordings: TensorRecordings = TensorRecordings(**new_recordings_data)
+                    new_recordings.recordings = utilities.PseudoDb([]).deserialize(new_recordings.recordings)
+                    new_recordings.training_step_to_iteration_to_configuration_type = {
+                        int(k1): {
+                            int(k2): v2 for k2, v2 in v1.items()
                         }
-                        new_recordings.training_step_to_type_of_execution_for_diversity_of_recordings = {
-                            int(k1): v1
-                            for k1, v1 in new_recordings.training_step_to_type_of_execution_for_diversity_of_recordings.items()
-                        }
-                        if recordings is None:
-                            recordings = new_recordings
-                        else:
-                            recordings.update_with_more_recordings(new_recordings)
+                        for k1, v1 in new_recordings.training_step_to_iteration_to_configuration_type.items()
+                    }
+                    new_recordings.training_step_to_type_of_execution_for_diversity_of_recordings = {
+                        int(k1): v1
+                        for k1, v1 in new_recordings.training_step_to_type_of_execution_for_diversity_of_recordings.items()
+                    }
+                    if recordings is None:
+                        recordings = new_recordings
+                    else:
+                        recordings.update_with_more_recordings(new_recordings)
                 recordings.recordings.create_index(['training_step', 'record_type', 'node_name', 'role_within_node', 'batch_aggregation', 'iteration'])
                 self.cache_for_tensor_recordings[key] = recordings
             return recordings
+
+    @utilities.runtime_analysis_decorator
+    def load_json(self, recording_file):
+        with open(recording_file, 'r') as f:
+            return json.load(f)
+
+    @utilities.runtime_analysis_decorator
+    def load_zip_json(self, recording_file):
+        with gzip.open(recording_file, 'r') as f:
+            return json.loads(f.read().decode('utf-8'))
+
+    @utilities.runtime_analysis_decorator
+    def load_pickle(self, recording_file):
+        with open(recording_file, 'rb') as f:
+            return pickle.load(f)
+
+    @utilities.runtime_analysis_decorator
+    def load_msgpack(self, recording_file):
+        with open(recording_file, 'rb') as f:
+            return msgpack.load(f, strict_map_key=False)
+
+    @utilities.runtime_analysis_decorator
+    def load_zip_msgpack(self, recording_file):
+        with gzip.open(recording_file, 'r') as f:
+            return msgpack.loads(f.read(), strict_map_key=False)
 
     @utilities.runtime_analysis_decorator
     def create_nodes_and_arrows(

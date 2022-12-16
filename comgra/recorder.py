@@ -1,12 +1,15 @@
 import collections
 import dataclasses
 import functools
+import gzip
 import json
 import math
 import re
 from pathlib import Path
 import pickle
 from typing import List, Dict, Optional, Tuple
+
+import msgpack
 
 import torch
 from torch import nn as torch_nn
@@ -546,10 +549,13 @@ class ComgraRecorder:
             nonlocal file_number
             recordings_path_folder = self.recordings_path / f'{self.training_step}__{self.type_of_execution_for_diversity_of_recordings}'
             recordings_path_folder.mkdir(exist_ok=True)
-            with open(recordings_path_folder / f'{file_number}.json', 'w') as f:
-                dump_dict = dataclasses.asdict(self.tensor_recordings)
-                dump_dict['recordings'] = dump_dict['recordings'].serialize()
-                json.dump(dump_dict, f)
+            dump_dict = dataclasses.asdict(self.tensor_recordings)
+            dump_dict['recordings'] = dump_dict['recordings'].serialize()
+            self.save_json(dump_dict, recordings_path_folder, file_number)
+            self.save_zip_json(dump_dict, recordings_path_folder, file_number)
+            self.save_pickle(dump_dict, recordings_path_folder, file_number)
+            self.save_msgpack(dump_dict, recordings_path_folder, file_number)
+            self.save_zip_msgpack(dump_dict, recordings_path_folder, file_number)
             file_number += 1
             self.tensor_recordings.recordings = utilities.PseudoDb(attributes=attributes_for_tensor_recordings)
         batch_size_to_record = self.current_batch_size if self.max_num_batch_size_to_record is None else min(
@@ -616,3 +622,29 @@ class ComgraRecorder:
         assert len(all_tensors_to_combine) == 0
         total_number_of_tensor_values = sum(t.numel() for t, tr in self.mapping_of_tensors_for_extracting_kpis.values())
         assert sanity_check_c == total_number_of_tensor_values, (sanity_check_c, total_number_of_tensor_values)
+
+    @utilities.runtime_analysis_decorator
+    def save_json(self, dump_dict, recordings_path_folder, file_number):
+        with open(recordings_path_folder / f'{file_number}.json', 'w') as f:
+            json.dump(dump_dict, f)
+
+    @utilities.runtime_analysis_decorator
+    def save_zip_json(self, dump_dict, recordings_path_folder, file_number):
+        with gzip.open(recordings_path_folder / f'{file_number}.zip_json', 'w') as fout:
+            json_bytes = (json.dumps(dump_dict) + "\n").encode('utf-8')
+            fout.write(json_bytes)
+
+    @utilities.runtime_analysis_decorator
+    def save_pickle(self, dump_dict, recordings_path_folder, file_number):
+        with open(recordings_path_folder / f'{file_number}.pkl', 'wb') as f:
+            pickle.dump(dump_dict, f)
+
+    @utilities.runtime_analysis_decorator
+    def save_msgpack(self, dump_dict, recordings_path_folder, file_number):
+        with open(recordings_path_folder / f'{file_number}.msgpack', 'wb') as f:
+            msgpack.dump(dump_dict, f)
+
+    @utilities.runtime_analysis_decorator
+    def save_zip_msgpack(self, dump_dict, recordings_path_folder, file_number):
+        with gzip.open(recordings_path_folder / f'{file_number}.zip_msgpack', 'wb') as fout:
+            fout.write(msgpack.dumps(dump_dict))
