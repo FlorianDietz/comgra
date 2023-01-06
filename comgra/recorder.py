@@ -524,6 +524,7 @@ class ComgraRecorder:
                 name_to_tensor_representation_relevant_for_graph_construction[tensor_name] = v
         status_and_graph = StatusAndGraph(
             configuration_type=self.configuration_type,
+            modules_and_parameters=self.set_of_top_level_modules,
             name_to_node=name_to_node,
             types_of_tensor_recordings=list(self.types_of_tensor_recordings),
             nodes=nodes,
