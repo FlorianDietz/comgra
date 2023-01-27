@@ -208,7 +208,10 @@ class ComgraRecorder:
             index_of_batch_dimension = None
             value_dimensions = []
         elif is_parameter:
-            recording_type = 'kpis'
+            if len(tensor.shape) == 2:
+                recording_type = 'kpis_and_svd'
+            else:
+                recording_type = 'kpis'
             index_of_batch_dimension = None
             value_dimensions = [i for i in range(len(tensor.shape))]
         else:
@@ -249,6 +252,8 @@ class ComgraRecorder:
             f"Give your tensors unique names: {(tensor_name, self.iteration)}"
         if recording_type == 'kpis':
             items_to_record = ['mean', 'abs_mean', 'std', 'abs_max']
+        elif recording_type == 'kpis_and_svd':
+            items_to_record = ['mean', 'abs_mean', 'std', 'abs_max', 'svd']
         elif recording_type == 'neurons':
             items_to_record = ['mean', 'abs_mean', 'std', 'abs_max', 'neurons']
         elif recording_type == 'single_value':
@@ -306,6 +311,8 @@ class ComgraRecorder:
                         val = torch.zeros(val.shape, device=val.device)
                 elif item == 'abs_max':
                     val = torch.amax(tensor.abs(), dim=value_dimensions).unsqueeze(dim=expansion_dim)
+                elif item == 'svd':
+                    val = torch.linalg.svdvals(tensor)[:1]
                 elif item == 'neurons':
                     assert len(value_dimensions) == 1, \
                         "This is not implemented for multi-dimensional tensors, as it is unclear how best to portray that."
