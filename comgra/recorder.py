@@ -533,7 +533,7 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def finish_batch(self):
-        assert self.current_stage == 'after_iteration', self.current_stage
+        assert self.current_stage == 'after_iteration' or not self.recording_is_active(), self.current_stage
         self.current_stage = 'inactive'
         if not self.recording_is_active():
             return
