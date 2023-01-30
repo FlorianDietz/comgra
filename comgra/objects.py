@@ -69,6 +69,7 @@ class TensorRecordings:
 @dataclasses.dataclass
 class StatusAndGraph:
     configuration_type: str
+    modules_and_parameters: Dict[str, ModuleRepresentation]
     name_to_node: Dict[str, Node]
     types_of_tensor_recordings: List[str]
     nodes: List[str]

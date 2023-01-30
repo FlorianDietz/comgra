@@ -27,6 +27,7 @@ class ComgraRecorder:
             comgra_is_active=True, max_num_batch_size_to_record=None,
             max_num_mappings_to_save_at_once_during_serialization=20000,
             type_of_serialization='msgpack',
+            calculate_svd_and_other_expensive_operations_of_parameters=True,
     ):
         comgra_root_path = Path(comgra_root_path)
         assert comgra_root_path.exists()
@@ -39,6 +40,7 @@ class ComgraRecorder:
         self.configuration_type = None
         self.configuration_path = None
         self.type_of_serialization = type_of_serialization
+        self.calculate_svd_and_other_expensive_operations_of_parameters = calculate_svd_and_other_expensive_operations_of_parameters
         self.prefixes_for_grouping_module_parameters_visually = list(prefixes_for_grouping_module_parameters_visually)
         self.prefixes_for_grouping_module_parameters_in_nodes = list(prefixes_for_grouping_module_parameters_in_nodes)
         assert all(isinstance(a, str) for a in prefixes_for_grouping_module_parameters_visually)
@@ -208,7 +210,10 @@ class ComgraRecorder:
             index_of_batch_dimension = None
             value_dimensions = []
         elif is_parameter:
-            recording_type = 'kpis'
+            if self.calculate_svd_and_other_expensive_operations_of_parameters and len(tensor.shape) == 2:
+                recording_type = 'kpis_and_svd'
+            else:
+                recording_type = 'kpis'
             index_of_batch_dimension = None
             value_dimensions = [i for i in range(len(tensor.shape))]
         else:
@@ -249,6 +254,8 @@ class ComgraRecorder:
             f"Give your tensors unique names: {(tensor_name, self.iteration)}"
         if recording_type == 'kpis':
             items_to_record = ['mean', 'abs_mean', 'std', 'abs_max']
+        elif recording_type == 'kpis_and_svd':
+            items_to_record = ['mean', 'abs_mean', 'std', 'abs_max', 'svd']
         elif recording_type == 'neurons':
             items_to_record = ['mean', 'abs_mean', 'std', 'abs_max', 'neurons']
         elif recording_type == 'single_value':
@@ -306,6 +313,8 @@ class ComgraRecorder:
                         val = torch.zeros(val.shape, device=val.device)
                 elif item == 'abs_max':
                     val = torch.amax(tensor.abs(), dim=value_dimensions).unsqueeze(dim=expansion_dim)
+                elif item == 'svd':
+                    val = self.get_highest_svd(tensor)
                 elif item == 'neurons':
                     assert len(value_dimensions) == 1, \
                         "This is not implemented for multi-dimensional tensors, as it is unclear how best to portray that."
@@ -337,6 +346,10 @@ class ComgraRecorder:
                         batching_type, tensor_representation.iteration,
                         tensor_representation, item, val1,
                     )
+
+    @utilities.runtime_analysis_decorator
+    def get_highest_svd(self, tensor):
+        return torch.linalg.svdvals(tensor)[:1]
 
     @utilities.runtime_analysis_decorator
     def store_value_of_tensor_helper(self, batching_type, iteration, tensor_representation: TensorRepresentation, item, tensor):
@@ -524,6 +537,7 @@ class ComgraRecorder:
                 name_to_tensor_representation_relevant_for_graph_construction[tensor_name] = v
         status_and_graph = StatusAndGraph(
             configuration_type=self.configuration_type,
+            modules_and_parameters=self.set_of_top_level_modules,
             name_to_node=name_to_node,
             types_of_tensor_recordings=list(self.types_of_tensor_recordings),
             nodes=nodes,

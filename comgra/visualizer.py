@@ -327,6 +327,7 @@ class Visualization:
                     html.Button('Right', id='navigate-right-button', n_clicks=0),
                     html.Button('Up', id='navigate-up-button', n_clicks=0),
                     html.Button('Down', id='navigate-down-button', n_clicks=0),
+                    html.Button('Show / Hide Metadata', id='display-metadata-button', n_clicks=0),
                 ]),
                 dcc.Dropdown(id='trials-dropdown', options=[], value=None),
                 dcc.Dropdown(id='type-of-execution-for-diversity-of-recordings-dropdown', options=[], value=None),
@@ -589,7 +590,8 @@ class Visualization:
         @app.callback(
             [Output('selected-item-details-container', 'children'),
              Output('graph-overlay-for-selections', 'children')],
-            [Input('dummy-for-selecting-a-node', 'className'),
+            [Input('display-metadata-button', 'n_clicks'),
+             Input('dummy-for-selecting-a-node', 'className'),
              Input('trials-dropdown', 'value'),
              Input('type-of-execution-for-diversity-of-recordings-dropdown', 'value'),
              Input('training-step-slider', 'value'),
@@ -600,6 +602,7 @@ class Visualization:
         )
         @utilities.runtime_analysis_decorator
         def update_kpis_to_display_for_selection(
+                display_metadata_n_clicks,
                 node_name, trials_value, type_of_execution_for_diversity_of_recordings,
                 training_step_value, type_of_recording_value,
                 batch_index_value, iteration_value, role_of_tensor_in_node_value,
@@ -610,6 +613,7 @@ class Visualization:
             sag = self.configuration_type_to_status_and_graph[configuration_type]
             if self.node_is_a_parameter[node_name]:
                 iteration_value = 0
+            display_metadata_instead = (display_metadata_n_clicks % 2 == 1)
             #
             # Select the node and visually highlight it.
             #
@@ -712,14 +716,19 @@ class Visualization:
                 ]
                 rows.append(html.Tr(row))
             desc_text = node.type_of_tensor
-            children = [
-                html.Header(f"{trials_value}   -   {training_step_value}"),
-                html.Header(f"Recording type: {type_of_execution_for_diversity_of_recordings}"),
-                html.Header(f"Node: {node.full_unique_name} - {role_of_tensor_in_node_value}"),
-                html.Div(desc_text),
-                html.Div(f"Shape: [{', '.join([str(a) for a in tensor_shape])}]"),
-                html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', 'value']])] + rows)
-            ]
+            if display_metadata_instead:
+                children = [
+                    html.Div(f"{self.get_formatted_overview_of_module_parameters(sag)}", className="metadata-div")
+                ]
+            else:
+                children = [
+                    html.Header(f"{trials_value}   -   {training_step_value}"),
+                    html.Header(f"Recording type: {type_of_execution_for_diversity_of_recordings}"),
+                    html.Header(f"Node: {node.full_unique_name} - {role_of_tensor_in_node_value}"),
+                    html.Div(desc_text),
+                    html.Div(f"Shape: [{', '.join([str(a) for a in tensor_shape])}]"),
+                    html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', 'value']])] + rows),
+                ]
             return children, graph_overlay_for_selections_children
 
     @utilities.runtime_analysis_decorator
@@ -802,3 +811,29 @@ class Visualization:
             name_of_selected_node = previous_name_of_selected_node
         assert name_of_selected_node is not None
         return name_of_selected_node
+
+    @utilities.runtime_analysis_decorator
+    def get_formatted_overview_of_module_parameters(self, sag: StatusAndGraph):
+
+        def rec(modules: Dict[str, ModuleRepresentation], indentation_level):
+            total_parameters = 0
+            lines = []
+            for m_name, m_val in modules.items():
+                sub_parameter_count = 0
+                sub_lines = []
+                for p_name, p_val in m_val.parameters.items():
+                    numel = math.prod(p_val.shape)
+                    sub_parameter_count += numel
+                    line = f"{' ' * 4 * (indentation_level + 1)}{numel:18,d} - {p_name} - {p_val.shape}"
+                    sub_lines.append(line)
+                mod_sub_parameter_count, mod_sub_lines = rec(m_val.submodules, indentation_level + 1)
+                sub_parameter_count += mod_sub_parameter_count
+                sub_lines.extend(mod_sub_lines)
+                head_line = f"{' ' * 4 * indentation_level}{sub_parameter_count:18,d} - {m_name}"
+                total_parameters += sub_parameter_count
+                lines.append(head_line)
+                lines.extend(sub_lines)
+            return total_parameters, lines
+        total_parameters, lines = rec(sag.modules_and_parameters, 0)
+        res = f"Total parameters: {total_parameters:18,d}\n" + "\n".join(lines)
+        return res

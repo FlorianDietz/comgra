@@ -8,3 +8,7 @@
     white-space: pre;
     font-family: monospace;
 }
+#selected-item-details-container .metadata-div {
+    white-space: pre;
+    font-family: monospace;
+}
