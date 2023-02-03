@@ -352,7 +352,7 @@ class ComgraRecorder:
         try:
             res = torch.linalg.svdvals(tensor)[:1]
         except:
-            res = torch.FloatTensor([float('nan')], device=tensor.device)
+            res = torch.tensor([float('nan')], device=tensor.device)
         return res
 
     @utilities.runtime_analysis_decorator
