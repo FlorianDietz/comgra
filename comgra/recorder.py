@@ -349,7 +349,11 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def get_highest_svd(self, tensor):
-        return torch.linalg.svdvals(tensor)[:1]
+        try:
+            res = torch.linalg.svdvals(tensor)[:1]
+        except:
+            res = torch.FloatTensor([float('nan')])
+        return res
 
     @utilities.runtime_analysis_decorator
     def store_value_of_tensor_helper(self, batching_type, iteration, tensor_representation: TensorRepresentation, item, tensor):
