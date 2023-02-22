@@ -67,7 +67,7 @@ class VisualizationParameters:
     padding_right = 50
     padding_top = 50
     padding_bottom = 50
-    ratio_of_space_between_nodes_to_node_size = 2.0
+    ratio_of_space_between_nodes_to_node_size = 1.0
     node_type_to_color = {
         'input': '#60c156',
         'target': '#068989',
