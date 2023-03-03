@@ -386,7 +386,8 @@ class ComgraRecorder:
     def record_current_gradients(self, name_of_loss_group, set_gradients_to_zero_if_not_a_parameter=False):
         if not self.recording_is_active():
             return
-        assert name_of_loss_group not in self.types_of_tensor_recordings
+        assert name_of_loss_group not in self.types_of_tensor_recordings, \
+            (name_of_loss_group, self.types_of_tensor_recordings)
         self.types_of_tensor_recordings.append(name_of_loss_group)
         self.current_type_of_tensor_recording = name_of_loss_group
         for tensor, k in self.tensor_to_name_and_iteration.items():
@@ -501,7 +502,9 @@ class ComgraRecorder:
                     vv1 = tuple(vv1) if isinstance(vv1, list) else vv1
                     vv2 = tuple(vv2) if isinstance(vv2, list) else vv2
                     assert vv1 == vv2, f"{k1}\n{kk1}\n{vv1}\n{vv2}"
-            assert tuple(new_version.types_of_tensor_recordings) == tuple(existing_version.types_of_tensor_recordings)
+            assert tuple(new_version.types_of_tensor_recordings) == tuple(existing_version.types_of_tensor_recordings), \
+                f"{tuple(new_version.types_of_tensor_recordings)}\n" \
+                f"{tuple(existing_version.types_of_tensor_recordings)}"
             assert len(new_version.dag_format) == len(existing_version.dag_format)
             for a, b in zip(new_version.dag_format, existing_version.dag_format):
                 assert len(a) == len(b)
