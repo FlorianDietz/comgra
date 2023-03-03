@@ -1,0 +1,25 @@
+[project]
+name = "comgra"
+version = "0.9.0"
+authors = [
+    { name="Florian Dietz", email="floriandietz44@gmail.com" },
+]
+dependencies = [
+    'dash==2.6.2',
+    'dash-svg==0.0.12',
+    'msgpack==1.0.4',
+    'numpy==1.24.2',
+    'pandas==1.5.3',
+]
+description = "A package for analyzing computation graphs"
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/FlorianDietz/comgra"
+"Bug Tracker" = "https://github.com/FlorianDietz/comgra/issues"
