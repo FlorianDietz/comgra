@@ -5,7 +5,13 @@ import sys
 import argparse
 import socket
 
-from comgra import visualizer
+from comgra import recorder
+
+
+
+def run_demonstration(comgra_data_root_path):
+    pass
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run an experiment.")
@@ -19,5 +25,4 @@ if __name__ == '__main__':
     else:
         path = Path(args.path).absolute() / args.name
     assert path.exists(), path
-    vis = visualizer.Visualization(path=path)
-    vis.run_server(args.port)
+    run_demonstration(path)
