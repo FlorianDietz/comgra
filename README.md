@@ -17,7 +17,7 @@ You can also visualize which tensors are dependent on which other tensors, and t
 This tool is helpful for debugging the behavior of neural networks. It is especially helpful if you are developing new architectures and the architectures show unexpected behavior, as this visualization can help you understand what is going on much faster than the typical graph visualizations can do on their own. It is often useful to look at performance graphs of tensorboard or similar tools to identify which training steps have unexpected behavior, and then switch to comgra to inspect those steps in detail.
 
 See this screenshot for what the visualization looks like. Each rectangle is clickable and represents a tensor. The selection and sliders below specify which version of that tensor you want to inspect.
-T
+
 ![Example screenshot of comgra](comgra_screenshot.png?raw=true "Example screenshot of comgra")
 
 
