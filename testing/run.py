@@ -6,6 +6,7 @@ import sys
 import argparse
 import socket
 
+import comgra.recorder
 from comgra.recorder import ComgraRecorder
 from comgra.objects import DecisionMakerForRecordingsFrequencyPerType
 from comgra import utilities as comgra_utilities
@@ -26,10 +27,15 @@ class NeuralNet(nn.Module):
         self.fc2 = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
-        out = self.fc1(x)
-        out = self.relu(out)
-        out = self.fc2(out)
-        return out
+        x = self.fc1(x)
+        x = self.relu(x)
+        # Tensors in comgra need to get unique names in order to be recorded correctly.
+        # This nn.Module gets instantiated twice.
+        # To ensure the name is unique regardless, comgra provides a helper function to get the name
+        # of the current module, as recorded by track_module()
+        COMGRA_RECORDER.register_tensor(f"{COMGRA_RECORDER.get_name_of_module(self)}__hidden_state", x, recording_type='neurons')
+        x = self.fc2(x)
+        return x
 
 
 # Our model uses several identical modules with different names,
@@ -42,9 +48,9 @@ class CompleteModule(nn.Module):
         self.subnet_mem = NeuralNet(hidden_size, hidden_size, memory_size)
 
     def forward(self, x):
-        x = self.subnet_pre(x)
-        out = self.subnet_out(x)
-        memory = self.subnet_mem(x)
+        pre = self.subnet_pre(x)
+        out = self.subnet_out(pre)
+        memory = self.subnet_mem(pre)
         return out, memory
 
 def run_demonstration(comgra_root_path, comgra_group):
@@ -201,7 +207,7 @@ def run_demonstration(comgra_root_path, comgra_group):
                 COMGRA_RECORDER.register_tensor(f"loss", loss, is_loss=True)
                 # This command causes comgra to record all losses that are currently on the module parameters,
                 # for each module parameter registered through track_module()
-                COMGRA_RECORDER.record_current_gradients(f"losses")
+                COMGRA_RECORDER.record_current_gradients(f"gradients")
                 if epoch % 100 == 0:
                     print(f"Epoch {epoch}: Loss = {loss.item()}")
             # Tell comgra that the iteration has finished.
