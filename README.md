@@ -16,7 +16,7 @@ You can also visualize which tensors are dependent on which other tensors, and t
 
 This tool is helpful for debugging the behavior of neural networks. It is especially helpful if you are developing new architectures and the architectures show unexpected behavior, as this visualization can help you understand what is going on much faster than the typical graph visualizations can do on their own. It is often useful to look at performance graphs of tensorboard or similar tools to identify which training steps have unexpected behavior, and then switch to comgra to inspect those steps in detail.
 
-See this screenshot for what the visualization looks like. Each rectangle is clickable and represents a tensor. The selection and sliders below specify which version of that tensor you want to inspect.
+See this screenshot for what the visualization looks like. Each rectangle is called a Node. They are clickable and each represents a tensor. The selection and sliders below specify which version of that tensor you want to inspect. The Nodes are causally connected, where the Nodes to the left appear earlier during computation and those to the right appear later. When you select a Node, all Node that are directly connected to it in the computation graph become highlighted with a border color (I have found that this is easier to read than actually drawing the connections as arrows once the number of Nodes grows large enough).
 
 ![Example screenshot of comgra](comgra_screenshot.png?raw=true "Example screenshot of comgra")
 
