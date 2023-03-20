@@ -170,7 +170,7 @@ class ComgraRecorder:
         assert not type_of_execution_for_diversity_of_recordings.startswith('__'), type_of_execution_for_diversity_of_recordings
         assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution_for_diversity_of_recordings)
         self.type_of_execution_for_diversity_of_recordings = type_of_execution_for_diversity_of_recordings
-        self.iteration = 0
+        self.iteration = None
         self.record_all_tensors_per_batch_index_by_default = record_all_tensors_per_batch_index_by_default
         assert self.current_stage == 'inactive', self.current_stage
         self.current_stage = 'started'
@@ -363,10 +363,10 @@ class ComgraRecorder:
         self.mapping_of_tensors_for_extracting_kpis[key] = (tensor, tensor_representation)
 
     @utilities.runtime_analysis_decorator
-    def start_forward_pass(self, iteration, configuration_type):
+    def start_forward_pass(self, configuration_type):
         assert self.current_stage in ['started', 'after_iteration'], self.current_stage
         self.current_stage = 'forward'
-        self.iteration = iteration
+        self.iteration = 0 if self.iteration is None else (self.iteration + 1)
         assert isinstance(configuration_type, str) and re.match(r'^[a-zA-Z0-9-_]+$', configuration_type), configuration_type
         self.configuration_type = configuration_type
         self.configuration_path = self.group_path / 'configs' / configuration_type
