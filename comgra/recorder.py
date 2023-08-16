@@ -367,7 +367,7 @@ class ComgraRecorder:
         assert self.current_stage in ['started', 'after_iteration'], self.current_stage
         self.current_stage = 'forward'
         self.iteration = 0 if self.iteration is None else (self.iteration + 1)
-        assert isinstance(configuration_type, str) and re.match(r'^[a-zA-Z0-9-_]+$', configuration_type), configuration_type
+        assert isinstance(configuration_type, str) and re.match(r'^[a-zA-Z0-9-_,.]+$', configuration_type), configuration_type
         self.configuration_type = configuration_type
         self.configuration_path = self.group_path / 'configs' / configuration_type
         self.tensor_recordings.training_step_to_iteration_to_configuration_type.setdefault(self.training_step, {})[self.iteration] = configuration_type
