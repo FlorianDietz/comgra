@@ -173,6 +173,8 @@ def run_demonstration(comgra_root_path, comgra_group):
                 # The recommended approach is to just concatenate a string here that is built from all the factors
                 # that influence what your computation graph looks like.
                 # If you get it wrong, you will receive an error message.
+                # Comgra will create a separate graph for each unique value of this parameter,
+                # so it can slow down if you go overboard with this and create more unique values than necessary
                 configuration_type=f"{'loss' if iteration == num_iterations - 1 else 'no_loss'}"
             )
             # Record the inputs of the iteration.
@@ -215,7 +217,7 @@ def run_demonstration(comgra_root_path, comgra_group):
             # configuration_type of start_forward_pass() correctly.
             # In this example, we only do this for the first few hundred steps, as it costs extra time to compute.
             # If you skip this sanity check, you might not realize that you are recording two different computational
-            # graphs under the same name, and this will lead to errors later during visualization.
+            # graphs under the same name, and this will lead to errors in the visualization later.
             COMGRA_RECORDER.finish_iteration(sanity_check__verify_graph_and_global_status_equal_existing_file=epoch < 500)
             # Comgra will raise an exception if the same tensor is registered twice under different names.
             # This is a feature that should help you catch errors, but if you plan to register
