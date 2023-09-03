@@ -1,6 +1,6 @@
 [project]
 name = "comgra"
-version = "0.9.1"
+version = "0.9.2"
 authors = [
     { name="Florian Dietz", email="floriandietz44@gmail.com" },
 ]
