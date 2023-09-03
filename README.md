@@ -54,12 +54,6 @@ This takes three parameters:
 --port is the port of localhost where the results will be displayed.
 
 
-## Example problem
-
-
-
-
-
 ## Future Development
 
 
