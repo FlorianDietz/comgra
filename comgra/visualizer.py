@@ -695,6 +695,7 @@ class Visualization:
                 row = [
                     html.Td(key[index_of_item]),
                     html.Td(key[index_of_metadata]),
+                    html.Td(f"", style={'width': '15px', 'background': utilities.number_to_hex(val)} if isinstance(val, numbers.Number) else {}),
                     html.Td(f"{val:17.10f}     -     {' ' if val >= 0.0 else ''}{val:.8e}" if isinstance(val, numbers.Number) else val),
                 ]
                 rows.append(html.Tr(row))
@@ -710,7 +711,7 @@ class Visualization:
                     html.Header(f"Node: {node.full_unique_name} - {role_of_tensor_in_node_value}"),
                     html.Div(desc_text),
                     html.Div(f"Shape: [{', '.join([str(a) for a in tensor_shape])}]"),
-                    html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', 'value']])] + rows),
+                    html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', '', 'value']])] + rows),
                 ]
             return children, graph_overlay_for_selections_children
 

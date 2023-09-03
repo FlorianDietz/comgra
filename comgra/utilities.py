@@ -2,6 +2,8 @@ import collections
 from datetime import datetime, timedelta
 from typing import List, Any, Tuple, Dict, Set, Optional
 
+from plotly import express as px
+
 PRINT_EACH_TIME = False
 
 FUNCTION_NAME_TO_TOTAL_TIME = collections.defaultdict(lambda: timedelta(seconds=0))
@@ -183,3 +185,12 @@ class PseudoDb:
                             (num_mismatches == 1 and idx in filters_with_indices and attr_values[idx] != filters_with_indices[idx]):
                         possible_attribute_values[attr_name].add(attr_values[idx])
         return list_of_matches, possible_attribute_values
+
+
+def number_to_hex(number):
+    if number < -1:
+        number = -1
+    elif number > 1:
+        number = 1
+    colorscale = px.colors.sequential.Viridis
+    return colorscale[int((number + 1) / 2 * (len(colorscale) - 1))]
