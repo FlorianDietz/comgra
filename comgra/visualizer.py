@@ -310,7 +310,7 @@ class Visualization:
                     html.Button('Right', id='navigate-right-button', n_clicks=0),
                     html.Button('Up', id='navigate-up-button', n_clicks=0),
                     html.Button('Down', id='navigate-down-button', n_clicks=0),
-                    html.Button('Show / Hide Metadata', id='display-metadata-button', n_clicks=0),
+                    html.Button('Show / Hide Network information', id='display-metadata-button', n_clicks=0),
                 ]),
                 dcc.Dropdown(id='trials-dropdown', options=[], value=None),
                 dcc.Dropdown(id='type-of-execution-for-diversity-of-recordings-dropdown', options=[], value=None),
