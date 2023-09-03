@@ -20,22 +20,9 @@ import numbers
 import os
 from pathlib import Path
 import pickle
-import pdb
-from pprint import pformat, pprint, PrettyPrinter
-import random
 import re
-import shutil
-import ssl
-from struct import unpack
-import sys
-import textwrap
 import threading
-import torch
-from torch import nn as torch_nn
-from torch.nn import functional as torch_f
-import traceback
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
-# / BASIC IMPORTS
 
 import dash
 from dash import dcc, html, no_update
@@ -43,10 +30,6 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 import dash_svg
 import msgpack
-import numpy as np
-import plotly.express as px
-import pandas as pd
-import torch
 
 from comgra.objects import StatusAndGraph, ModuleRepresentation, ParameterRepresentation, TensorRepresentation, TensorRecordings
 from comgra import utilities

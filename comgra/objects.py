@@ -4,8 +4,6 @@ import copy
 import dataclasses
 from typing import List, Dict, Tuple, Optional, Any, Union, TYPE_CHECKING
 
-import torch
-
 if TYPE_CHECKING:
     from comgra.recorder import ComgraRecorder
 
