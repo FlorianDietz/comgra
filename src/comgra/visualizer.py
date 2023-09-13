@@ -717,8 +717,8 @@ class Visualization:
                 ]
             else:
                 children = [
-                    html.Header(f"{trials_value}   -   {training_step_value}"),
-                    html.Header(f"Recording type: {type_of_execution_for_diversity_of_recordings}"),
+                    # html.Header(f"{trials_value}   -   {training_step_value}"),
+                    html.Header(f"Type of training step: {type_of_execution_for_diversity_of_recordings}"),
                     html.Header(f"Node: {node.full_unique_name} - {role_of_tensor_in_node_value}"),
                     html.Div(desc_text),
                     html.Div(f"Shape: [{', '.join([str(a) for a in tensor_shape])}]"),
