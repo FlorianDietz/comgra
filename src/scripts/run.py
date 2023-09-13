@@ -153,7 +153,7 @@ def run_demonstration(comgra_root_path, comgra_group):
             # Setting this to True means that individual examples will be stored, up to max_num_batch_size_to_record,
             # in addition to statistics across the batch.
             # This can be useful if you want to see the full details for a particular training step.
-            record_all_tensors_per_batch_index_by_default=False,
+            record_all_tensors_per_batch_index_by_default=True,
             # None = use decision_maker_for_recordings to decide whether to record (default)
             # True = record
             # False = don't record
@@ -235,8 +235,9 @@ def run_demonstration(comgra_root_path, comgra_group):
         # This is the counterpart to start_next_recording
         COMGRA_RECORDER.finish_batch()
     # Test the model
-    print("Skipping the tests. Comgra can only be used during training, not during testing.")
-    print("This is because it tracks the computational graph, which is only generated during training.")
+    print("This script does not include any tests. "
+          "Comgra can only be used during training, not during testing, "
+          "because pytorch does not generate a computational graph during testing.")
 
 
 def main():

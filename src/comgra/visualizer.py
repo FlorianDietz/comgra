@@ -13,6 +13,7 @@ from typing import Dict, List, Tuple
 
 import dash
 from dash import dcc, html
+import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output
 import dash_svg
 import msgpack
@@ -64,7 +65,7 @@ class Visualization:
         assert path.exists(), path
         assets_path = Path(__file__).absolute().parent.parent / 'assets'
         assert assets_path.exists(), "If this fails, files have been moved."
-        self.app = dash.Dash(__name__, assets_folder=str(assets_path))
+        self.app = dash.Dash(__name__, assets_folder=str(assets_path), external_stylesheets=[dbc.themes.BOOTSTRAP])
         self.configuration_type_to_status_and_graph: Dict[str, StatusAndGraph] = {}
         self.configuration_type_to_node_to_corners: Dict[str, Dict[str, Tuple[int, int, int, int]]] = {}
         self.configuration_type_to_grid_of_nodes: Dict[str, List[List[str]]] = {}
@@ -291,20 +292,44 @@ class Visualization:
             dcc.Tooltip(id="graph-tooltip"),
             html.Div(id='controls-container', children=[
                 html.Div(id='controls-buttons-container', children=[
-                    html.Button('Refresh', id='refresh-button', n_clicks=0),
+                    html.Button('Reload from disk', id='refresh-button', n_clicks=0),
+                    html.Button('Show / Hide Network overview', id='display-metadata-button', n_clicks=0),
+                    html.Label("Navigate between Nodes:"),
                     html.Button('Left', id='navigate-left-button', n_clicks=0),
                     html.Button('Right', id='navigate-right-button', n_clicks=0),
                     html.Button('Up', id='navigate-up-button', n_clicks=0),
                     html.Button('Down', id='navigate-down-button', n_clicks=0),
-                    html.Button('Show / Hide Network information', id='display-metadata-button', n_clicks=0),
                 ]),
-                dcc.Dropdown(id='trials-dropdown', options=[], value=None),
-                dcc.Dropdown(id='type-of-execution-for-diversity-of-recordings-dropdown', options=[], value=None),
-                dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None),
-                dcc.RadioItems(id='type-of-recording-radio-buttons', options=[], value=None),
-                dcc.Dropdown(id='batch-index-dropdown', options=[], value=None),
-                dcc.Slider(id='iteration-slider', min=0, max=0, step=1, value=0),
-                dcc.Dropdown(id='role-of-tensor-in-node-dropdown', options=[], value=None),
+                html.Div(children=[
+                    dbc.Row([
+                        dbc.Col(html.Label("Trial"), width=2),
+                        dbc.Col(dcc.Dropdown(id='trials-dropdown', options=[], value=None), width=9),
+                    ]),
+                    dbc.Row([
+                        dbc.Col(html.Label("Type of training step"), width=2),
+                        dbc.Col(dcc.Dropdown(id='type-of-execution-for-diversity-of-recordings-dropdown', options=[], value=None), width=9),
+                    ]),
+                    dbc.Row([
+                        dbc.Col(html.Label("Training step"), width=2),
+                        dbc.Col(dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None), width=9),
+                    ]),
+                    dbc.Row([
+                        dbc.Col(html.Label("Type of recording"), width=2),
+                        dbc.Col(dcc.RadioItems(id='type-of-recording-radio-buttons', options=[], value=None, inline=True), width=9),
+                    ]),
+                    dbc.Row([
+                        dbc.Col(html.Label("Batch or individual sample"), width=2),
+                        dbc.Col(dcc.Dropdown(id='batch-index-dropdown', options=[], value=None), width=9),
+                    ]),
+                    dbc.Row([
+                        dbc.Col(html.Label("Iteration"), width=2),
+                        dbc.Col(dcc.Slider(id='iteration-slider', min=0, max=0, step=1, value=0), width=9),
+                    ]),
+                    dbc.Row([
+                        dbc.Col(html.Label("Role of tensor"), width=2),
+                        dbc.Col(dcc.Dropdown(id='role-of-tensor-in-node-dropdown', options=[], value=None), width=9),
+                    ]),
+                ]),
             ]),
             html.Div(id='selected-item-details-container', children=[
             ]),
