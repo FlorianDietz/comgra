@@ -38,8 +38,8 @@ class NeuralNet(nn.Module):
         return x
 
 
-# Our model uses several identical modules with different names,
-# and it is a recursive model with a hidden state that will also be recorded in comgra.
+# Our model uses several identical modules with different names.
+# It also has a hidden state that will also be recorded in comgra.
 class CompleteModule(nn.Module):
     def __init__(self, input_size, hidden_size, memory_size, output_size):
         super(CompleteModule, self).__init__()
@@ -66,6 +66,8 @@ def run_demonstration(comgra_root_path, comgra_group):
     # This data has higher dimensionality than number of datapoints, which means it should be learnable.
     # Inspecting the results in the comgra visualization later should show
     # that the loss goes down as the training proceeds.
+    # To see this, select iteration 2 in the UI, click on the Node that represents the loss (on the very right)
+    # and then check how the value changes as you move the slider for the training step.
     num_datasets = batch_size
     input_size = 100
     memory_size = 50
@@ -86,8 +88,9 @@ def run_demonstration(comgra_root_path, comgra_group):
         # The root folder for all comgra data
         comgra_root_path=comgra_root_path,
         # All runs of comgra that share the same 'group' will be loaded in the same application
-        # when you run the server.py application with that group as the name argument.
-        # They can then be selected by their 'trial_id' and compared.
+        # When you run the server.py application by calling "comgra" from the commandline,
+        # the last folder in the --path argument will be the group name.
+        # The different trials in a group can then be selected by their 'trial_id' and compared.
         group=comgra_group, trial_id='example_trial',
         # These parameters can be left empty, but it is recommended to fill them in
         # if your computational graph is complex.
@@ -112,7 +115,8 @@ def run_demonstration(comgra_root_path, comgra_group):
         # that you would like to inspect in more detail.
         # This recording type ensures that a recording is made if the last training of the specified type was at least
         # N training steps ago.
-        # In this way, you make sure that each type gets recorded often enough to be useful.
+        # In this way, you make sure that each type gets recorded often enough to be useful,
+        # but not so often that the program slows down and your hard drive gets filled up.
         decision_maker_for_recordings=DecisionMakerForRecordingsFrequencyPerType(min_training_steps_difference=1000),
         # Comgra records data both in terms of statistics over the batch dimension and in terms of
         # individual items in the batch.
@@ -125,31 +129,37 @@ def run_demonstration(comgra_root_path, comgra_group):
         # A performance parameter you can experiment with if comgra is too slow.
         # If this is too low, comgra becomes slow.
         # If this is too high, the program may crash due to memory problems.
+        # (This problem is caused by a serialization bug in a backend library.)
         max_num_mappings_to_save_at_once_during_serialization=10000,
         # An optional feature to skip the recording of KPIs that are particularly expensive to calculate.
         calculate_svd_and_other_expensive_operations_of_parameters=True,
     )
-    # Their values will be recorded every time.
+    # Register the modules you are using.
+    # This recursively goes through all contained modules and all their weight parameters
+    # and registers them to be recorded later.
     COMGRA_RECORDER.track_module("root_module", model)
+    #
     # Train the model
-    for epoch in range(num_training_steps):
+    #
+    for training_step in range(num_training_steps):
         # Each time a new training step or epoch is started, call this function to inform comgra of this.
-        # It will automatically decide whether or not to skip making a recording based on
+        # It will automatically decide whether to skip making a recording based on
         # decision_maker_for_recordings and override__recording_is_active
         COMGRA_RECORDER.start_next_recording(
-            epoch, batch_size,
+            training_step, batch_size,
             # Recordings will be skipped when not in training mode as there is no computational graph
             is_training_mode=True,
             # This is the string that is used by DecisionMakerForRecordingsFrequencyPerType
             # to decide what type of thing is being recorded here.
             # Here, we just record even and odd-numbered epochs separately as an example.
             # You will be able to filter by 'even' and 'odd' in the visualization later.
-            type_of_execution_for_diversity_of_recordings='even' if epoch % 2 == 0 else 'odd',
+            type_of_execution_for_diversity_of_recordings='even' if training_step % 2 == 0 else 'odd',
             # The default value for record_per_batch_index of register_tensor() calls.
             # Setting this to True means that individual examples will be stored, up to max_num_batch_size_to_record,
             # in addition to statistics across the batch.
+            # This can be useful if you want to see the full details for a particular training step.
             record_all_tensors_per_batch_index_by_default=False,
-            # None = use decision_maker_for_recordings to decide whether to record
+            # None = use decision_maker_for_recordings to decide whether to record (default)
             # True = record
             # False = don't record
             override__recording_is_active=None,
@@ -165,16 +175,16 @@ def run_demonstration(comgra_root_path, comgra_group):
             # Tell comgra that an iteration has started.
             # You can start recording tensors after this, with register_tensor().
             COMGRA_RECORDER.start_forward_pass(
-                iteration=iteration,
                 # This is a string that needs to uniquely identify the shape of the computational graph.
                 # The computational graph usually looks different on the iteration where it receives a loss
                 # than on any preceding iteration.
                 # Depending on your use case, other parameters may influence what the computational graph looks like.
                 # The recommended approach is to just concatenate a string here that is built from all the factors
                 # that influence what your computation graph looks like.
-                # If you get it wrong, you will receive an error message.
-                # Comgra will create a separate graph for each unique value of this parameter,
-                # so it can slow down if you go overboard with this and create more unique values than necessary
+                # Comgra will create a separate configuration for each unique value of this parameter,
+                # so it can slow down if you go overboard with this and create more unique values than necessary.
+                # If you assign the same configuration_type to two calls with a different graph,
+                # you will receive an error message.
                 configuration_type=f"{'loss' if iteration == num_iterations - 1 else 'no_loss'}"
             )
             # Record the inputs of the iteration.
@@ -185,7 +195,7 @@ def run_demonstration(comgra_root_path, comgra_group):
             # In real applications, whether you want that level of granularity will depend on your use case.
             # For the 'x' tensor we are skipping that part,
             # so that you can see the difference in the visualization later.
-            # Note that each register_tensor call uses a different type: is_input, is_output, etc.
+            # Note that each register_tensor() call uses a different type: is_input, is_output, etc.
             # Each of these will be displayed differently in the visualization.
             COMGRA_RECORDER.register_tensor(f"x_in", x, is_input=True)
             COMGRA_RECORDER.register_tensor(f"memory_in", memory, is_input=True, recording_type='neurons')
@@ -210,15 +220,15 @@ def run_demonstration(comgra_root_path, comgra_group):
                 # This command causes comgra to record all losses that are currently on the module parameters,
                 # for each module parameter registered through track_module()
                 COMGRA_RECORDER.record_current_gradients(f"gradients")
-                if epoch % 100 == 0:
-                    print(f"Epoch {epoch}: Loss = {loss.item()}")
+                if training_step % 100 == 0:
+                    print(f"Epoch {training_step}: Loss = {loss.item()}")
             # Tell comgra that the iteration has finished.
             # At this point, you can specify whether you want to run a sanity check to make sure that you specified
             # configuration_type of start_forward_pass() correctly.
             # In this example, we only do this for the first few hundred steps, as it costs extra time to compute.
             # If you skip this sanity check, you might not realize that you are recording two different computational
             # graphs under the same name, and this will lead to errors in the visualization later.
-            COMGRA_RECORDER.finish_iteration(sanity_check__verify_graph_and_global_status_equal_existing_file=epoch < 500)
+            COMGRA_RECORDER.finish_iteration(sanity_check__verify_graph_and_global_status_equal_existing_file=training_step < 500)
             # Comgra will raise an exception if the same tensor is registered twice under different names.
             # This is a feature that should help you catch errors, but if you plan to register
             # the output of one iteration again as the input on the next iteration, you will get an error
@@ -230,20 +240,24 @@ def run_demonstration(comgra_root_path, comgra_group):
         # This is the counterpart to start_next_recording
         COMGRA_RECORDER.finish_batch()
     # Test the model
-    print("Skipping the tests.")
-    print("Note: Comgra can only be used during training, not during testing.")
+    print("Skipping the tests. Comgra can only be used during training, not during testing.")
     print("This is because it tracks the computational graph, which is only generated during training.")
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(description="Run an experiment.")
-    parser.add_argument('--name', dest='name', default=None)
     parser.add_argument('--path', dest='path', default=None)
+    parser.add_argument('--group', dest='group', default=None)
     args = parser.parse_args()
     if args.path is None:
-        path = (Path(__file__).parent.parent / 'testing_data').absolute()
-        path.mkdir(exist_ok=True, parents=True)
-    else:
-        path = Path(args.path).absolute() / args.name
+        args.group = 'publication_test'
+        args.path = (Path(__file__).parent.parent.parent / 'testing_data').absolute()
+        args.path.mkdir(exist_ok=True, parents=True)
+    path = Path(args.path).absolute()
     assert path.exists(), path
-    run_demonstration(path, args.name)
+    run_demonstration(path, args.group)
+
+
+if __name__ == '__main__':
+    main()
+

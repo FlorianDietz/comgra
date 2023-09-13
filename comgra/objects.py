@@ -124,7 +124,10 @@ class StatusAndGraph:
         while c < len(nodes_to_sort):
             debug += 1
             assert debug < 100000, \
-                f"Either the graph is too large or I made a programming mistake and this is an endless loop.\n" \
+                f"The graph is too large. The most likely cause for this error is that register_tensor() " \
+                f"was called on a tensor that can't be discovered through backtracking from the losses. " \
+                f"To fix this, find the responsible tensor and call register_tensor() on it " \
+                f"with is_target=True instead.\n" \
                 f"{c}, {len(nodes_to_sort)}\n{[a for a in nodes_list_list if a]}\n{nodes_to_sort}\n" \
                 f"{[c for c in nodes_to_sort if c not in [b for a in nodes_list_list for b in a]]}"
             next_set_of_nodes = []

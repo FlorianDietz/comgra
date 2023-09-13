@@ -31,27 +31,26 @@ Run this to install:
 
 ## Testing
 
-Use the files in the 'testing' folder to run a basic ML model and visualize it.
+Installing comgra through pip also installs two scripts:
 
-`testing/run.py` will create a folder to store recordings.
-`testing/server.py` will open that folder and visualize it.
-
-In both cases, the --path argument can be used to change the default path to store data, which is in the directory where comgra is installed.
+`comgra-test-run` to verify it was installed correctly and `comgra --use-path-for-test-run` for starting the server.
 
 ## Usage
 
-`testing/run.py` contains documentation for how to use comgra in your own code. If anything is unclear, I will be happy to answer any questions at floriandietz44@gmail.com 
+`comgra-test-run` calls the file `comgra/scripts/run.py`, which contains documentation for how to use comgra in your own code. If anything is unclear, I will be happy to answer any questions at floriandietz44@gmail.com 
 
-The script takes two parameters:
+The script takes two optional parameters:
 --path should be a folder where all your comgra results are stored.
---name will be the name for this particular recording of comgra. A folder with this name will be created in --path, and it will overwrite previous results with the same name.
+--group will be the name for this particular recording of comgra. A folder with this name will be created in --path, and it will overwrite previous results with the same name.
 
-You can visualize the results using the script in `testing/server.py`.
+For convenience, if you don't specify these parameters, the results will be stores in the library's folder instead.
+
+You can visualize the results using the script in `comgra/scripts/server.py`, which you can call with `comgra --use-path-for-test-run`.
 
 This takes three parameters:
---path should be a folder where all your comgra results are stored.
---name is the name for the recording you want to display.
+--path should be a folder where all your comgra results are stored. If you called `comgra-test-run` with its --path and --group parameters, this path variable should include the --group as well.
 --port is the port of localhost where the results will be displayed.
+--use-path-for-test-run is a flag to ignore the --path and use a hardcoded path instead, for convenient testing.
 
 
 ## Future Development
