@@ -1,6 +1,5 @@
 .idea/
 testing_data/
-/comgra/scripts/start_server.py
 
 # Mac
 .DS_Store

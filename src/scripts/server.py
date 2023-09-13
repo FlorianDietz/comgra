@@ -1,9 +1,6 @@
-import os
 from pathlib import Path
-import sys
 
 import argparse
-import socket
 
 from comgra import visualizer
 

@@ -1,8 +1,7 @@
 import abc
 import collections
-import copy
 import dataclasses
-from typing import List, Dict, Tuple, Optional, Any, Union, TYPE_CHECKING
+from typing import List, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from comgra.recorder import ComgraRecorder

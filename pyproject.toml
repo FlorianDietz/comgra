@@ -1,8 +1,12 @@
-[tool.setuptools]
-py-modules = ["comgra"]
+[tool.setuptools.packages.find]
+where = ["src"]
+[tool.setuptools.package-data]
+assets = ["*.py", "*.css"]
+comgra = ["*.py"]
+scripts = ["*.py"]
 [project]
 name = "comgra"
-version = "0.9.4"
+version = "0.9.5"
 authors = [
     { name="Florian Dietz", email="floriandietz44@gmail.com" },
 ]
@@ -26,5 +30,5 @@ classifiers = [
 "Homepage" = "https://github.com/FlorianDietz/comgra"
 "Bug Tracker" = "https://github.com/FlorianDietz/comgra/issues"
 [project.scripts]
-comgra = "comgra.scripts.server:main"
-comgra-test-run = "comgra.scripts.run:main"
+comgra = "scripts.server:main"
+comgra-test-run = "scripts.run:main"

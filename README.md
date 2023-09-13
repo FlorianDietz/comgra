@@ -37,7 +37,7 @@ Installing comgra through pip also installs two scripts:
 
 ## Usage
 
-`comgra-test-run` calls the file `comgra/scripts/run.py`, which contains documentation for how to use comgra in your own code. If anything is unclear, I will be happy to answer any questions at floriandietz44@gmail.com 
+`comgra-test-run` calls the file `src/scripts/run.py`, which contains documentation for how to use comgra in your own code. If anything is unclear, I will be happy to answer any questions at floriandietz44@gmail.com 
 
 The script takes two optional parameters:
 --path should be a folder where all your comgra results are stored.
@@ -45,7 +45,7 @@ The script takes two optional parameters:
 
 For convenience, if you don't specify these parameters, the results will be stores in the library's folder instead.
 
-You can visualize the results using the script in `comgra/scripts/server.py`, which you can call with `comgra --use-path-for-test-run`.
+You can visualize the results using the script in `src/scripts/server.py`, which you can call with `comgra --use-path-for-test-run`.
 
 This takes three parameters:
 --path should be a folder where all your comgra results are stored. If you called `comgra-test-run` with its --path and --group parameters, this path variable should include the --group as well.

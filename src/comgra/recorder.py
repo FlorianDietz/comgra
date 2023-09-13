@@ -3,7 +3,6 @@ import dataclasses
 import functools
 import gzip
 import json
-import math
 import re
 from pathlib import Path
 import pickle
