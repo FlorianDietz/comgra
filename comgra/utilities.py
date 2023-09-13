@@ -1,5 +1,6 @@
 import collections
 from datetime import datetime, timedelta
+import math
 from typing import List, Any, Tuple, Dict, Set, Optional
 
 from plotly import express as px
@@ -188,6 +189,8 @@ class PseudoDb:
 
 
 def number_to_hex(number):
+    if math.isnan(number):
+        return "#000000"
     if number < -1:
         number = -1
     elif number > 1:
