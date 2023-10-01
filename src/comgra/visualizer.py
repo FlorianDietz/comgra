@@ -292,13 +292,17 @@ class Visualization:
             dcc.Tooltip(id="graph-tooltip"),
             html.Div(id='controls-container', children=[
                 html.Div(id='controls-buttons-container', children=[
-                    html.Button('Reload from disk', id='refresh-button', n_clicks=0),
-                    html.Button('Show / Hide Network overview', id='display-metadata-button', n_clicks=0),
-                    html.Label("Navigate between Nodes:"),
-                    html.Button('Left', id='navigate-left-button', n_clicks=0),
-                    html.Button('Right', id='navigate-right-button', n_clicks=0),
-                    html.Button('Up', id='navigate-up-button', n_clicks=0),
-                    html.Button('Down', id='navigate-down-button', n_clicks=0),
+                    dbc.Row([
+                        dbc.Col(html.Button('Reload from disk', id='refresh-button', n_clicks=0), width=1),
+                        dbc.Col(dcc.RadioItems(id='display-type-radio-buttons', options=['Tensors', 'Network', 'Notes'], value='Tensors', inline=True), width=2),
+                        dbc.Col([
+                            html.Label("Navigate between Nodes:"),
+                            html.Button('Left', id='navigate-left-button', n_clicks=0),
+                            html.Button('Right', id='navigate-right-button', n_clicks=0),
+                            html.Button('Up', id='navigate-up-button', n_clicks=0),
+                            html.Button('Down', id='navigate-down-button', n_clicks=0)
+                        ], width=3),
+                    ]),
                 ]),
                 html.Div(children=[
                     dbc.Row([
@@ -584,7 +588,7 @@ class Visualization:
         @app.callback(
             [Output('selected-item-details-container', 'children'),
              Output('graph-overlay-for-selections', 'children')],
-            [Input('display-metadata-button', 'n_clicks'),
+            [Input('display-type-radio-buttons', 'value'),
              Input('dummy-for-selecting-a-node', 'className'),
              Input('trials-dropdown', 'value'),
              Input('type-of-execution-for-diversity-of-recordings-dropdown', 'value'),
@@ -596,7 +600,7 @@ class Visualization:
         )
         @utilities.runtime_analysis_decorator
         def update_kpis_to_display_for_selection(
-                display_metadata_n_clicks,
+                display_type_radio_buttons,
                 node_name, trials_value, type_of_execution_for_diversity_of_recordings,
                 training_step_value, type_of_recording_value,
                 batch_index_value, iteration_value, role_of_tensor_in_node_value,
@@ -607,7 +611,6 @@ class Visualization:
             sag = self.configuration_type_to_status_and_graph[configuration_type]
             if self.node_is_a_parameter[node_name]:
                 iteration_value = 0
-            display_metadata_instead = (display_metadata_n_clicks % 2 == 1)
             #
             # Select the node and visually highlight it.
             #
@@ -711,11 +714,7 @@ class Visualization:
                 ]
                 rows.append(html.Tr(row))
             desc_text = node.type_of_tensor
-            if display_metadata_instead:
-                children = [
-                    html.Div(f"{self.get_formatted_overview_of_module_parameters(sag)}", className="metadata-div")
-                ]
-            else:
+            if display_type_radio_buttons == 'Tensors':
                 children = [
                     # html.Header(f"{trials_value}   -   {training_step_value}"),
                     html.Header(f"Type of training step: {type_of_execution_for_diversity_of_recordings}"),
@@ -724,6 +723,16 @@ class Visualization:
                     html.Div(f"Shape: [{', '.join([str(a) for a in tensor_shape])}]"),
                     html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', '', 'value']])] + rows),
                 ]
+            elif display_type_radio_buttons == 'Network':
+                children = [
+                    html.Div(f"{self.get_formatted_overview_of_module_parameters(sag)}", className="metadata-div"),
+                ]
+            elif display_type_radio_buttons == 'Notes':
+                children = [
+                    html.Div('\n'.join(self.get_notes_for_trial(trials_value)), className="metadata-div"),
+                ]
+            else:
+                raise ValueError(display_type_radio_buttons)
             return children, graph_overlay_for_selections_children
 
     @utilities.runtime_analysis_decorator
@@ -832,3 +841,13 @@ class Visualization:
         total_parameters, lines = rec(sag.modules_and_parameters, 0)
         res = f"Total parameters: {total_parameters:18,d}\n" + "\n".join(lines)
         return res
+
+    @utilities.runtime_analysis_decorator
+    def get_notes_for_trial(self, trial_id):
+        path = self.path / 'trials' / str(trial_id) / 'notes.json'
+        print(path)
+        if path.exists():
+            with open(path, 'r') as f:
+                notes = json.load(f)
+            return notes
+        return "No Notes have been recorded for this trial."

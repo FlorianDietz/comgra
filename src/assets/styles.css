@@ -12,3 +12,6 @@
     white-space: pre;
     font-family: monospace;
 }
+#controls-container {
+    border-bottom: 1px solid black;
+}

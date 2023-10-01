@@ -73,6 +73,7 @@ class ComgraRecorder:
         # Things that get updated
         #
         self.set_of_top_level_modules = {}
+        self.notes = []
         self.module_to_name = {}
         self.unique_module_names = {}
         self.unique_parameter_names = {}
@@ -125,6 +126,12 @@ class ComgraRecorder:
     @utilities.runtime_analysis_decorator
     def track_module(self, module_name, module: torch_nn.Module):
         self._track_module_recursive(module_name, module, self.set_of_top_level_modules, [])
+
+    @utilities.runtime_analysis_decorator
+    def add_note(self, note):
+        self.notes.append(str(note))
+        with open(self.trial_path / 'notes.json', 'w') as f:
+            json.dump(self.notes, f)
 
     @utilities.runtime_analysis_decorator
     def _track_module_recursive(self, module_name, module: torch_nn.Module, container, preceding_names: List[str]):
