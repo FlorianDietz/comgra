@@ -12,7 +12,7 @@ import threading
 from typing import Dict, List, Tuple
 
 import dash
-from dash import dcc, html
+from dash import ctx, dcc, html
 import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output
 import dash_svg
@@ -314,7 +314,11 @@ class Visualization:
                         dbc.Col(dcc.Dropdown(id='type-of-execution-for-diversity-of-recordings-dropdown', options=[], value=None), width=9),
                     ]),
                     dbc.Row([
-                        dbc.Col(html.Label("Training step"), width=2),
+                        dbc.Col(html.Label("Training step"), width=1),
+                        dbc.Col([
+                            html.Button('<', id='decrement-training-step-button', n_clicks=0),
+                            html.Button('>', id='increment-training-step-button', n_clicks=0),
+                        ], width=1),
                         dbc.Col(dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None), width=9),
                     ]),
                     dbc.Row([
@@ -374,6 +378,8 @@ class Visualization:
                        for configuration_type in self.configuration_type_to_status_and_graph.keys()]),
                       ([Input('trials-dropdown', 'value'),
                         Input('type-of-execution-for-diversity-of-recordings-dropdown', 'value'),
+                        Input('decrement-training-step-button', 'n_clicks'),
+                        Input('increment-training-step-button', 'n_clicks'),
                         Input('training-step-slider', 'value'),
                         Input('type-of-recording-radio-buttons', 'value'),
                         Input('batch-index-dropdown', 'value'),
@@ -390,6 +396,7 @@ class Visualization:
         @utilities.runtime_analysis_decorator
         def update_selectors(
                 trials_value, type_of_execution_for_diversity_of_recordings,
+                decrement_training_step, increment_training_step,
                 training_step_value, type_of_recording_value, batch_index_value,
                 iteration_value, role_of_tensor_in_node_value, previous_name_of_selected_node,
                 *lsts,
@@ -443,6 +450,14 @@ class Visualization:
                 training_step_value if training_step_value is not None and training_step_value in training_steps else training_steps[0],
                 training_steps,
             )
+            # Increment or decrement the training step if the user clicked the buttons.
+            idx = training_steps.index(training_step_value)
+            if ctx.triggered_id == 'increment-training-step-button':
+                idx = max(0, min(len(training_steps) - 1, idx + 1))
+                training_step_value = training_steps[idx]
+            elif ctx.triggered_id == 'decrement-training-step-button':
+                idx = max(0, min(len(training_steps) - 1, idx - 1))
+                training_step_value = training_steps[idx]
             recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution_for_diversity_of_recordings)
             db: utilities.PseudoDb = recordings.recordings
             if program_is_initializing:
@@ -717,7 +732,7 @@ class Visualization:
             if display_type_radio_buttons == 'Tensors':
                 children = [
                     # html.Header(f"{trials_value}   -   {training_step_value}"),
-                    html.Header(f"Type of training step: {type_of_execution_for_diversity_of_recordings}"),
+                    html.Header(f"Training step {training_step_value}, Type: {type_of_execution_for_diversity_of_recordings}"),
                     html.Header(f"Node: {node.full_unique_name} - {role_of_tensor_in_node_value}"),
                     html.Div(desc_text),
                     html.Div(f"Shape: [{', '.join([str(a) for a in tensor_shape])}]"),
