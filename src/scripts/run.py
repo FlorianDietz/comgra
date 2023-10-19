@@ -232,7 +232,8 @@ def run_demonstration(comgra_root_path, comgra_group):
             x = x * 1
             memory = memory * 1
         # Finish a batch.
-        # This is the counterpart to start_next_recording
+        # This is the counterpart to start_next_recording.
+        # All tensors registered by comgra will be serialized at this point.
         COMGRA_RECORDER.finish_batch()
     # Test the model
     print("This script does not include any tests. "
