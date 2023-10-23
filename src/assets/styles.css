@@ -1,5 +1,15 @@
 .node {
     border: 1px solid black;
+    position: absolute;
+    overflow: hidden;
+    text-align: center;
+    vertical-align: middle;
+}
+.node .node-name {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%,-50%);
 }
 .inactive {
     display: none;

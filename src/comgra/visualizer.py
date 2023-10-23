@@ -24,7 +24,7 @@ from comgra import utilities
 utilities.PRINT_EACH_TIME = True
 
 DISPLAY_CONNECTIONS_GRAPHICALLY = False
-DISPLAY_NAMES_ON_NODES_GRAPHICALLY = False
+DISPLAY_NAMES_ON_NODES_GRAPHICALLY = True
 
 LOCK_FOR_RECORDINGS = threading.Lock()
 
@@ -222,16 +222,15 @@ class Visualization:
                 bottom = int(top + height_per_box)
                 node_to_corners[node] = (left, top, right, bottom)
                 node_type = sag.name_to_node[node].type_of_tensor
-                elements_of_the_graph.append(html.Div(id=self._node_name_to_dash_id(configuration_type, node), style={
+                elements_of_the_graph.append(
+                    html.Div(id=self._node_name_to_dash_id(configuration_type, node), className='node', style={
                     'width': f'{width_per_box}px',
                     'height': f'{height_per_box}px',
-                    'backgroundColor': 'white',
-                    'position': 'absolute',
                     'left': f'{left}px',
                     'top': f'{top}px',
-                    'background': vp.node_type_to_color[node_type]
+                    'background': vp.node_type_to_color[node_type],
                 }, title=node[len("node__"):], children=(
-                    [f'{node[len("node__"):]}'] if DISPLAY_NAMES_ON_NODES_GRAPHICALLY else [])
+                    [html.Div(f'{node[len("node__"):]}', className='node-name')] if DISPLAY_NAMES_ON_NODES_GRAPHICALLY else [])
                 ))
         connection_names_to_source_and_target = {}
         node_to_incoming_and_outgoing_lines = {n: ([], []) for n in sag.nodes}
