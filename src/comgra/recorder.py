@@ -329,8 +329,8 @@ class ComgraRecorder:
                         (val.shape, tensor_representation.full_unique_name)
                 else:
                     raise NotImplementedError(item)
-                # Take the mean over the batch, if possible
-                batching_types = ((['has_no_batch_dimension'] if tensor_representation.index_of_batch_dimension is None else ['batch_mean', 'batch_std']) +
+                # Take aggregates over the batch, if possible
+                batching_types = ((['has_no_batch_dimension'] if tensor_representation.index_of_batch_dimension is None else ['batch_mean', 'batch_abs_max', 'batch_std']) +
                                   (['individual_batch_indices'] if tensor_representation.record_per_batch_index else []))
                 for batching_type in batching_types:
                     if batching_type == 'batch_mean':
@@ -339,6 +339,9 @@ class ComgraRecorder:
                     elif batching_type == 'batch_std':
                         assert len(val.shape) == 2 and val.shape[0] == self.current_batch_size
                         val1 = val.std(dim=0).unsqueeze(dim=0)
+                    elif batching_type == 'batch_abs_max':
+                        assert len(val.shape) == 2 and val.shape[0] == self.current_batch_size
+                        val1 = val.abs().max(dim=0)[0].unsqueeze(dim=0)
                     elif batching_type == 'has_no_batch_dimension':
                         assert len(val.shape) == 1, (val.shape, tensor_representation.full_unique_name)
                         val1 = val.unsqueeze(dim=0)

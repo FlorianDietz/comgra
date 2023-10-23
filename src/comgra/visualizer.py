@@ -561,11 +561,12 @@ class Visualization:
                 batch_index_value, possible_attribute_values['batch_aggregation'],
                 label_maker=lambda a: {
                     'batch_mean': "Mean over the batch",
+                    'batch_abs_max': "Maximum absolute value over the batch",
                     'batch_std': "STD over the batch",
                     'has_no_batch_dimension': "Has no batch dimension",
                 }.get(a, f"batch index {a}")
             )
-            batch_index_options.sort(key=lambda a: -1 if a['value'] in ['batch_mean', 'batch_std'] else (-2 if a['value'] == 'has_no_batch_dimension' else a['value']))
+            batch_index_options.sort(key=lambda a: -1 if a['value'] in ['batch_mean', 'batch_abs_max', 'batch_std'] else (-2 if a['value'] == 'has_no_batch_dimension' else a['value']))
             if self.node_is_a_parameter[name_of_selected_node]:
                 iteration_options = list(recordings.training_step_to_iteration_to_configuration_type[training_step_value].keys())
                 iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
@@ -719,10 +720,39 @@ class Visualization:
                 else:
                     raise ValueError(key[index_of_item])
             # Create the graphical display
+
+            def optionally_add_tooltip_about_aggregation(item):
+                if item != 'mean':
+                    return item
+                return html.Div([
+                    html.Div(
+                        [
+                            f"{item}",
+                            html.Span(
+                                "?",
+                                id='tooltip-target',
+                                style={
+                                    'textDecoration': 'underline',
+                                    'cursor': 'pointer',
+                                    'float': 'right'
+                                },
+                            ),
+                        ]
+                    ),
+                    dbc.Tooltip(
+                        "A note on the order of operations: The aggregation over the batch, if one is selected, "
+                        "is applied after the aggregation over the tensor. "
+                        "For example, let's say 'Mean over the Batch' is selected, "
+                        "and we look at the value of the item 'abs_max'. "
+                        "This value is calculated by first calculating the maximum absolute neuron value "
+                        "for each tensor in the batch and then taking the mean over those values.",
+                        target='tooltip-target',
+                    ),
+                ])
             rows = []
             for key, val in list_of_matches:
                 row = [
-                    html.Td(key[index_of_item]),
+                    html.Td(optionally_add_tooltip_about_aggregation(key[index_of_item])),
                     html.Td(key[index_of_metadata]),
                     html.Td(f"", style={'width': '15px', 'background': utilities.number_to_hex(val)} if isinstance(val, numbers.Number) else {}),
                     html.Td(f"{val:17.10f}     -     {' ' if val >= 0.0 else ''}{val:.8e}" if isinstance(val, numbers.Number) else val),
@@ -736,7 +766,7 @@ class Visualization:
                     html.Header(f"Node: {node.full_unique_name} - {role_of_tensor_in_node_value}"),
                     html.Div(desc_text),
                     html.Div(f"Shape: [{', '.join([str(a) for a in tensor_shape])}]"),
-                    html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', '', 'value']])] + rows),
+                    html.Table([html.Tr([html.Th(col) for col in ['Item', '', '', 'value']])] + rows),
                 ]
             elif display_type_radio_buttons == 'Network':
                 children = [
