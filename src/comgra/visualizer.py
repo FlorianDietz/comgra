@@ -59,8 +59,9 @@ class Visualization:
     """
     Keeps track of KPIs over the course of the Experiment and creates visualizations from them.
     """
-    def __init__(self, path):
+    def __init__(self, path, debug_mode):
         super().__init__()
+        utilities.DEBUG_MODE = debug_mode
         self.path: Path = path
         assert path.exists(), path
         assets_path = Path(__file__).absolute().parent.parent / 'assets'
