@@ -1,5 +1,6 @@
 # BASIC IMPORTS
 import collections
+import os.path
 from dataclasses import dataclass
 import gzip
 import json
@@ -214,14 +215,41 @@ class Visualization:
         for i, nodes in enumerate(sag.dag_format):
             list_of_nodes_for_grid = []
             grid_of_nodes.append(list_of_nodes_for_grid)
+            left = int(vp.padding_left + i * (1 + vp.ratio_of_space_between_nodes_to_node_size) * width_per_box)
+            right = int(left + width_per_box)
+            common_prefix = os.path.commonprefix(nodes)
+            if '.' in common_prefix:
+                common_prefix = common_prefix[:common_prefix.rindex('.')+1]
+            else:
+                common_prefix = 'node__'
+            def get_appropriate_font_size_for_text_in_node(width, text):
+                return max(1, min(20, int(width / len(text) * 1.7)))
+            if common_prefix != 'node__':
+                # Display the prefix common to the names of all items in this stack
+                top = 0
+                text_in_node = common_prefix[len('node__'):-1]
+                appropriate_font_size_for_text_in_node = get_appropriate_font_size_for_text_in_node(width_per_box, text_in_node)
+                elements_of_the_graph.append(
+                    html.Div(html.Div(f"{text_in_node}", className='node-name', style={
+                        'font-size': f'{appropriate_font_size_for_text_in_node}px'
+                    }), className='node dummy-node', style={
+                        'width': f'{width_per_box}px',
+                        'height': f'{height_per_box}px',
+                        'left': f'{left}px',
+                        'top': f'{top}px',
+                    })
+                )
+            # Display each of the nodes
             for j, node in enumerate(nodes):
                 list_of_nodes_for_grid.append(node)
-                left = int(vp.padding_left + i * (1 + vp.ratio_of_space_between_nodes_to_node_size) * width_per_box)
                 top = int(vp.padding_top + j * (1 + vp.ratio_of_space_between_nodes_to_node_size) * height_per_box)
-                right = int(left + width_per_box)
                 bottom = int(top + height_per_box)
                 node_to_corners[node] = (left, top, right, bottom)
                 node_type = sag.name_to_node[node].type_of_tensor
+                text_in_node = node[len(common_prefix):]
+                # TODO This formula was determined experimentally to be "good enough".
+                # Replace it with a better, CSS-based solution.
+                appropriate_font_size_for_text_in_node = get_appropriate_font_size_for_text_in_node(width_per_box, text_in_node)
                 elements_of_the_graph.append(
                     html.Div(id=self._node_name_to_dash_id(configuration_type, node), className='node', style={
                     'width': f'{width_per_box}px',
@@ -230,7 +258,9 @@ class Visualization:
                     'top': f'{top}px',
                     'background': vp.node_type_to_color[node_type],
                 }, title=node[len("node__"):], children=(
-                    [html.Div(f'{node[len("node__"):]}', className='node-name')] if DISPLAY_NAMES_ON_NODES_GRAPHICALLY else [])
+                    [html.Div(f'{text_in_node}', className='node-name', style={
+                        'font-size': f'{appropriate_font_size_for_text_in_node}px'
+                    })] if DISPLAY_NAMES_ON_NODES_GRAPHICALLY else [])
                 ))
         connection_names_to_source_and_target = {}
         node_to_incoming_and_outgoing_lines = {n: ([], []) for n in sag.nodes}
