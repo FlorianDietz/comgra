@@ -23,6 +23,9 @@
 .inactive {
     display: none;
 }
+#selected-item-details-container {
+    min-height: 100vh;
+}
 #selected-item-details-container td {
     white-space: pre;
     font-family: monospace;
