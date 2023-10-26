@@ -223,6 +223,8 @@ class Visualization:
             else:
                 common_prefix = 'node__'
             def get_appropriate_font_size_for_text_in_node(width, text):
+                # TODO This formula was determined experimentally to be "good enough".
+                #  Replace it with a better, CSS-based solution.
                 return max(1, min(20, int(width / len(text) * 1.7)))
             if common_prefix != 'node__':
                 # Display the prefix common to the names of all items in this stack
@@ -247,8 +249,6 @@ class Visualization:
                 node_to_corners[node] = (left, top, right, bottom)
                 node_type = sag.name_to_node[node].type_of_tensor
                 text_in_node = node[len(common_prefix):]
-                # TODO This formula was determined experimentally to be "good enough".
-                # Replace it with a better, CSS-based solution.
                 appropriate_font_size_for_text_in_node = get_appropriate_font_size_for_text_in_node(width_per_box, text_in_node)
                 elements_of_the_graph.append(
                     html.Div(id=self._node_name_to_dash_id(configuration_type, node), className='node', style={
