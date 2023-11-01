@@ -323,21 +323,29 @@ class Visualization:
             html.Div(id='controls-container', children=[
                 html.Div(id='controls-buttons-container', children=[
                     dbc.Row([
-                        dbc.Col(html.Button('Reload from disk', id='refresh-button', n_clicks=0), width=1),
-                        dbc.Col(dcc.RadioItems(id='display-type-radio-buttons', options=['Tensors', 'Network', 'Notes'], value='Tensors', inline=True), width=2),
+                        dbc.Col(dcc.RadioItems(id='display-type-radio-buttons', options=['Tensors', 'Network', 'Notes'], value='Tensors', inline=True), width=3),
                         dbc.Col([
-                            html.Label("Navigate between Nodes:"),
-                            html.Button('Left', id='navigate-left-button', n_clicks=0),
-                            html.Button('Right', id='navigate-right-button', n_clicks=0),
-                            html.Button('Up', id='navigate-up-button', n_clicks=0),
-                            html.Button('Down', id='navigate-down-button', n_clicks=0)
-                        ], width=3),
+                            html.Label("Navigation:"),
+                            html.Button('Left', id='navigate-left-button', className='navigation-button', n_clicks=0),
+                            html.Button('Right', id='navigate-right-button', className='navigation-button', n_clicks=0),
+                            html.Button('Up', id='navigate-up-button', className='navigation-button', n_clicks=0),
+                            html.Button('Down', id='navigate-down-button', className='navigation-button', n_clicks=0)
+                        ], width=4),
+                        dbc.Col(html.Button('Reload from disk', id='refresh-button', n_clicks=0), width=2),
                     ]),
                 ]),
                 html.Div(children=[
                     dbc.Row([
                         dbc.Col(html.Label("Trial"), width=2),
                         dbc.Col(dcc.Dropdown(id='trials-dropdown', options=[], value=None), width=9),
+                    ]),
+                    dbc.Row([
+                        dbc.Col(html.Label("Role of tensor"), width=2),
+                        dbc.Col(dcc.Dropdown(id='role-of-tensor-in-node-dropdown', options=[], value=None), width=9),
+                    ]),
+                    dbc.Row([
+                        dbc.Col(html.Label("Type of recording"), width=2),
+                        dbc.Col(dcc.RadioItems(id='type-of-recording-radio-buttons', options=[], value=None, inline=True), width=9),
                     ]),
                     dbc.Row([
                         dbc.Col(html.Label("Type of training step"), width=2),
@@ -352,20 +360,12 @@ class Visualization:
                         dbc.Col(dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None), width=9),
                     ]),
                     dbc.Row([
-                        dbc.Col(html.Label("Type of recording"), width=2),
-                        dbc.Col(dcc.RadioItems(id='type-of-recording-radio-buttons', options=[], value=None, inline=True), width=9),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(html.Label("Batch or individual sample"), width=2),
-                        dbc.Col(dcc.Dropdown(id='batch-index-dropdown', options=[], value=None), width=9),
-                    ]),
-                    dbc.Row([
                         dbc.Col(html.Label("Iteration"), width=2),
                         dbc.Col(dcc.Slider(id='iteration-slider', min=0, max=0, step=1, value=0), width=9),
                     ]),
                     dbc.Row([
-                        dbc.Col(html.Label("Role of tensor"), width=2),
-                        dbc.Col(dcc.Dropdown(id='role-of-tensor-in-node-dropdown', options=[], value=None), width=9),
+                        dbc.Col(html.Label("Batch or individual sample"), width=2),
+                        dbc.Col(dcc.Dropdown(id='batch-index-dropdown', options=[], value=None), width=9),
                     ]),
                 ]),
             ]),
@@ -925,4 +925,4 @@ class Visualization:
             with open(path, 'r') as f:
                 notes = json.load(f)
             return notes
-        return "No Notes have been recorded for this trial."
+        return ["No Notes have been recorded for this trial."]

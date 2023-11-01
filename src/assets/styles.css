@@ -25,6 +25,7 @@
 }
 #selected-item-details-container {
     min-height: 100vh;
+    padding: 0 0 0 10px;
 }
 #selected-item-details-container td {
     white-space: pre;
@@ -36,4 +37,32 @@
 }
 #controls-container {
     border-bottom: 1px solid black;
+    padding: 0 0 0 10px;
+}
+#refresh-button {
+    width: fit-content;
+    white-space: nowrap;
+}
+#display-type-radio-buttons {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    column-gap: 7px;
+    height: 100%;
+}
+#display-type-radio-buttons label {
+    margin: 0;
+    position: relative;
+}
+#display-type-radio-buttons label input {
+    margin-right: 2px;
+}
+.navigation-button {
+
+}
+#type-of-recording-radio-buttons label {
+
+}
+#decrement-training-step-button, #increment-training-step-button {
+
 }
