@@ -71,8 +71,25 @@
 #navigation-buttons button {
 }
 #type-of-recording-radio-buttons label {
-
 }
 #decrement-training-step-button, #increment-training-step-button {
+}
+#selected-values-summary-table {
 
+}
+#selected-values-summary-table tr {
+
+}
+#selected-values-summary-table tr th {
+    background-color: rgb(195 195 195);
+    border-width: 1px;
+    border-style: solid;
+    border-color: rgb(63, 63, 63);
+    padding: 0 7px 0 7px;
+}
+#selected-values-summary-table tr td {
+    border-width: 1px;
+    border-style: solid;
+    border-color: rgb(63, 63, 63);
+    padding: 0 7px 0 7px;
 }

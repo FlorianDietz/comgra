@@ -805,14 +805,19 @@ class Visualization:
                     html.Td(f"{val:17.10f}     -     {' ' if val >= 0.0 else ''}{val:.8e}" if isinstance(val, numbers.Number) else val),
                 ]
                 rows.append(html.Tr(row))
-            desc_text = node.type_of_tensor
             if display_type_radio_buttons == 'Tensors':
                 children = [
-                    # html.Header(f"{trials_value}   -   {training_step_value}"),
-                    html.Header(f"Training step {training_step_value}, Type: {type_of_execution_for_diversity_of_recordings}"),
-                    html.Header(f"Node: {node.full_unique_name} - {role_of_tensor_in_node_value}"),
-                    html.Div(desc_text),
-                    html.Div(f"Shape: [{', '.join([str(a) for a in tensor_shape])}]"),
+                    html.Table(
+                        [html.Tr([html.Th(col) for col in ['Trial', 'Trial Type', 'Node', 'Role', 'Tensor Type', 'Tensor Shape', 'Training Step', 'Iteration']])] +
+                        [html.Tr([
+                            html.Td(val) for val in [
+                                trials_value, type_of_execution_for_diversity_of_recordings,
+                                node.full_unique_name, role_of_tensor_in_node_value, node.type_of_tensor, f"[{', '.join([str(a) for a in tensor_shape])}]",
+                                training_step_value, iteration_value,
+                            ]
+                        ])],
+                        id='selected-values-summary-table',
+                    ),
                     html.Table([html.Tr([html.Th(col) for col in ['Item', '', '', 'value']])] + rows),
                 ]
             elif display_type_radio_buttons == 'Network':
