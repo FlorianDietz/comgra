@@ -353,18 +353,18 @@ class Visualization:
                     ]),
                     dbc.Row([
                         dbc.Col(html.Label("Training step"), width=1),
-                        dbc.Col([
+                        dbc.Col(html.Div([
                             html.Button(html.I(className="bi bi-arrow-left"), id='decrement-training-step-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
                             html.Button(html.I(className="bi bi-arrow-right"), id='increment-training-step-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
-                        ], width=1),
+                        ]), width=1),
                         dbc.Col(dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None), width=9),
                     ]),
                     dbc.Row([
                         dbc.Col(html.Label("Iteration"), width=1),
-                        dbc.Col([
+                        dbc.Col(html.Div([
                             html.Button(html.I(className="bi bi-arrow-left"), id='decrement-iteration-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
                             html.Button(html.I(className="bi bi-arrow-right"), id='increment-iteration-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
-                        ], width=1),
+                        ]), width=1),
                         dbc.Col(dcc.Slider(id='iteration-slider', min=0, max=0, step=1, value=0), width=9),
                     ]),
                     dbc.Row([

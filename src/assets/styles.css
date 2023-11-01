@@ -45,6 +45,14 @@
     border-bottom: 1px solid black;
     padding: 0 0 0 10px;
 }
+#controls-container .row > div:not(:last-child) {
+    position: relative;
+}
+#controls-container .row > div:not(:last-child) > * {
+    position: absolute;
+    top: 50%;
+    transform: translate(0,-50%);
+}
 #refresh-button {
     width: fit-content;
     white-space: nowrap;
