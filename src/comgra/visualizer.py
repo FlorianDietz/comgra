@@ -67,7 +67,7 @@ class Visualization:
         assert path.exists(), path
         assets_path = Path(__file__).absolute().parent.parent / 'assets'
         assert assets_path.exists(), "If this fails, files have been moved."
-        self.app = dash.Dash(__name__, assets_folder=str(assets_path), external_stylesheets=[dbc.themes.BOOTSTRAP])
+        self.app = dash.Dash(__name__, assets_folder=str(assets_path), external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP])
         self.configuration_type_to_status_and_graph: Dict[str, StatusAndGraph] = {}
         self.configuration_type_to_node_to_corners: Dict[str, Dict[str, Tuple[int, int, int, int]]] = {}
         self.configuration_type_to_grid_of_nodes: Dict[str, List[List[str]]] = {}
@@ -324,13 +324,13 @@ class Visualization:
                 html.Div(id='controls-buttons-container', children=[
                     dbc.Row([
                         dbc.Col(dcc.RadioItems(id='display-type-radio-buttons', options=['Tensors', 'Network', 'Notes'], value='Tensors', inline=True), width=3),
-                        dbc.Col([
-                            html.Label("Navigation:"),
-                            html.Button('Left', id='navigate-left-button', className='navigation-button', n_clicks=0),
-                            html.Button('Right', id='navigate-right-button', className='navigation-button', n_clicks=0),
-                            html.Button('Up', id='navigate-up-button', className='navigation-button', n_clicks=0),
-                            html.Button('Down', id='navigate-down-button', className='navigation-button', n_clicks=0)
-                        ], width=4),
+                        dbc.Col([html.Label("Navigation:"),
+                            html.Button(html.I(className="bi bi-arrow-left"), id='navigate-left-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                            html.Button(html.I(className="bi bi-arrow-right"), id='navigate-right-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                            html.Button(html.I(className="bi bi-arrow-up"), id='navigate-up-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                            html.Button(html.I(className="bi bi-arrow-down"), id='navigate-down-button', className='btn btn-outline-secondary btn-xs', n_clicks=0)
+                        ], id='navigation-buttons', width=4),
+                        dbc.Col("", width=3),
                         dbc.Col(html.Button('Reload from disk', id='refresh-button', n_clicks=0), width=2),
                     ]),
                 ]),
@@ -354,8 +354,8 @@ class Visualization:
                     dbc.Row([
                         dbc.Col(html.Label("Training step"), width=1),
                         dbc.Col([
-                            html.Button('<', id='decrement-training-step-button', n_clicks=0),
-                            html.Button('>', id='increment-training-step-button', n_clicks=0),
+                            html.Button(html.I(className="bi bi-arrow-left"), id='decrement-training-step-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                            html.Button(html.I(className="bi bi-arrow-right"), id='increment-training-step-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
                         ], width=1),
                         dbc.Col(dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None), width=9),
                     ]),

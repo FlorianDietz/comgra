@@ -1,3 +1,9 @@
+.btn-group-xs > .btn, .btn-xs {
+    padding: .25rem .4rem;
+    font-size: .875rem;
+    line-height: .5;
+    border-radius: .2rem;
+}
 .floating-prefix-label {
     border: 1px solid black;
     position: absolute;
@@ -57,8 +63,12 @@
 #display-type-radio-buttons label input {
     margin-right: 2px;
 }
-.navigation-button {
-
+#navigation-buttons {
+}
+#navigation-buttons label {
+    padding: 0 5px 0 0;
+}
+#navigation-buttons button {
 }
 #type-of-recording-radio-buttons label {
 
