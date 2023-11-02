@@ -623,13 +623,14 @@ class Visualization:
                     iteration_value, possible_attribute_values['iteration'],
                 )
             # Increment or decrement the iteration if the user clicked the buttons.
-            idx = sorted(list(iteration_marks.keys())).index(iteration_value)
+            possible_iteration_values = sorted(list(iteration_marks.keys()))
+            idx = possible_iteration_values.index(iteration_value)
             if ctx.triggered_id == 'increment-iteration-button':
-                idx = max(0, min(len(iteration_marks) - 1, idx + 1))
-                iteration_value = idx
+                idx = max(0, min(len(possible_iteration_values) - 1, idx + 1))
+                iteration_value = possible_iteration_values[idx]
             elif ctx.triggered_id == 'decrement-iteration-button':
-                idx = max(0, min(len(iteration_marks) - 1, idx - 1))
-                iteration_value = idx
+                idx = max(0, min(len(possible_iteration_values) - 1, idx - 1))
+                iteration_value = possible_iteration_values[idx]
             # Role of tensor
             role_of_tensor_in_node_options, role_of_tensor_in_node_value = create_options_and_value_from_list(
                 role_of_tensor_in_node_value, possible_attribute_values['role_within_node'],
