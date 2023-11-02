@@ -24,7 +24,7 @@ from comgra import utilities
 
 utilities.PRINT_EACH_TIME = True
 
-DISPLAY_CONNECTIONS_GRAPHICALLY = True
+DISPLAY_ALL_CONNECTIONS_GRAPHICALLY = False
 HIGHLIGHT_SELECTED_CONNECTIONS = True
 DISPLAY_NAMES_ON_NODES_GRAPHICALLY = True
 
@@ -72,7 +72,7 @@ class Visualization:
         self.configuration_type_to_status_and_graph: Dict[str, StatusAndGraph] = {}
         self.configuration_type_to_node_to_corners: Dict[str, Dict[str, Tuple[int, int, int, int]]] = {}
         self.configuration_type_to_grid_of_nodes: Dict[str, List[List[str]]] = {}
-        self.configuration_type_and_node_to_list_of_connections: Dict[Tuple[str, str], List[Tuple[int, int, int, int]]] = {}
+        self.configuration_type_and_node_to_list_of_connections: Dict[Tuple[str, str], List[Tuple[int, int, int, int, str, str]]] = {}
         self._sanity_check_cache_to_avoid_duplicates = {}
         self.cache_for_tensor_recordings = {}
         self.attribute_selection_fallback_values = collections.defaultdict(list)
@@ -265,7 +265,7 @@ class Visualization:
                     })] if DISPLAY_NAMES_ON_NODES_GRAPHICALLY else [])
                 ))
         svg_connection_lines = []
-        if DISPLAY_CONNECTIONS_GRAPHICALLY:
+        if DISPLAY_ALL_CONNECTIONS_GRAPHICALLY or HIGHLIGHT_SELECTED_CONNECTIONS:
             for connection in sag.connections:
                 source, target = tuple(connection)
                 source_left, source_top, _, _ = node_to_corners[source]
@@ -275,16 +275,19 @@ class Visualization:
                 target_x = int(target_left)
                 target_y = int(target_top + 0.5 * height_per_box)
                 connection_name = self._nodes_to_connection_dash_id(configuration_type, source, target)
-                svg_connection_lines.append(dash_svg.Line(
-                    id=connection_name,
-                    x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
-                    stroke=vp.node_type_to_color[sag.name_to_node[source].type_of_tensor],
-                    strokeWidth=1,
-                ))
+                stroke_color = vp.node_type_to_color[sag.name_to_node[source].type_of_tensor]
+                if DISPLAY_ALL_CONNECTIONS_GRAPHICALLY:
+                    svg_connection_lines.append(dash_svg.Line(
+                        id=connection_name,
+                        x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
+                        stroke=stroke_color,
+                        strokeWidth=1,
+                    ))
                 if HIGHLIGHT_SELECTED_CONNECTIONS:
                     for n1, n2 in [(source, target), (target, source)]:
                         self.configuration_type_and_node_to_list_of_connections.setdefault((configuration_type, n1), []).append((
                             source_x, source_y, target_x, target_y, n2,
+                            (vp.highlighting_colors['highlighted'] if DISPLAY_ALL_CONNECTIONS_GRAPHICALLY else stroke_color)
                         ))
         elements_of_the_graph.append(dash_svg.Svg(svg_connection_lines, viewBox=f'0 0 {vp.total_display_width} {vp.total_display_height}'))
         return elements_of_the_graph
@@ -713,11 +716,11 @@ class Visualization:
                     ))
             if HIGHLIGHT_SELECTED_CONNECTIONS:
                 for coordinates in self.configuration_type_and_node_to_list_of_connections[(configuration_type, node_name)]:
-                    source_x, source_y, target_x, target_y, other_node = coordinates
+                    source_x, source_y, target_x, target_y, other_node, stroke_color = coordinates
                     graph_overlay_elements.append(dash_svg.Line(
                         id=f'highlight_connection__{configuration_type}__{node}__{other_node}',
                         x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
-                        stroke=vp.highlighting_colors['highlighted'],
+                        stroke=stroke_color,
                         strokeWidth=3,
                     ))
             graph_overlay_for_selections_children = [
