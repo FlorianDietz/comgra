@@ -24,7 +24,8 @@ from comgra import utilities
 
 utilities.PRINT_EACH_TIME = True
 
-DISPLAY_CONNECTIONS_GRAPHICALLY = False
+DISPLAY_CONNECTIONS_GRAPHICALLY = True
+HIGHLIGHT_SELECTED_CONNECTIONS = True
 DISPLAY_NAMES_ON_NODES_GRAPHICALLY = True
 
 LOCK_FOR_RECORDINGS = threading.Lock()
@@ -71,6 +72,7 @@ class Visualization:
         self.configuration_type_to_status_and_graph: Dict[str, StatusAndGraph] = {}
         self.configuration_type_to_node_to_corners: Dict[str, Dict[str, Tuple[int, int, int, int]]] = {}
         self.configuration_type_to_grid_of_nodes: Dict[str, List[List[str]]] = {}
+        self.configuration_type_and_node_to_list_of_connections: Dict[Tuple[str, str], List[Tuple[int, int, int, int]]] = {}
         self._sanity_check_cache_to_avoid_duplicates = {}
         self.cache_for_tensor_recordings = {}
         self.attribute_selection_fallback_values = collections.defaultdict(list)
@@ -262,8 +264,6 @@ class Visualization:
                         'font-size': f'{appropriate_font_size_for_text_in_node}px'
                     })] if DISPLAY_NAMES_ON_NODES_GRAPHICALLY else [])
                 ))
-        connection_names_to_source_and_target = {}
-        node_to_incoming_and_outgoing_lines = {n: ([], []) for n in sag.nodes}
         svg_connection_lines = []
         if DISPLAY_CONNECTIONS_GRAPHICALLY:
             for connection in sag.connections:
@@ -281,9 +281,11 @@ class Visualization:
                     stroke=vp.node_type_to_color[sag.name_to_node[source].type_of_tensor],
                     strokeWidth=1,
                 ))
-                connection_names_to_source_and_target[connection_name] = (source, target)
-                node_to_incoming_and_outgoing_lines[source][1].append(connection_name)
-                node_to_incoming_and_outgoing_lines[target][0].append(connection_name)
+                if HIGHLIGHT_SELECTED_CONNECTIONS:
+                    for n1, n2 in [(source, target), (target, source)]:
+                        self.configuration_type_and_node_to_list_of_connections.setdefault((configuration_type, n1), []).append((
+                            source_x, source_y, target_x, target_y, n2,
+                        ))
         elements_of_the_graph.append(dash_svg.Svg(svg_connection_lines, viewBox=f'0 0 {vp.total_display_width} {vp.total_display_height}'))
         return elements_of_the_graph
 
@@ -707,6 +709,15 @@ class Visualization:
                     graph_overlay_elements.append(dash_svg.Line(
                         x1=str(x1), x2=str(x2), y1=str(y1), y2=str(y2),
                         stroke=color,
+                        strokeWidth=3,
+                    ))
+            if HIGHLIGHT_SELECTED_CONNECTIONS:
+                for coordinates in self.configuration_type_and_node_to_list_of_connections[(configuration_type, node_name)]:
+                    source_x, source_y, target_x, target_y, other_node = coordinates
+                    graph_overlay_elements.append(dash_svg.Line(
+                        id=f'highlight_connection__{configuration_type}__{node}__{other_node}',
+                        x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
+                        stroke=vp.highlighting_colors['highlighted'],
                         strokeWidth=3,
                     ))
             graph_overlay_for_selections_children = [
