@@ -76,17 +76,8 @@
 #navigation-buttons label {
     padding: 0 5px 0 0;
 }
-#navigation-buttons button {
-}
-#type-of-recording-radio-buttons label {
-}
-#decrement-training-step-button, #increment-training-step-button {
-}
-#selected-values-summary-table {
-
-}
-#selected-values-summary-table tr {
-
+#type-of-recording-radio-buttons label input {
+    margin: 0 2px 0 2px;
 }
 #selected-values-summary-table tr th {
     background-color: rgb(195 195 195);

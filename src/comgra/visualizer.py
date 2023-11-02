@@ -812,7 +812,8 @@ class Visualization:
                         [html.Tr([
                             html.Td(val) for val in [
                                 trials_value, type_of_execution_for_diversity_of_recordings,
-                                node.full_unique_name, role_of_tensor_in_node_value, node.type_of_tensor, f"[{', '.join([str(a) for a in tensor_shape])}]",
+                                node.full_unique_name[len('node__'):],
+                                role_of_tensor_in_node_value, node.type_of_tensor, f"[{', '.join([str(a) for a in tensor_shape])}]",
                                 training_step_value, iteration_value,
                             ]
                         ])],
