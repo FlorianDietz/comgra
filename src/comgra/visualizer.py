@@ -131,19 +131,19 @@ class Visualization:
 
     @utilities.runtime_analysis_decorator
     def get_recordings_with_caching(
-            self, trials_value, training_step_value, type_of_execution_for_diversity_of_recordings
+            self, trials_value, training_step_value, type_of_execution
     ) -> TensorRecordings:
         with LOCK_FOR_RECORDINGS:
             key = (trials_value, training_step_value,)
             recordings = self.cache_for_tensor_recordings.get(key, None)
             if recordings is None:
                 recordings_path_base = self.path / 'trials' / trials_value / 'recordings'
-                if type_of_execution_for_diversity_of_recordings == 'any_value':
+                if type_of_execution == 'any_value':
                     for recordings_path in recordings_path_base.iterdir():
                         if recordings_path.name.startswith(f'{training_step_value}__'):
                             break
                 else:
-                    recordings_path = recordings_path_base / f'{training_step_value}__{type_of_execution_for_diversity_of_recordings}'
+                    recordings_path = recordings_path_base / f'{training_step_value}__{type_of_execution}'
                 recording_files = sorted(list(recordings_path.iterdir()))
                 for recording_file in recording_files:
                     if recording_file.suffix == '.json':
@@ -166,9 +166,9 @@ class Visualization:
                         }
                         for k1, v1 in new_recordings.training_step_to_iteration_to_configuration_type.items()
                     }
-                    new_recordings.training_step_to_type_of_execution_for_diversity_of_recordings = {
+                    new_recordings.training_step_to_type_of_execution = {
                         int(k1): v1
-                        for k1, v1 in new_recordings.training_step_to_type_of_execution_for_diversity_of_recordings.items()
+                        for k1, v1 in new_recordings.training_step_to_type_of_execution.items()
                     }
                     if recordings is None:
                         recordings = new_recordings
@@ -436,7 +436,7 @@ class Visualization:
                         for node in sag.name_to_node.keys()]))
         @utilities.runtime_analysis_decorator
         def update_selectors(
-                trials_value, type_of_execution_for_diversity_of_recordings,
+                trials_value, type_of_execution,
                 decrement_training_step, increment_training_step,
                 decrement_iteration, increment_iteration,
                 training_step_value, type_of_recording_value, batch_index_value,
@@ -469,23 +469,23 @@ class Visualization:
             #
             # Selection of valid values for training steps.
             #
-            # Training steps and type_of_execution_for_diversity_of_recordings come from file names,
+            # Training steps and type_of_execution come from file names,
             # while all other attributes are held by the contents of the files that training steps are named after.
-            type_of_execution_for_diversity_of_recordings = (type_of_execution_for_diversity_of_recordings or 'any_value')
+            type_of_execution = (type_of_execution or 'any_value')
             recordings_path = self.path / 'trials' / trials_value / 'recordings'
             training_steps_and_types = []
             for possible_path in recordings_path.iterdir():
                 match = re.match(r'^([0-9]+)__(.+)$', possible_path.name)
                 training_step_value_of_path = int(match.group(1))
-                type_of_execution_for_diversity_of_recordings_of_path = match.group(2)
-                training_steps_and_types.append((training_step_value_of_path, type_of_execution_for_diversity_of_recordings_of_path))
-            list_of_type_of_execution_for_diversity_of_recordings = sorted(list(set(['any_value'] + [a[1] for a in training_steps_and_types])), key=lambda a: '' if a == 'any_value' else a)
+                type_of_execution_of_path = match.group(2)
+                training_steps_and_types.append((training_step_value_of_path, type_of_execution_of_path))
+            list_of_type_of_execution = sorted(list(set(['any_value'] + [a[1] for a in training_steps_and_types])), key=lambda a: '' if a == 'any_value' else a)
             training_steps = sorted([a[0] for a in training_steps_and_types
-                                     if type_of_execution_for_diversity_of_recordings == 'any_value'
-                                     or type_of_execution_for_diversity_of_recordings == a[1]])
+                                     if type_of_execution == 'any_value'
+                                     or type_of_execution == a[1]])
             assert len(training_steps) > 0
-            type_of_execution_for_diversity_of_recordings_options, type_of_execution_for_diversity_of_recordings = create_options_and_value_from_list(
-                type_of_execution_for_diversity_of_recordings, list_of_type_of_execution_for_diversity_of_recordings,
+            type_of_execution_options, type_of_execution = create_options_and_value_from_list(
+                type_of_execution, list_of_type_of_execution,
                 label_maker=lambda a: "Any training step" if a == 'any_value' else a
             )
             training_step_min, training_step_max, training_step_marks, training_step_value = create_slider_data_from_list(
@@ -501,7 +501,7 @@ class Visualization:
                 idx = max(0, min(len(training_steps) - 1, idx - 1))
                 training_step_value = training_steps[idx]
             # Get the recordings
-            recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution_for_diversity_of_recordings)
+            recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution)
             db: utilities.PseudoDb = recordings.recordings
             if program_is_initializing:
                 # Initialize everything
@@ -516,7 +516,7 @@ class Visualization:
             else:
                 # Select the node, or change it if the user clicked something.
                 name_of_selected_node = self.get_or_change_selected_node(
-                    trials_value, type_of_execution_for_diversity_of_recordings,
+                    trials_value, type_of_execution,
                     training_step_value, iteration_value, previous_name_of_selected_node,
                     navigation_button_clicks, clicks_per_node,
                 )
@@ -646,7 +646,7 @@ class Visualization:
             ]
             res = [
                       name_of_selected_node,
-                      type_of_execution_for_diversity_of_recordings_options, type_of_execution_for_diversity_of_recordings,
+                      type_of_execution_options, type_of_execution,
                       training_step_min, training_step_max, training_step_marks, training_step_value,
                       type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value,
                       iteration_min, iteration_max, iteration_marks, iteration_value,
@@ -670,13 +670,13 @@ class Visualization:
         @utilities.runtime_analysis_decorator
         def update_kpis_to_display_for_selection(
                 display_type_radio_buttons,
-                node_name, trials_value, type_of_execution_for_diversity_of_recordings,
+                node_name, trials_value, type_of_execution,
                 training_step_value, type_of_recording_value,
                 batch_index_value, iteration_value, role_of_tensor_in_node_value,
         ):
-            recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution_for_diversity_of_recordings)
+            recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution)
             configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][iteration_value]
-            type_of_execution_for_diversity_of_recordings = recordings.training_step_to_type_of_execution_for_diversity_of_recordings[training_step_value]
+            type_of_execution = recordings.training_step_to_type_of_execution[training_step_value]
             sag = self.configuration_type_to_status_and_graph[configuration_type]
             if self.node_is_a_parameter[node_name]:
                 iteration_value = 0
@@ -826,7 +826,7 @@ class Visualization:
                         [html.Tr([html.Th(col) for col in ['Trial', 'Trial Type', 'Node', 'Role', 'Tensor Type', 'Tensor Shape', 'Training Step', 'Iteration']])] +
                         [html.Tr([
                             html.Td(val) for val in [
-                                trials_value, type_of_execution_for_diversity_of_recordings,
+                                trials_value, type_of_execution,
                                 node.full_unique_name[len('node__'):],
                                 role_of_tensor_in_node_value, node.type_of_tensor, f"[{', '.join([str(a) for a in tensor_shape])}]",
                                 training_step_value, iteration_value,
@@ -850,11 +850,11 @@ class Visualization:
 
     @utilities.runtime_analysis_decorator
     def get_or_change_selected_node(
-            self, trials_value, type_of_execution_for_diversity_of_recordings,
+            self, trials_value, type_of_execution,
             training_step_value, iteration_value, previous_name_of_selected_node,
             navigation_button_clicks, clicks_per_node,
     ):
-        recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution_for_diversity_of_recordings)
+        recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution)
         # Special case: If nothing was clicked, just return the previous_name_of_selected_node
         if max([-1 if a is None else a for a in navigation_button_clicks + clicks_per_node]) <= self.last_navigation_click_event_time:
             return previous_name_of_selected_node

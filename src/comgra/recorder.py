@@ -93,7 +93,7 @@ class ComgraRecorder:
         self.mapping_of_tensors_for_extracting_kpis: Dict[Tuple[int, str, Optional[int], Optional[int], str, str, str], Tuple[torch.Tensor, TensorRepresentation]] = {}
         self.is_training_mode = False
         self.training_step = None
-        self.type_of_execution_for_diversity_of_recordings = None
+        self.type_of_execution = None
         self.iteration = None
         self.record_all_tensors_per_batch_index_by_default = False
         self.computation_step_to_tensor = {}
@@ -106,7 +106,7 @@ class ComgraRecorder:
     def recording_is_active(self):
         if self.override__recording_is_active is None:
             return self.comgra_is_active and self.is_training_mode and self.decision_maker_for_recordings.is_record_on_this_iteration(
-                self.training_step, self.type_of_execution_for_diversity_of_recordings,
+                self.training_step, self.type_of_execution,
             )
         return self.override__recording_is_active
 
@@ -165,17 +165,17 @@ class ComgraRecorder:
     @utilities.runtime_analysis_decorator
     def start_next_recording(
             self, training_step, current_batch_size, is_training_mode,
-            type_of_execution_for_diversity_of_recordings,
+            type_of_execution,
             record_all_tensors_per_batch_index_by_default=False,
             override__recording_is_active=None,
     ):
         self.is_training_mode = is_training_mode
         self.training_step = training_step
-        assert type_of_execution_for_diversity_of_recordings is not None, type_of_execution_for_diversity_of_recordings
-        assert type_of_execution_for_diversity_of_recordings != 'any_value', type_of_execution_for_diversity_of_recordings
-        assert not type_of_execution_for_diversity_of_recordings.startswith('__'), type_of_execution_for_diversity_of_recordings
-        assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution_for_diversity_of_recordings)
-        self.type_of_execution_for_diversity_of_recordings = type_of_execution_for_diversity_of_recordings
+        assert type_of_execution is not None, type_of_execution
+        assert type_of_execution != 'any_value', type_of_execution
+        assert not type_of_execution.startswith('__'), type_of_execution
+        assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution)
+        self.type_of_execution = type_of_execution
         self.iteration = None
         self.record_all_tensors_per_batch_index_by_default = record_all_tensors_per_batch_index_by_default
         assert self.current_stage == 'inactive', self.current_stage
@@ -380,7 +380,7 @@ class ComgraRecorder:
         self.configuration_type = configuration_type
         self.configuration_path = self.group_path / 'configs' / configuration_type
         self.tensor_recordings.training_step_to_iteration_to_configuration_type.setdefault(self.training_step, {})[self.iteration] = configuration_type
-        self.tensor_recordings.training_step_to_type_of_execution_for_diversity_of_recordings[self.training_step] = self.type_of_execution_for_diversity_of_recordings
+        self.tensor_recordings.training_step_to_type_of_execution[self.training_step] = self.type_of_execution
         if not self.recording_is_active():
             return
 
@@ -586,7 +586,7 @@ class ComgraRecorder:
 
         def save_recordings_so_far():
             nonlocal file_number
-            recordings_path_folder = self.recordings_path / f'{self.training_step}__{self.type_of_execution_for_diversity_of_recordings}'
+            recordings_path_folder = self.recordings_path / f'{self.training_step}__{self.type_of_execution}'
             recordings_path_folder.mkdir(exist_ok=True)
             dump_dict = dataclasses.asdict(self.tensor_recordings)
             dump_dict['recordings'] = dump_dict['recordings'].serialize()
