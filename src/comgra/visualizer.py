@@ -958,7 +958,6 @@ class Visualization:
     @utilities.runtime_analysis_decorator
     def get_notes_for_trial(self, trial_id):
         path = self.path / 'trials' / str(trial_id) / 'notes.json'
-        print(path)
         if path.exists():
             with open(path, 'r') as f:
                 notes = json.load(f)
