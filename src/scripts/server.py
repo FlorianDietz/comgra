@@ -14,7 +14,7 @@ def main():
     assert (args.path is None) is args.use_path_for_test_run, \
         "Either provide --path or set --use-path-for-test-run."
     if args.use_path_for_test_run:
-        args.path = (Path(__file__).parent.parent.parent / 'testing_data' / 'publication_test').absolute()
+        args.path = (Path(__file__).parent.parent.parent / 'testing_data' / 'testcase_for_demonstration').absolute()
     path = Path(args.path).absolute()
     assert path.exists(), path
     vis = visualizer.Visualization(path=path, debug_mode=args.debug_mode)

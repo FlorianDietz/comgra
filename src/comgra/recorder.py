@@ -21,8 +21,9 @@ class ComgraRecorder:
 
     def __init__(
             self, comgra_root_path, group, trial_id,
-            prefixes_for_grouping_module_parameters_visually, prefixes_for_grouping_module_parameters_in_nodes,
-            parameters_of_trial, decision_maker_for_recordings,
+            prefixes_for_grouping_module_parameters_visually,
+            prefixes_for_grouping_module_parameters_in_nodes,
+            decision_maker_for_recordings,
             comgra_is_active=True, max_num_batch_size_to_record=None,
             max_num_mappings_to_save_at_once_during_serialization=20000,
             type_of_serialization='msgpack',
@@ -66,7 +67,6 @@ class ComgraRecorder:
             assert any(b for b in self.prefixes_for_grouping_module_parameters_visually if a.startswith(b)), \
                 f"A prefix for node grouping does not have a prefix for visual grouping that is less restrictive." \
                 f"\n{a}"
-        self.parameters_of_trial = parameters_of_trial
         self.max_num_batch_size_to_record = max_num_batch_size_to_record
         self.max_num_mappings_to_save_at_once_during_serialization = max_num_mappings_to_save_at_once_during_serialization
         #
@@ -91,7 +91,6 @@ class ComgraRecorder:
         #
         self.tensor_recordings: Optional[TensorRecordings] = None
         self.mapping_of_tensors_for_extracting_kpis: Dict[Tuple[int, str, Optional[int], Optional[int], str, str, str], Tuple[torch.Tensor, TensorRepresentation]] = {}
-        self.is_training_mode = False
         self.training_step = None
         self.type_of_execution = None
         self.iteration = None
@@ -105,7 +104,7 @@ class ComgraRecorder:
 
     def recording_is_active(self):
         if self.override__recording_is_active is None:
-            return self.comgra_is_active and self.is_training_mode and self.decision_maker_for_recordings.is_record_on_this_iteration(
+            return self.comgra_is_active and self.decision_maker_for_recordings.is_record_on_this_iteration(
                 self.training_step, self.type_of_execution,
             )
         return self.override__recording_is_active
@@ -164,12 +163,11 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def start_next_recording(
-            self, training_step, current_batch_size, is_training_mode,
+            self, training_step, current_batch_size,
             type_of_execution,
             record_all_tensors_per_batch_index_by_default=False,
             override__recording_is_active=None,
     ):
-        self.is_training_mode = is_training_mode
         self.training_step = training_step
         assert type_of_execution is not None, type_of_execution
         assert type_of_execution != 'any_value', type_of_execution
@@ -484,11 +482,6 @@ class ComgraRecorder:
             if not path.exists():
                 with open(path, 'wb') as f:
                     pickle.dump(status_and_graph, f)
-            #
-            # Save trial information
-            #
-            with open(self.trial_path / 'parameters.json', 'w') as f:
-                json.dump(self.parameters_of_trial, f)
         if sanity_check__verify_graph_and_global_status_equal_existing_file:
             #
             # Verify that the result is identical to previous results.
