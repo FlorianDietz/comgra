@@ -16,7 +16,7 @@ class NeuralNet(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(NeuralNet, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
-        self.activation = nn.ReLU() if DEMONSTRATION.current_configuration == 'relu' else nn.LeakyReLU(negative_slope=1e-2)
+        self.activation = nn.LeakyReLU(negative_slope=1e-2)
         self.fc2 = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
@@ -62,9 +62,9 @@ class Demonstration:
         # Network tensor sizes
         self.batch_size = 128
         self.memory_size = 50
-        self.input_size = 1
+        self.input_size = 5
         self.hidden_size = 200
-        self.output_size = 1
+        self.output_size = 5
         self.current_configuration = None
         self.model = None
         self.criterion = None
@@ -80,7 +80,6 @@ class Demonstration:
 
     def run_all_configurations(self):
         configurations = [
-            'relu',
             'leaky_relu',
             'no_activation_function_on_output_layer',
         ]
@@ -89,13 +88,11 @@ class Demonstration:
             self.run_current_configuration()
 
     def run_current_configuration(self):
-        # Hyper-parameters
-        num_training_steps = 10000
         # Model, Criterion, Optimizer
         self.model = CompleteModule(
             self.input_size, self.hidden_size, self.memory_size, self.output_size
         ).to(self.device)
-        self.criterion = torch.nn.MSELoss()
+        self.criterion = torch.nn.CrossEntropyLoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-4)
         # Initialize comgra
         # This command tells comgra to permanently register all parameters of a given module.
@@ -164,6 +161,7 @@ class Demonstration:
         #
         # Train the model
         #
+        num_training_steps = 20_000
         for training_step in range(num_training_steps):
             # Pick a random dataloader and run a batch of it.
             # If its number of iterations is 3, 7, 8, or 9, then do not train on it.
@@ -180,8 +178,8 @@ class Demonstration:
         input_tensor = sample['input']
         target_tensor = sample['target']
         batch_size = self.batch_size
-        assert input_tensor.shape == (batch_size, num_iterations), input_tensor.shape
-        assert target_tensor.shape == (batch_size, 1), target_tensor.shape
+        assert input_tensor.shape == (batch_size, num_iterations, 5), input_tensor.shape
+        assert target_tensor.shape == (batch_size, 5), target_tensor.shape
         # Each time a new training step or epoch is started, call this function to inform comgra of this.
         # It will automatically decide whether to make a recording based on
         # decision_maker_for_recordings and override__recording_is_active
@@ -209,7 +207,7 @@ class Demonstration:
         memory = torch.zeros((batch_size, self.memory_size), device=self.device)
         # Iterate
         for iteration in range(num_iterations):
-            input_for_this_iteration = input_tensor[:, iteration].unsqueeze(-1)
+            input_for_this_iteration = input_tensor[:, iteration, :]
             # Tell comgra that an iteration has started.
             # You can start recording tensors after this, with register_tensor().
             comgra.my_recorder.start_forward_pass(
@@ -240,8 +238,8 @@ class Demonstration:
             x = torch.cat([input_for_this_iteration, memory], dim=1)
             # Forward pass
             output, memory = self.model(x)
-            x = output
-            comgra.my_recorder.register_tensor(f"x_out", x, is_output=True, recording_type='neurons')
+            output = torch.sigmoid(output)
+            comgra.my_recorder.register_tensor(f"x_out", output, is_output=True, recording_type='neurons')
             comgra.my_recorder.register_tensor(f"memory_out", memory, is_output=True, recording_type='neurons')
             assert output.shape == (batch_size, self.output_size)
             assert memory.shape == (batch_size, self.memory_size)
@@ -299,8 +297,9 @@ class ExampleDataset(Dataset):
         self.dataset_size = dataset_size
         self.number_of_iterations = number_of_iterations
         self.data = []
-        self.inputs = (torch.rand((dataset_size, number_of_iterations)) > 0.5).float().to(device)
-        self.targets = (self.inputs.sum(dim=1) % 2).float().unsqueeze(-1).to(device)
+        self.inputs = torch.rand((dataset_size, number_of_iterations, 5)).to(device)
+        tmp = self.inputs.sum(dim=1)
+        self.targets = tmp.eq(tmp.max(dim=1, keepdim=True)[0].expand(dataset_size, 5)).float()
 
     def __len__(self):
         return self.dataset_size
