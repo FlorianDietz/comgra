@@ -361,7 +361,7 @@ class Visualization:
                         dbc.Col(html.Div([
                             html.Button(html.I(className="bi bi-arrow-left"), id='decrement-training-step-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
                             html.Button(html.I(className="bi bi-arrow-right"), id='increment-training-step-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
-                        ]), width=1),
+                        ], className='buttons-for-selecting-filters'), width=1),
                         dbc.Col(dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None), width=9),
                     ]),
                     dbc.Row([
@@ -369,11 +369,15 @@ class Visualization:
                         dbc.Col(html.Div([
                             html.Button(html.I(className="bi bi-arrow-left"), id='decrement-iteration-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
                             html.Button(html.I(className="bi bi-arrow-right"), id='increment-iteration-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
-                        ]), width=1),
+                        ], className='buttons-for-selecting-filters'), width=1),
                         dbc.Col(dcc.Slider(id='iteration-slider', min=0, max=0, step=1, value=0), width=9),
                     ]),
                     dbc.Row([
-                        dbc.Col(html.Label("Batch or individual sample"), width=2),
+                        dbc.Col(html.Label("Batch or sample"), width=1),
+                        dbc.Col(html.Div([
+                            html.Button(html.I(className="bi bi-arrow-left"), id='decrement-batch-index-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                            html.Button(html.I(className="bi bi-arrow-right"), id='increment-batch-index-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        ], className='buttons-for-selecting-filters'), width=1),
                         dbc.Col(dcc.Dropdown(id='batch-index-dropdown', options=[], value=None), width=9),
                     ]),
                 ]),
@@ -421,6 +425,8 @@ class Visualization:
                         Input('increment-training-step-button', 'n_clicks'),
                         Input('decrement-iteration-button', 'n_clicks'),
                         Input('increment-iteration-button', 'n_clicks'),
+                        Input('decrement-batch-index-button', 'n_clicks'),
+                        Input('increment-batch-index-button', 'n_clicks'),
                         Input('training-step-slider', 'value'),
                         Input('type-of-recording-radio-buttons', 'value'),
                         Input('batch-index-dropdown', 'value'),
@@ -439,6 +445,7 @@ class Visualization:
                 trials_value, type_of_execution,
                 decrement_training_step, increment_training_step,
                 decrement_iteration, increment_iteration,
+                decrement_batch_index, increment_batch_index,
                 training_step_value, type_of_recording_value, batch_index_value,
                 iteration_value, role_of_tensor_in_node_value, previous_name_of_selected_node,
                 *lsts,
@@ -595,11 +602,12 @@ class Visualization:
             _, possible_attribute_values = query_database_using_current_values(
                 [], current_params_dict_for_querying_database
             )
-            # Get the values to return
+            # Options for the type of recording
             type_of_recording_options, type_of_recording_value = create_options_and_value_from_list(
                 type_of_recording_value, possible_attribute_values['type_of_tensor_recording'],
             )
             type_of_recording_options.sort(key=lambda a: a['value'])
+            # Options for the batch_index
             batch_index_options, batch_index_value = create_options_and_value_from_list(
                 batch_index_value, possible_attribute_values['batch_aggregation'],
                 label_maker=lambda a: {
@@ -610,6 +618,15 @@ class Visualization:
                 }.get(a, f"batch index {a}")
             )
             batch_index_options.sort(key=lambda a: -1 if a['value'] in ['batch_mean', 'batch_abs_max', 'batch_std'] else (-2 if a['value'] == 'has_no_batch_dimension' else a['value']))
+            # Increment or decrement the batch index if the user clicked the buttons.
+            idx = [a['value'] for a in batch_index_options].index(batch_index_value)
+            if ctx.triggered_id == 'increment-batch-index-button':
+                idx = max(0, min(len(batch_index_options) - 1, idx + 1))
+                batch_index_value = batch_index_options[idx]['value']
+            elif ctx.triggered_id == 'decrement-batch-index-button':
+                idx = max(0, min(len(batch_index_options) - 1, idx - 1))
+                batch_index_value = batch_index_options[idx]['value']
+            # Options for the iteration
             if self.node_is_a_parameter[name_of_selected_node]:
                 iteration_options = list(recordings.training_step_to_iteration_to_configuration_type[training_step_value].keys())
                 iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
@@ -631,7 +648,7 @@ class Visualization:
             elif ctx.triggered_id == 'decrement-iteration-button':
                 idx = max(0, min(len(possible_iteration_values) - 1, idx - 1))
                 iteration_value = possible_iteration_values[idx]
-            # Role of tensor
+            # Options for the role of the tensor
             role_of_tensor_in_node_options, role_of_tensor_in_node_value = create_options_and_value_from_list(
                 role_of_tensor_in_node_value, possible_attribute_values['role_within_node'],
             )

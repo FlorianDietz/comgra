@@ -53,6 +53,9 @@
     top: 50%;
     transform: translate(0,-50%);
 }
+#controls-container .row:not(:first-child) > div:not(:last-child) > .buttons-for-selecting-filters {
+    right: 0;
+}
 #refresh-button {
     width: fit-content;
     white-space: nowrap;
