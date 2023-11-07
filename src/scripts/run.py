@@ -171,7 +171,7 @@ class Demonstration:
             # and we are interested in what comgra records about it.
             idx = training_step % len(self.task_data)
             num_iterations, dataloader = self.task_data[idx]
-            update_the_model_parameters = (num_iterations not in [3, 7, 8, 9])
+            update_the_model_parameters = (num_iterations <= 10)
             self.run_one_training_step(training_step, num_iterations, dataloader, update_the_model_parameters)
 
 
@@ -288,7 +288,7 @@ class Demonstration:
                 batch_size=self.batch_size,
                 shuffle=True,
             ))
-            for number_of_iterations in range(1, 10)
+            for number_of_iterations in list(range(1, 11)) + [15, 20]
         ]
         return task_data
 
