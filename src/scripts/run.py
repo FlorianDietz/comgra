@@ -16,20 +16,20 @@ class NeuralNet(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(NeuralNet, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
-        self.relu = nn.ReLU()
+        self.activation = nn.ReLU() if DEMONSTRATION.current_configuration == 'relu' else nn.LeakyReLU(negative_slope=1e-2)
         self.fc2 = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
         x = self.fc1(x)
-        x = self.relu(x)
+        x = self.activation(x)
         # Tensors in comgra need to get unique names in order to be recorded correctly.
         # This nn.Module will be instantiated twice, so its name is not unique.
         # To ensure the name is unique regardless, comgra provides a helper function to get the name
         # of the current module and all its parents, as recorded by track_module()
         comgra.my_recorder.register_tensor(f"{comgra.my_recorder.get_name_of_module(self)}__hidden_state", x, recording_type='neurons')
         x = self.fc2(x)
-        if DEMONSTRATION.current_configuration != 'no_relu_on_last_iteration':
-            x = self.relu(x)
+        if DEMONSTRATION.current_configuration != 'no_activation_function_on_output_layer':
+            x = self.activation(x)
         return x
 
 
@@ -80,8 +80,9 @@ class Demonstration:
 
     def run_all_configurations(self):
         configurations = [
-            'original',
-            'no_relu_on_last_iteration',
+            'relu',
+            'leaky_relu',
+            'no_activation_function_on_output_layer',
         ]
         for configuration in configurations:
             self.current_configuration = configuration
