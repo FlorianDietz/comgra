@@ -22,8 +22,6 @@ import msgpack
 from comgra.objects import StatusAndGraph, ModuleRepresentation, TensorRecordings
 from comgra import utilities
 
-utilities.PRINT_EACH_TIME = True
-
 DISPLAY_ALL_CONNECTIONS_GRAPHICALLY = False
 HIGHLIGHT_SELECTED_CONNECTIONS = True
 DISPLAY_NAMES_ON_NODES_GRAPHICALLY = True

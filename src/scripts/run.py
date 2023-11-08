@@ -262,12 +262,7 @@ class Demonstration:
                 if comgra.my_recorder.recording_is_active():
                     print(f"Epoch {training_step}: Loss on {num_iterations} iterations = {loss.item()}")
             # Tell comgra that the iteration has finished.
-            # At this point, you can specify whether you want to run a sanity check to make sure that you specified
-            # configuration_type of start_forward_pass() correctly.
-            # In this example, we only do this for the first few hundred steps, as it costs extra time to compute.
-            # If you skip this sanity check, you might not realize that you are recording two different computational
-            # graphs under the same name, and this will lead to errors in the visualization later.
-            comgra.my_recorder.finish_iteration(sanity_check__verify_graph_and_global_status_equal_existing_file=training_step < 500)
+            comgra.my_recorder.finish_iteration()
             # Comgra will raise an exception if the same tensor is registered twice under different names.
             # This is a feature that should help you catch errors, but if you plan to register
             # the output of one iteration again as the input on the next iteration, you will get an error

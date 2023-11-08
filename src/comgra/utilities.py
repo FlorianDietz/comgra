@@ -5,8 +5,7 @@ from typing import List, Any, Tuple, Dict, Set, Optional
 
 from plotly import express as px
 
-DEBUG_MODE = False
-
+DEBUG_MODE = True
 PRINT_EACH_TIME = False
 
 FUNCTION_NAME_TO_TOTAL_TIME = collections.defaultdict(lambda: timedelta(seconds=0))

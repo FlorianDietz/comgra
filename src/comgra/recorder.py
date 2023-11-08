@@ -405,7 +405,16 @@ class ComgraRecorder:
                 tensor.grad = None
 
     @utilities.runtime_analysis_decorator
-    def finish_iteration(self, sanity_check__verify_graph_and_global_status_equal_existing_file=False):
+    def finish_iteration(self, sanity_check__verify_graph_and_global_status_equal_existing_file=True):
+        """
+        :param sanity_check__verify_graph_and_global_status_equal_existing_file:
+            Specify whether you want to run a sanity check to make sure that you specified
+            configuration_type of start_forward_pass() correctly.
+            This costs extra time to compute, but if you skip this sanity check,
+            you might not realize that you are recording two different computational
+            graphs under the same name, and this will lead to errors in the visualization later.
+        :return: 
+        """
         assert self.current_stage in ['forward', 'backward'], self.current_stage
         self.current_stage = 'after_iteration'
         self.current_type_of_tensor_recording = 'forward'  # This will be used when the parameters get recorded in traverse_graph_backwards
