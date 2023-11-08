@@ -15,19 +15,19 @@ from torch.utils.data import Dataset, DataLoader
 class NeuralNet(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(NeuralNet, self).__init__()
-        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fnn1 = nn.Linear(input_size, hidden_size)
         self.activation = nn.LeakyReLU(negative_slope=1e-2)
-        self.fc2 = nn.Linear(hidden_size, output_size)
+        self.fnn2 = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
-        x = self.fc1(x)
+        x = self.fnn1(x)
         x = self.activation(x)
         # Tensors in comgra need to get unique names in order to be recorded correctly.
         # This nn.Module will be instantiated twice, so its name is not unique.
         # To ensure the name is unique regardless, comgra provides a helper function to get the name
         # of the current module and all its parents, as recorded by track_module()
         comgra.my_recorder.register_tensor(f"{comgra.my_recorder.get_name_of_module(self)}__hidden_state", x, recording_type='neurons')
-        x = self.fc2(x)
+        x = self.fnn2(x)
         if DEMONSTRATION.current_configuration != 'no_activation_function_on_output_layer':
             x = self.activation(x)
         return x
@@ -239,7 +239,7 @@ class Demonstration:
             # Forward pass
             output, memory = self.model(x)
             output = torch.sigmoid(output)
-            comgra.my_recorder.register_tensor(f"x_out", output, is_output=True, recording_type='neurons')
+            comgra.my_recorder.register_tensor(f"output", output, is_output=True, recording_type='neurons')
             comgra.my_recorder.register_tensor(f"memory_out", memory, is_output=True, recording_type='neurons')
             assert output.shape == (batch_size, self.output_size)
             assert memory.shape == (batch_size, self.memory_size)
@@ -252,6 +252,7 @@ class Demonstration:
                 self.optimizer.zero_grad()
                 loss.backward()
                 comgra.my_recorder.register_tensor(f"loss", loss, is_loss=True)
+                accuracy = (output.argmax(dim=1).eq(target_tensor.argmax(dim=1))).float().mean()
                 # We skip the update step for some data, because we want to see how that affects network values.
                 if update_the_model_parameters:
                     self.optimizer.step()
@@ -260,13 +261,17 @@ class Demonstration:
                 comgra.my_recorder.record_current_gradients(f"gradients")
                 # We can make use of comgra's smart decision-making which training steps to record
                 if comgra.my_recorder.recording_is_active():
-                    print(f"Epoch {training_step}: Loss on {num_iterations} iterations = {loss.item()}")
+                    print(f"{self.current_configuration}, Step {training_step:5}: "
+                          f"{num_iterations:2} iterations  -  "
+                          f"Loss = {loss.item():10.6f}  -  "
+                          f"Accuracy on batch = {accuracy:2.3f}")
             # Tell comgra that the iteration has finished.
             comgra.my_recorder.finish_iteration()
-            # Comgra will raise an exception if the same tensor is registered twice under different names.
-            # This is a feature that should help you catch errors, but if you plan to register
-            # the output of one iteration again as the input on the next iteration, you will get an error
-            # even though what you are doing is intentional.
+            # We multiply a tensor with 1 here to prevent an issue:
+            # As an error-catching feature, Comgra will raise an exception if the same tensor is
+            # registered twice under different names.
+            # But if you plan to register the output of one iteration again as an input on the next iteration,
+            # you will get an error even though what you are doing is intentional.
             # To prevent this, just multiply all tensors that will be reused on the next iteration with 1.
             memory = memory * 1
         # Finish a batch.
