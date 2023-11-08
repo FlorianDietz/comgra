@@ -337,7 +337,7 @@ class Visualization:
                         dbc.Col(html.Button('Reload from disk', id='refresh-button', n_clicks=0), width=2),
                     ]),
                 ]),
-                html.Div(children=[
+                html.Div(id='controls-selectors-container', children=[
                     dbc.Row([
                         dbc.Col(html.Label("Trial"), width=2),
                         dbc.Col(dcc.Dropdown(id='trials-dropdown', options=[], value=None), width=9),
