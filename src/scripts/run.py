@@ -16,7 +16,7 @@ class NeuralNet(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(NeuralNet, self).__init__()
         self.fnn1 = nn.Linear(input_size, hidden_size)
-        self.activation = nn.LeakyReLU(negative_slope=1e-2)
+        self.activation = nn.LeakyReLU(negative_slope=0.01)
         self.fnn2 = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
@@ -26,7 +26,7 @@ class NeuralNet(nn.Module):
         # This nn.Module will be instantiated twice, so its name is not unique.
         # To ensure the name is unique regardless, comgra provides a helper function to get the name
         # of the current module and all its parents, as recorded by track_module()
-        comgra.my_recorder.register_tensor(f"{comgra.my_recorder.get_name_of_module(self)}__hidden_state", x, recording_type='neurons')
+        comgra.my_recorder.register_tensor(f"{comgra.my_recorder.get_name_of_module(self)}__hidden_state", x)
         x = self.fnn2(x)
         if DEMONSTRATION.current_configuration != 'no_activation_function_on_output_layer':
             x = self.activation(x)
@@ -76,7 +76,7 @@ class Demonstration:
         # that the loss goes down as the training proceeds.
         # To see this, select iteration 2 in the UI, click on the Node that represents the loss (on the very right)
         # and then check how the value changes as you move the slider for the training step.
-        self.task_data = self.get_task_data()
+        self.task_data = self.generate_task_data()
 
     def run_all_configurations(self):
         configurations = [
@@ -158,19 +158,21 @@ class Demonstration:
         # This recursively goes through all contained modules and all their weight parameters
         # and registers them to be recorded later.
         comgra.my_recorder.track_module("root_module", self.model)
-        #
+        # Record information about the data we use in comgra
+        comgra.my_recorder.add_note(f"Total training data: {sum([len(dataloader.dataset) for _, use_for_training, dataloader in self.task_data if use_for_training]):,.0f}")
+        comgra.my_recorder.add_note(f"Total test data: {sum([len(dataloader.dataset) for _, use_for_training, dataloader in self.task_data if not use_for_training]):,.0f}")
+        for i, (num_iterations, use_for_training, dataloader) in enumerate(self.task_data):
+            comgra.my_recorder.add_note(f"Dataset {i}: {num_iterations} iterations, used for training: {use_for_training}, {len(dataloader.dataset):,.0f}")
         # Train the model
-        #
         num_training_steps = 20_000
         for training_step in range(num_training_steps):
             # Pick a random dataloader and run a batch of it.
-            # If its number of iterations is 3, 7, 8, or 9, then do not train on it.
+            # If its number of iterations is above 10, then do not train on it.
             # We consider these cases out of distribution in our example,
             # and we are interested in what comgra records about it.
             idx = training_step % len(self.task_data)
-            num_iterations, dataloader = self.task_data[idx]
-            update_the_model_parameters = (num_iterations <= 10)
-            self.run_one_training_step(training_step, num_iterations, dataloader, update_the_model_parameters)
+            num_iterations, use_for_training, dataloader = self.task_data[idx]
+            self.run_one_training_step(training_step, num_iterations, dataloader, use_for_training)
 
 
     def run_one_training_step(self, training_step, num_iterations, dataloader, update_the_model_parameters):
@@ -231,29 +233,50 @@ class Demonstration:
             # In real applications, whether you want that level of granularity will depend on your use case.
             # For the 'x' tensor we are skipping that part,
             # so that you can see the difference in the visualization later.
+            #
             # Note that each register_tensor() call uses a different type: is_input, is_output, etc.
             # Each of these will be colored differently in the visualization.
-            comgra.my_recorder.register_tensor(f"input", input_for_this_iteration, is_input=True, recording_type='neurons')
-            comgra.my_recorder.register_tensor(f"memory_in", memory, is_input=True, recording_type='neurons')
+            #
+            # By default, this records the values of all neurons in the tensor,
+            # which can be costly for performance if the tensor is very large.
+            # You can also specify recording_type='kpis' to record only KPIs instead of all neurons.
+            # KPIs are mean(), abs().mean(), std(), and abs().max()
+            comgra.my_recorder.register_tensor(f"input", input_for_this_iteration, is_input=True)
+            comgra.my_recorder.register_tensor(f"memory_in", memory, is_input=True)
             x = torch.cat([input_for_this_iteration, memory], dim=1)
             # Forward pass
             output, memory = self.model(x)
             output = torch.sigmoid(output)
-            comgra.my_recorder.register_tensor(f"output", output, is_output=True, recording_type='neurons')
-            comgra.my_recorder.register_tensor(f"memory_out", memory, is_output=True, recording_type='neurons')
+            comgra.my_recorder.register_tensor(f"output", output, is_output=True)
+            comgra.my_recorder.register_tensor(f"memory_out", memory, is_output=True)
             assert output.shape == (batch_size, self.output_size)
             assert memory.shape == (batch_size, self.memory_size)
             # Apply the loss on the last iteration only
             if iteration == num_iterations - 1:
-                # Tell comgra that we are now performing a backward pass
+                # Tell comgra that we are now performing a backward pass and register some more tensors
                 comgra.my_recorder.start_backward_pass()
-                comgra.my_recorder.register_tensor(f"target", target_tensor, is_target=True, recording_type='neurons')
+                comgra.my_recorder.register_tensor(f"target", target_tensor, is_target=True)
+                # We calculate and register some helper tensors:
+                # The partial sums of the inputs up to some iteration.
+                # The Node 'helper_partial_sums' in the visualization will have several different values,
+                # selectable through the dropdown "Role of tensor".
+                # If this was a real problem rather than a tutorial example, then having information like this
+                # easily accessible right next to the target in the GUI can make debugging a lot faster.
+                for i in range(0, num_iterations):
+                    helper_partial_sums = input_tensor[:, :i+1, :].sum(dim=1).detach()
+                    comgra.my_recorder.register_tensor(
+                        f"helper_partial_sums_up_to_iteration_{i}", helper_partial_sums, is_target=True,
+                        node_name=f"helper_partial_sums", role_within_node=f"up_to_iteration_{i}"
+                    )
+                # Calculate the loss and perform a backward pass as normal
                 loss = self.criterion(output, target_tensor)
                 self.optimizer.zero_grad()
                 loss.backward()
                 comgra.my_recorder.register_tensor(f"loss", loss, is_loss=True)
                 accuracy = (output.argmax(dim=1).eq(target_tensor.argmax(dim=1))).float().mean()
                 # We skip the update step for some data, because we want to see how that affects network values.
+                # (We unfortunately can not use torch.no_grad() if we want to record data in comgra,
+                # because the computation graph needs to be calculated for comgra to work.)
                 if update_the_model_parameters:
                     self.optimizer.step()
                 # This command causes comgra to record all losses that are currently on the module parameters,
@@ -261,11 +284,18 @@ class Demonstration:
                 comgra.my_recorder.record_current_gradients(f"gradients")
                 # We can make use of comgra's smart decision-making which training steps to record
                 if comgra.my_recorder.recording_is_active():
-                    print(f"{self.current_configuration}, Step {training_step:5}: "
-                          f"{num_iterations:2} iterations  -  "
-                          f"Loss = {loss.item():10.6f}  -  "
-                          f"Accuracy on batch = {accuracy:2.3f}")
-            # Tell comgra that the iteration has finished.
+                    if num_iterations == 0:
+                        print("-" * 20)
+                    note = (f"{self.current_configuration}, Step {training_step:5}: "
+                            f"{num_iterations:2} iterations "
+                            f"{'(training)' if update_the_model_parameters else ' (testing)'}  -  "
+                            f"Loss = {loss.item():10.6f}  -  "
+                            f"Accuracy on batch = {accuracy:2.3f}")
+                    print(note)
+                    # Make a quick note of the console output in comgra, just so the information is all in one place.
+                    # This feature is also helpful for recording debug messages.
+                    comgra.my_recorder.add_note(note)
+                # Tell comgra that the iteration has finished.
             comgra.my_recorder.finish_iteration()
             # We multiply a tensor with 1 here to prevent an issue:
             # As an error-catching feature, Comgra will raise an exception if the same tensor is
@@ -279,9 +309,9 @@ class Demonstration:
         # All tensors registered by comgra will be serialized at this point.
         comgra.my_recorder.finish_batch()
 
-    def get_task_data(self):
+    def generate_task_data(self):
         task_data = [
-            (number_of_iterations, DataLoader(
+            (number_of_iterations, number_of_iterations <= 10, DataLoader(
                 ExampleDataset(device=self.device, dataset_size=10_000, number_of_iterations=number_of_iterations),
                 batch_size=self.batch_size,
                 shuffle=True,
