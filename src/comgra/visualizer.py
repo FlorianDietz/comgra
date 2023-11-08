@@ -731,7 +731,7 @@ class Visualization:
                         strokeWidth=3,
                     ))
             if HIGHLIGHT_SELECTED_CONNECTIONS:
-                for coordinates in self.configuration_type_and_node_to_list_of_connections[(configuration_type, node_name)]:
+                for coordinates in self.configuration_type_and_node_to_list_of_connections.get((configuration_type, node_name), []):
                     source_x, source_y, target_x, target_y, other_node, stroke_color = coordinates
                     graph_overlay_elements.append(dash_svg.Line(
                         id=f'highlight_connection__{configuration_type}__{node}__{other_node}',

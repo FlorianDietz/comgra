@@ -224,7 +224,7 @@ class ComgraRecorder:
             assert index_of_batch_dimension is not None
             value_dimensions = [i for i in range(len(tensor.shape)) if i != index_of_batch_dimension]
             if recording_type is None:
-                recording_type = 'kpis'
+                recording_type = 'neurons'
         if index_of_batch_dimension is None:
             assert not record_per_batch_index, \
                 f"This tensor has no batch dimension and therefore can't have record_per_batch_index=True: {tensor_name}"
