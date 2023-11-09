@@ -107,6 +107,19 @@ We run two variants of the architecture. The original variant contains a bug, wh
 
 ### Initial exploration
 
+<details>
+  <summary>Walking through the computation graph</summary>
+  <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/00_start.png" width="500"/>
+  <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/01_selectors_set.png" width="500"/>
+  <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/02.png" width="500"/>
+  <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/03.png" width="500"/>
+  <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/04.png" width="500"/>
+  <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/05.png" width="500"/>
+  <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/06.png" width="500"/>
+  <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/07.png" width="500"/>
+</details>
+
+
 ### Finding the bug
 
 
