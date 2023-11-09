@@ -1,4 +1,6 @@
-# comgra
+# Comgra
+
+<img height="300" src="src/assets/brandcrowd_logos/FullLogo.png" title="ComgraLogo" width="300"/>
 
 ## Debugging Neural Networks more easily
 
