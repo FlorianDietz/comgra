@@ -284,7 +284,7 @@ class Demonstration:
                 comgra.my_recorder.record_current_gradients(f"gradients")
                 # We can make use of comgra's smart decision-making which training steps to record
                 if comgra.my_recorder.recording_is_active():
-                    if num_iterations == 0:
+                    if num_iterations == 1:
                         print("-" * 20)
                     note = (f"{self.current_configuration}, Step {training_step:5}: "
                             f"{num_iterations:2} iterations "
