@@ -1,6 +1,8 @@
 # Comgra: Computation Graph Analysis
 
-<img height="300" src="src/assets/brandcrowd_logos/FullLogo.png" title="ComgraLogo" width="300"/>
+<div>
+<img src="src/assets/brandcrowd_logos/FullLogo.png" title="ComgraLogo" height="300" width="300" style="display:block; margin-left:auto; margin-right:auto;"/>
+</div>
 
 Comgra helps you analyze and debug neural networks in pytorch.  
 It records your network internals, visualizes the computation graph, and provides a GUI that makes it fast and easy to investigate any part of your network from a variety of viewpoints.  
@@ -13,8 +15,9 @@ Use Comgra to deep dive into your neural network: Comgra records everything that
 Suitable both for novices and for professional neural architecture designers: Create a simple visualization of your network to understand what is happening under the hood, or perform advanced analyses and trace anomalies through the computation graph.
 
 TODO
-![MainScreenshot](comgra_screenshot.png?raw=true)
+![main_overview_version_1.png](src%2Fassets%2Fscreenshots_for_tutorial%2Fmain_overview_version_1.png)
 TODO add notes to screenshot ; what is displayed here?
+this shows one iteration of one training step ; different iterations have different layouts
 This graph is a subgraph of the computation graph, and it is much easier to understand because it is smaller and skips all of the distracting details.
 This cutting away of details also makes it easier to compare different variants of architectures: Their computation graphs may look different, but the simplified dependency graphs are the same.
 While the dependency graph is generated automatically, it can also be customized to be more readable and easier to navigate if necessary.
@@ -48,6 +51,8 @@ pip install comgra
 To use comgra, modify your python code with the following commands in the appropriate places. This may look daunting, but most of it really just tells comgra what you are currently doing so that it knows how to associate the tensors you register. The file `src/scripts/run.py` contains a documented example that you can copy and will be explained in detail below.
 
 ```python
+import comgra
+from comgra.recorder import ComgraRecorder
 # Define a recorder
 comgra.my_recorder = ComgraRecorder(...)
 # Track your network parameters
