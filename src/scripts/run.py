@@ -3,7 +3,6 @@ from pathlib import Path
 import shutil
 from typing import Optional
 
-import comgra.recorder
 from comgra.recorder import ComgraRecorder
 from comgra.objects import DecisionMakerForRecordingsFrequencyPerType
 
@@ -81,7 +80,7 @@ class Demonstration:
 
     def run_all_configurations(self):
         configurations = [
-            'leaky_relu',
+            'original_buggy_version',
             'no_activation_function_on_output_layer',
         ]
         for configuration in configurations:

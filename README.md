@@ -1,35 +1,111 @@
-# Comgra
+# Comgra: Computation Graph Analysis
 
 <img height="300" src="src/assets/brandcrowd_logos/FullLogo.png" title="ComgraLogo" width="300"/>
 
-## Debugging Neural Networks more easily
+Comgra helps you analyze and debug neural networks in pytorch.  
+It records your network internals, visualizes the computation graph, and provides a GUI that makes it fast and easy to investigate any part of your network from a variety of viewpoints.  
+Move along the computation graph, check for outliers, investigate both individual data points and summary statistics, compare gradients, automatically record special cases, and more.
 
-Comgra stands for "computation graph analysis".
+Comgra is complementary to tensorboard:  
+Use Tensorboard to get an overview of summary statistics, so you understand what is happening at a high level.  
+Use Comgra to deep dive into your neural network: Comgra records everything that could be relevant to you at a low overhead, and provides a flexible GUI that allows you to inspect your network's behavior from many different angles.
 
-It is a library for use with pytorch that makes it easier to inspect the internals of your neural networks.
+Suitable both for novices and for professional neural architecture designers: Create a simple visualization of your network to understand what is happening under the hood, or perform advanced analyses and trace anomalies through the computation graph.
 
-Debugging neural architectures can be difficult, as the computation graphs are often very large and complex. This tool allows you to visualize the computation graph and inspect the values of individual tensors at different points in time.
+TODO
+![MainScreenshot](comgra_screenshot.png?raw=true)
+TODO add notes to screenshot ; what is displayed here?
+This graph is a subgraph of the computation graph, and it is much easier to understand because it is smaller and skips all of the distracting details.
+This cutting away of details also makes it easier to compare different variants of architectures: Their computation graphs may look different, but the simplified dependency graphs are the same.
+While the dependency graph is generated automatically, it can also be customized to be more readable and easier to navigate if necessary.
+Each rectangle in the dependency graph is a node that represents a named tensor that can be selected for inspection. The colors indicate the roles of the tensor in the network, such as input, intermediate, parameter, etc.
+Look at the run code for detailed examples. The following shows how that works
 
-You can give names to tensors in your code, and they will be recorded and can be visualized graphically.
+## In this README
 
-This allows you to compare tensors as training proceeds.
-
-Tensors can be analyzed with different degrees of granularity depending on your needs. Inspect only KPIs across an entire batch, or drill down into the values of individual neurons on a single sample.
-
-You can also visualize which tensors are dependent on which other tensors, and track their gradients.
-
-This tool is especially helpful if you are developing new architectures and the architectures show unexpected behavior, as this visualization can help you understand what is going on much faster than the typical graph visualizations can do on their own. It is often useful to look at performance graphs of tensorboard or similar tools to identify which training steps have unexpected behavior, and then switch to comgra to inspect those steps in detail.
-
-See this screenshot for what the visualization looks like. Each rectangle is called a Node. They are clickable and each represents a tensor. The selection and sliders below specify which version of that tensor you want to inspect. The Nodes are causally connected, where the Nodes to the left appear earlier during computation and those to the right appear later. When you select a Node, all Nodes that are directly connected to it in the computation graph become highlighted with a border color (I have found that this is easier to read than actually drawing the connections as arrows once the number of Nodes grows large enough).
-
-![Example screenshot of comgra](comgra_screenshot.png?raw=true "Example screenshot of comgra")
-
+TODO
+- [Quick start](#quick-start)
+- [Installation](#installation)
+  - [Installing with PIP](#installing-with-pip)
+  - [Installing with Conda](#installing-with-conda)
+  - [Installing from source](#installing-from-source)
+  - [Checking your installation](#checking-your-installation)
+  - [Docker image](#docker-image)
+- [FAQ](#faq)
+- [Team](#team)
+- [License](#license)
 
 ## Installation
 
-Run this to install:
+Install with pip:
 
-`pip install comgra`
+```bash
+pip install comgra
+```
+
+## Usage
+
+To use comgra, modify your python code with the following commands in the appropriate places. This may look daunting, but most of it really just tells comgra what you are currently doing so that it knows how to associate the tensors you register. The file `src/scripts/run.py` contains a documented example that you can copy and will be explained in detail below.
+
+```python
+# Define a recorder
+comgra.my_recorder = ComgraRecorder(...)
+# Track your network parameters
+comgra.my_recorder.track_module(...)
+# Optionally, add some notes for debugging
+comgra.my_recorder.add_note(...)
+# Call this whenever you start a new training step you want to record:
+comgra.my_recorder.start_next_recording(...)
+# Call this whenever you start the forward pass of an iteration. In multi-iteration experiments, call it once per iteration:
+comgra.my_recorder.start_forward_pass(...)
+# Register any tensors you care about:
+comgra.my_recorder.register_tensor(...)
+# Call these whenever you apply losses and propagate gradients:
+comgra.my_recorder.start_backward_pass()
+comgra.my_recorder.record_current_gradients(...)
+# Call this whenever you end an iteration:
+comgra.my_recorder.finish_iteration()
+# Call this whenever you end a training step:
+comgra.my_recorder.finish_batch()
+```
+
+When your code runs, comgra will store data in the folder you specified with `ComgraRecorder(comgra_root_path="/my/path/for/storing/data")`.  
+In the process, it will automatically organize everything, extract statistics, and build the dependency graph.
+
+To start the GUI and visualize your results, run
+```bash
+comgra --path "/my/path/for/storing/data"
+```
+
+
+## Tutorial - Debugging an example network
+
+The file `src/scripts/run.py` trains a neural network on an example task. This network contains a subtle bug, and in this tutorial we will show how you can use comgra to find that bug.
+
+For convenience, you can run the file from the commandline using
+```bash
+comgra-test-run
+```
+
+and you can start the GUI on the data it generates by calling
+```bash
+comgra --use-path-for-test-run
+```
+
+### The task and the architecture
+
+We use a synthetic task that is designed to test a neural network's ability to generalize to longer sequences while being very simple and human-interpretable.  
+The input is a sequence of N tuples of 5 numbers between 0.0 and 1.0. The network should treat these as 5 separate sequences. Its objective is to determine which of these 5 sequences has the largest sum.
+
+Our architecture is a simple recurrent neural network that is composed of some submodules. It's nothing fancy, but illustrates how comgra can be integrated into an architecture.  
+We run two variants of the architecture. The original variant contains a bug, which we will discover later in this section of the Readme. For convenience we run both trials in one script, but in a real use case the second variant would have been implemented and run later, after finding the bug. In the GUI, you can switch between the two variants with the 'Trial' selector.
+
+### Initial exploration
+
+### Finding the bug
+
+
+
 
 ## Testing
 
@@ -45,7 +121,7 @@ The script takes two optional parameters:
 --path should be a folder where all your comgra results are stored.
 --group will be the name for this particular recording of comgra. A folder with this name will be created in --path, and it will overwrite previous results with the same name.
 
-For convenience, if you don't specify these parameters, the results will be stores in the library's folder instead.
+For convenience, if you don't specify these parameters, the results will be stored in the library's folder instead.
 
 You can visualize the results using the script in `src/scripts/server.py`, which you can call with `comgra --use-path-for-test-run`.
 
