@@ -54,6 +54,35 @@ class VisualizationParameters:
 
 vp = VisualizationParameters()
 
+class CustomDash(dash.Dash):
+    def interpolate_index(self, **kwargs):
+        return '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {metas}
+        <title>{title}</title>
+
+        <link rel="apple-touch-icon" sizes="180x180" href="assets/favicons/apple-touch-icon.png">
+        <link rel="icon" type="image/png" sizes="32x32" href="assets/favicons/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="assets/favicons/favicon-16x16.png">
+        <link rel="manifest" href="assets/favicons/site.webmanifest">
+        <link rel="mask-icon" href="assets/favicons/safari-pinned-tab.svg" color="#5bbad5">
+        <meta name="msapplication-TileColor" content="#da532c">
+        <meta name="theme-color" content="#ffffff">
+
+        {css}
+    </head>
+    <body>
+        {app_entry}
+        <footer>
+            {config}
+            {scripts}
+            {renderer}
+        </footer>
+    </body>
+</html>
+        '''.format(**kwargs)
 
 class Visualization:
     """
@@ -62,11 +91,12 @@ class Visualization:
     def __init__(self, path, debug_mode):
         super().__init__()
         utilities.DEBUG_MODE = debug_mode
+        self.debug_mode = debug_mode
         self.path: Path = path
         assert path.exists(), path
         assets_path = Path(__file__).absolute().parent.parent / 'assets'
         assert assets_path.exists(), "If this fails, files have been moved."
-        self.app = dash.Dash(__name__, assets_folder=str(assets_path), external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP])
+        self.app = CustomDash(__name__, assets_folder=str(assets_path), external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP])
         self.configuration_type_to_status_and_graph: Dict[str, StatusAndGraph] = {}
         self.configuration_type_to_node_to_corners: Dict[str, Dict[str, Tuple[int, int, int, int]]] = {}
         self.configuration_type_to_grid_of_nodes: Dict[str, List[List[str]]] = {}
@@ -125,7 +155,7 @@ class Visualization:
         # Visualize
         #
         self.create_visualization()
-        self.app.run_server(debug=True, port=port)
+        self.app.run_server(debug=self.debug_mode, port=port)
 
     @utilities.runtime_analysis_decorator
     def get_recordings_with_caching(
