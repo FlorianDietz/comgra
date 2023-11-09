@@ -3,6 +3,7 @@ from pathlib import Path
 import shutil
 from typing import Optional
 
+import comgra
 from comgra.recorder import ComgraRecorder
 from comgra.objects import DecisionMakerForRecordingsFrequencyPerType
 
@@ -80,7 +81,7 @@ class Demonstration:
 
     def run_all_configurations(self):
         configurations = [
-            'original_buggy_version',
+            'bugged_original_version',
             'no_activation_function_on_output_layer',
         ]
         for configuration in configurations:
@@ -192,7 +193,7 @@ class Demonstration:
             # to decide what type of thing is being recorded here.
             # Here, we just record even and odd-numbered epochs separately as an example.
             # You will be able to filter by 'even' and 'odd' in the visualization later.
-            type_of_execution=f'{num_iterations}_iterations',
+            type_of_execution=f'{num_iterations:02d}_iterations',
             # The default value for record_per_batch_index of register_tensor() calls.
             # Setting this to True means that individual examples will be stored, up to max_num_batch_size_to_record,
             # in addition to statistics across the batch.
