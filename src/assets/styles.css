@@ -11,6 +11,9 @@
     text-align: center;
     vertical-align: middle;
 }
+#main-body-div.hide-containers-for-tensors #controls-selectors-container, #main-body-div.hide-containers-for-tensors #graph-container, #main-body-div.hide-containers-for-tensors #graph-tooltip {
+    display: none;
+}
 .node {
     position: absolute;
     text-align: center;
@@ -40,10 +43,6 @@
 #selected-item-details-container .metadata-div {
     white-space: pre;
     font-family: monospace;
-}
-#controls-container {
-    border-bottom: 1px solid black;
-    padding: 0 0 0 10px;
 }
 #controls-selectors-container .row > div:not(:last-child) {
     position: relative;

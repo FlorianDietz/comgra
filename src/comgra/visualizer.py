@@ -324,9 +324,22 @@ class Visualization:
     def create_visualization(self):
         app = self.app
         # Define the Layout of the App
-        app.layout = html.Div(style={
+        app.layout = html.Div(id='main-body-div', style={
             'backgroundColor': 'white',
         }, children=[
+            html.Div(id='main-controls-buttons-container', children=[
+                dbc.Row([
+                    dbc.Col(dcc.RadioItems(id='display-type-radio-buttons', options=['Tensors', 'Network', 'Notes'], value='Tensors', inline=True), width=3),
+                    dbc.Col([html.Label("Navigation:"),
+                        html.Button(html.I(className="bi bi-arrow-left"), id='navigate-left-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-right"), id='navigate-right-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-up"), id='navigate-up-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-down"), id='navigate-down-button', className='btn btn-outline-secondary btn-xs', n_clicks=0)
+                    ], id='navigation-buttons', width=4),
+                    dbc.Col("", width=3),
+                    dbc.Col(html.Button('Reload from disk', id='refresh-button', n_clicks=0), width=2),
+                ]),
+            ]),
             html.Div(id='dummy-for-selecting-a-node'),  # This dummy stores some data
             html.Div(id='graph-container', style={
                 'position': 'relative',
@@ -353,61 +366,46 @@ class Visualization:
                 )
             ]),
             dcc.Tooltip(id="graph-tooltip"),
-            html.Div(id='controls-container', children=[
-                html.Div(id='controls-buttons-container', children=[
-                    dbc.Row([
-                        dbc.Col(dcc.RadioItems(id='display-type-radio-buttons', options=['Tensors', 'Network', 'Notes'], value='Tensors', inline=True), width=3),
-                        dbc.Col([html.Label("Navigation:"),
-                            html.Button(html.I(className="bi bi-arrow-left"), id='navigate-left-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
-                            html.Button(html.I(className="bi bi-arrow-right"), id='navigate-right-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
-                            html.Button(html.I(className="bi bi-arrow-up"), id='navigate-up-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
-                            html.Button(html.I(className="bi bi-arrow-down"), id='navigate-down-button', className='btn btn-outline-secondary btn-xs', n_clicks=0)
-                        ], id='navigation-buttons', width=4),
-                        dbc.Col("", width=3),
-                        dbc.Col(html.Button('Reload from disk', id='refresh-button', n_clicks=0), width=2),
-                    ]),
+            html.Div(id='controls-selectors-container', children=[
+                dbc.Row([
+                    dbc.Col(html.Label("Trial"), width=2),
+                    dbc.Col(dcc.Dropdown(id='trials-dropdown', options=[], value=None), width=9),
                 ]),
-                html.Div(id='controls-selectors-container', children=[
-                    dbc.Row([
-                        dbc.Col(html.Label("Trial"), width=2),
-                        dbc.Col(dcc.Dropdown(id='trials-dropdown', options=[], value=None), width=9),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(html.Label("Role of tensor"), width=2),
-                        dbc.Col(dcc.Dropdown(id='role-of-tensor-in-node-dropdown', options=[], value=None), width=9),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(html.Label("Type of recording"), width=2),
-                        dbc.Col(dcc.RadioItems(id='type-of-recording-radio-buttons', options=[], value=None, inline=True), width=9),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(html.Label("Type of training step"), width=2),
-                        dbc.Col(dcc.Dropdown(id='type-of-execution-for-diversity-of-recordings-dropdown', options=[], value=None), width=9),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(html.Label("Training step"), width=1),
-                        dbc.Col(html.Div([
-                            html.Button(html.I(className="bi bi-arrow-left"), id='decrement-training-step-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
-                            html.Button(html.I(className="bi bi-arrow-right"), id='increment-training-step-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
-                        ], className='buttons-for-selecting-filters'), width=1),
-                        dbc.Col(dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None), width=9),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(html.Label("Iteration"), width=1),
-                        dbc.Col(html.Div([
-                            html.Button(html.I(className="bi bi-arrow-left"), id='decrement-iteration-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
-                            html.Button(html.I(className="bi bi-arrow-right"), id='increment-iteration-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
-                        ], className='buttons-for-selecting-filters'), width=1),
-                        dbc.Col(dcc.Slider(id='iteration-slider', min=0, max=0, step=1, value=0), width=9),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(html.Label("Batch or sample"), width=1),
-                        dbc.Col(html.Div([
-                            html.Button(html.I(className="bi bi-arrow-left"), id='decrement-batch-index-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
-                            html.Button(html.I(className="bi bi-arrow-right"), id='increment-batch-index-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
-                        ], className='buttons-for-selecting-filters'), width=1),
-                        dbc.Col(dcc.Dropdown(id='batch-index-dropdown', options=[], value=None), width=9),
-                    ]),
+                dbc.Row([
+                    dbc.Col(html.Label("Role of tensor"), width=2),
+                    dbc.Col(dcc.Dropdown(id='role-of-tensor-in-node-dropdown', options=[], value=None), width=9),
+                ]),
+                dbc.Row([
+                    dbc.Col(html.Label("Type of recording"), width=2),
+                    dbc.Col(dcc.RadioItems(id='type-of-recording-radio-buttons', options=[], value=None, inline=True), width=9),
+                ]),
+                dbc.Row([
+                    dbc.Col(html.Label("Type of training step"), width=2),
+                    dbc.Col(dcc.Dropdown(id='type-of-execution-for-diversity-of-recordings-dropdown', options=[], value=None), width=9),
+                ]),
+                dbc.Row([
+                    dbc.Col(html.Label("Training step"), width=1),
+                    dbc.Col(html.Div([
+                        html.Button(html.I(className="bi bi-arrow-left"), id='decrement-training-step-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-right"), id='increment-training-step-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                    ], className='buttons-for-selecting-filters'), width=1),
+                    dbc.Col(dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None), width=9),
+                ]),
+                dbc.Row([
+                    dbc.Col(html.Label("Iteration"), width=1),
+                    dbc.Col(html.Div([
+                        html.Button(html.I(className="bi bi-arrow-left"), id='decrement-iteration-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-right"), id='increment-iteration-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                    ], className='buttons-for-selecting-filters'), width=1),
+                    dbc.Col(dcc.Slider(id='iteration-slider', min=0, max=0, step=1, value=0), width=9),
+                ]),
+                dbc.Row([
+                    dbc.Col(html.Label("Batch or sample"), width=1),
+                    dbc.Col(html.Div([
+                        html.Button(html.I(className="bi bi-arrow-left"), id='decrement-batch-index-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-right"), id='increment-batch-index-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                    ], className='buttons-for-selecting-filters'), width=1),
+                    dbc.Col(dcc.Dropdown(id='batch-index-dropdown', options=[], value=None), width=9),
                 ]),
             ]),
             html.Div(id='selected-item-details-container', children=[
@@ -701,7 +699,8 @@ class Visualization:
 
         @app.callback(
             [Output('selected-item-details-container', 'children'),
-             Output('graph-overlay-for-selections', 'children')],
+             Output('graph-overlay-for-selections', 'children'),
+             Output('main-body-div', 'className')],
             [Input('display-type-radio-buttons', 'value'),
              Input('dummy-for-selecting-a-node', 'className'),
              Input('trials-dropdown', 'value'),
@@ -866,9 +865,10 @@ class Visualization:
                 ]
                 rows.append(html.Tr(row))
             if display_type_radio_buttons == 'Tensors':
+                hide_containers_for_tensors = False
                 children = [
                     html.Table(
-                        [html.Tr([html.Th(col) for col in ['Trial', 'Trial Type', 'Node', 'Role', 'Tensor Type', 'Tensor Shape', 'Training Step', 'Iteration']])] +
+                        [html.Tr([html.Th(col) for col in ['Trial', 'Step Type', 'Node', 'Role', 'Tensor Type', 'Tensor Shape', 'Training Step', 'Iteration']])] +
                         [html.Tr([
                             html.Td(val) for val in [
                                 trials_value, type_of_execution,
@@ -882,16 +882,19 @@ class Visualization:
                     html.Table([html.Tr([html.Th(col) for col in ['Item', '', '', 'value']])] + rows),
                 ]
             elif display_type_radio_buttons == 'Network':
+                hide_containers_for_tensors = True
                 children = [
                     html.Div(f"{self.get_formatted_overview_of_module_parameters(sag)}", className="metadata-div"),
                 ]
             elif display_type_radio_buttons == 'Notes':
+                hide_containers_for_tensors = True
                 children = [
                     html.Div('\n'.join(self.get_notes_for_trial(trials_value)), className="metadata-div"),
                 ]
             else:
                 raise ValueError(display_type_radio_buttons)
-            return children, graph_overlay_for_selections_children
+            class_for_main_div = ('hide-containers-for-tensors' if hide_containers_for_tensors else '')
+            return children, graph_overlay_for_selections_children, class_for_main_div
 
     @utilities.runtime_analysis_decorator
     def get_or_change_selected_node(
