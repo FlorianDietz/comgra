@@ -30,11 +30,12 @@ class NeuralNet(nn.Module):
         x = self.fnn2(x)
         if DEMONSTRATION.current_configuration != 'no_activation_function_on_output_layer':
             x = self.activation(x)
-        return x
+        comgra.my_recorder.register_tensor(f"{comgra.my_recorder.get_name_of_module(self)}__out", x)
+        return x * 1
 
 
-# Our model uses several identical modules with different names.
-# It also has a hidden state that will also be recorded in comgra.
+# Our model uses several identical modules with different names, for illustration purposes.
+# It also has hidden states that will also be recorded in comgra.
 class CompleteModule(nn.Module):
     def __init__(self, input_size, hidden_size, memory_size, output_size):
         super(CompleteModule, self).__init__()
