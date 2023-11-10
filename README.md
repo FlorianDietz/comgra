@@ -1,5 +1,5 @@
 <style>
-  .comgra-logo {
+  #user-content-comgra-logo {
     display: block;
     margin-left: auto;
     margin-right: auto;
@@ -9,7 +9,7 @@
 # Comgra: Computation Graph Analysis
 
 <div>
-<img comgra="comgra-logo" src="src/assets/brandcrowd_logos/FullLogo.png" title="ComgraLogo" height="300" width="300"/>
+<img id="comgra-logo" src="src/assets/brandcrowd_logos/FullLogo.png" title="ComgraLogo" height="300" width="300"/>
 </div>
 
 Comgra helps you analyze and debug neural networks in pytorch.  
