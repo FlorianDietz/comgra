@@ -109,10 +109,11 @@ We run two variants of the architecture. The original variant contains a bug, wh
 
 As a first step, let's look at network summary information and the notes created by the script. To do so, select "Network" and "Notes" respectively at the main radio button at the top left of the screen.
 
-<p align="center">
-  <img src="src/assets/screenshots_for_tutorial/network_info.png" width="40%"/>
-  <img src="src/assets/screenshots_for_tutorial/notes_info.png" width="40%"/>
-</p>
+<details>
+  <summary>Viewing network info and notes</summary>
+  <img src="src/assets/screenshots_for_tutorial/network_info.png" width="100%"/>
+  <img src="src/assets/screenshots_for_tutorial/notes_info.png" width="100%"/>
+</details>
 
 <details>
   <summary>Walking through the computation graph</summary>
@@ -126,6 +127,10 @@ As a first step, let's look at network summary information and the notes created
   <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/07.png" width="500"/>
 </details>
 
+<p align="center">
+  <img src="src/assets/screenshots_for_tutorial/network_info.png" width="40%"/>
+  <img src="src/assets/screenshots_for_tutorial/notes_info.png" width="40%"/>
+</p>
 
 ### Finding the bug
 
