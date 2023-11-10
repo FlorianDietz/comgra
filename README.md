@@ -34,7 +34,7 @@ Comgra's GUI has three parts:
 <details>
   <summary><b>Notes on the dependency graph</b></summary>
 
-  Each rectangle in the dependency graph is a node that represents a named tensor. The colors indicate the roles of the tensor in the network, such as input, intermediate, parameter, etc.
+  Each rectangle in the dependency graph is a node that represents a named tensor. The colors indicate the roles of the tensor in the network, such as input, intermediate result, parameter, etc.
 
   The dependency graph is generated automatically based on the computation graph used by pytorch and the names you assign to tensors through comgra. It is a subgraph of the computation graph, but it is much easier to understand because it is smaller and skips all of the distracting details.
 
@@ -51,7 +51,7 @@ pip install comgra
 
 ## Usage
 
-To use comgra, modify your python code with the following commands in the appropriate places. This may look daunting, but most of it really just tells comgra what you are currently doing so that it knows how to associate the tensors you register. The file `src/scripts/run.py` contains a documented example that you can copy and will be explained in detail below.
+To use comgra, modify your python code with the following commands in the appropriate places. Most of it really just tells comgra what you are currently doing so that it knows how to associate the tensors you register. The file `src/scripts/run.py` contains a documented example that you can copy and will be explained in detail below.
 
 ```python
 import comgra
@@ -64,9 +64,10 @@ comgra.my_recorder.track_module(...)
 comgra.my_recorder.add_note(...)
 # Call this whenever you start a new training step you want to record:
 comgra.my_recorder.start_next_recording(...)
-# Call this whenever you start the forward pass of an iteration. In multi-iteration experiments, call it once per iteration:
-comgra.my_recorder.start_forward_pass(...)
-# Register any tensors you care about:
+# Call this whenever you start the forward pass of an iteration.
+# In multi-iteration experiments, call it once per iteration:
+comgra.my_recorder.start_iteration(...)
+# Register any tensors you may want to investigate:
 comgra.my_recorder.register_tensor(...)
 # Call these whenever you apply losses and propagate gradients:
 comgra.my_recorder.start_backward_pass()
@@ -74,7 +75,7 @@ comgra.my_recorder.record_current_gradients(...)
 # Call this whenever you end an iteration:
 comgra.my_recorder.finish_iteration()
 # Call this whenever you end a training step:
-comgra.my_recorder.finish_batch()
+comgra.my_recorder.finish_recording()
 ```
 
 When your code runs, comgra will store data in the folder you specified with `ComgraRecorder(comgra_root_path="/my/path/for/storing/data", group="name_of_experiment_group")`.  

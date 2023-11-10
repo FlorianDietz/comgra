@@ -370,7 +370,7 @@ class ComgraRecorder:
         self.mapping_of_tensors_for_extracting_kpis[key] = (tensor, tensor_representation)
 
     @utilities.runtime_analysis_decorator
-    def start_forward_pass(self, configuration_type):
+    def start_iteration(self, configuration_type):
         assert self.current_stage in ['started', 'after_iteration'], self.current_stage
         self.current_stage = 'forward'
         self.iteration = 0 if self.iteration is None else (self.iteration + 1)
@@ -409,7 +409,7 @@ class ComgraRecorder:
         """
         :param sanity_check__verify_graph_and_global_status_equal_existing_file:
             Specify whether you want to run a sanity check to make sure that you specified
-            configuration_type of start_forward_pass() correctly.
+            configuration_type of start_iteration() correctly.
             This costs extra time to compute, but if you skip this sanity check,
             you might not realize that you are recording two different computational
             graphs under the same name, and this will lead to errors in the visualization later.
@@ -564,7 +564,7 @@ class ComgraRecorder:
         return status_and_graph, name_to_tensor_representation_relevant_for_graph_construction
 
     @utilities.runtime_analysis_decorator
-    def finish_batch(self):
+    def finish_recording(self):
         assert self.current_stage == 'after_iteration' or not self.recording_is_active(), self.current_stage
         self.current_stage = 'inactive'
         if not self.recording_is_active():

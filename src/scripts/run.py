@@ -165,7 +165,7 @@ class Demonstration:
             input_for_this_iteration = input_tensor[:, iteration, :]
             # Tell comgra that an iteration has started.
             # You can start recording tensors after this, with register_tensor().
-            comgra.my_recorder.start_forward_pass(
+            comgra.my_recorder.start_iteration(
                 # This is a string that needs to uniquely identify the shape of the dependency graph.
                 # The dependency graph usually looks different on the iteration where it receives a loss
                 # than on any preceding iteration.
@@ -260,7 +260,7 @@ class Demonstration:
         # Finish a batch.
         # This is the counterpart to start_next_recording.
         # All tensors registered by comgra will be serialized at this point.
-        comgra.my_recorder.finish_batch()
+        comgra.my_recorder.finish_recording()
 
     def generate_task_data(self):
         # Generate some datasets for training (lengths 1 to 10) and for testing (lengths 15 and 20)
