@@ -188,7 +188,6 @@ The neurons of the output tensor should be either 1 or 0. While values close to 
 
 Why could this be?
 
-TODO verify. The gradients on the output tensor show that the values that should be 0 get a gradient that is just as strong as the values that should be 1. This suggests that the feedback on this tensor is correct and the error must lie earlier in the network.  
 If we look at the tensor immediately preceding the output in the dependency graph ("subnet_out__out"), we notice that its positive values are much higher than its negative values. This is a problem, because that's the tensor we put into our sigmoid activation function!
 
 From here on, we jump into our code to find out what's going on. If the source of the problem is not clear to you, then it can help to just register more intermediate tensors with comgra and run the experiment again, inspecting both the values and the gradients on each tensor. If you have seen this sort of behavior before you may find the culprit immediately: Our subnetworks use an activation function, leaky_relu with a negative slope of 0.01, and they apply this activation at every layer, including the last one.
@@ -201,7 +200,7 @@ In the `src/scripts/run.py` script we also run a second trial in which this bug 
 
 The results of this can be seen by switching the "Trial" selector from "trial_bugged_original_version" to "no_activation_function_on_output_layer".
 
-If you inspect this second trial, you will notice that the bug is gone and performance has improved by a lot. In particular, OOD accuracy at a length of 20 ierations went from X to Y in our local trials. TODO
+If you inspect this second trial, you will notice that the bug is gone and performance has improved by a lot. In particular, OOD accuracy at a length of 20 ierations went from 0.586 to 0.859 in our local trials.
 
 This was the sort of bug that harmed performance but still allowed the network to solve the task. Without the inspection abilities offered by comgra, it would normally be next to impossible to detect a bug like this.
 

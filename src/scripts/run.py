@@ -1,7 +1,6 @@
 import argparse
 from pathlib import Path
 import shutil
-from typing import Optional
 
 import comgra
 from comgra.recorder import ComgraRecorder
@@ -12,55 +11,15 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 
-class NeuralNet(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
-        super(NeuralNet, self).__init__()
-        self.fnn1 = nn.Linear(input_size, hidden_size)
-        self.activation = nn.LeakyReLU(negative_slope=0.01)
-        self.fnn2 = nn.Linear(hidden_size, output_size)
-
-    def forward(self, x):
-        x = self.fnn1(x)
-        x = self.activation(x)
-        # Tensors in comgra need to get unique names in order to be recorded correctly.
-        # This nn.Module will be instantiated twice, so its name is not unique.
-        # To ensure the name is unique regardless, comgra provides a helper function to get the name
-        # of the current module and all its parents, as recorded by track_module()
-        comgra.my_recorder.register_tensor(f"{comgra.my_recorder.get_name_of_module(self)}__hidden_state", x)
-        x = self.fnn2(x)
-        if DEMONSTRATION.current_configuration != 'no_activation_function_on_output_layer':
-            x = self.activation(x)
-        comgra.my_recorder.register_tensor(f"{comgra.my_recorder.get_name_of_module(self)}__out", x)
-        return x * 1
-
-
-# Our model uses several identical modules with different names, for illustration purposes.
-# It also has hidden states that will also be recorded in comgra.
-class CompleteModule(nn.Module):
-    def __init__(self, input_size, hidden_size, memory_size, output_size):
-        super(CompleteModule, self).__init__()
-        self.subnet_pre = NeuralNet(input_size + memory_size, hidden_size, hidden_size)
-        self.subnet_out = NeuralNet(hidden_size, hidden_size, output_size)
-        self.subnet_mem = NeuralNet(hidden_size, hidden_size, memory_size)
-
-    def forward(self, x):
-        pre = self.subnet_pre(x)
-        out = self.subnet_out(pre)
-        memory = self.subnet_mem(pre)
-        return out, memory
-
-
 class Demonstration:
     def __init__(self, comgra_root_path, comgra_group):
         # Device configuration
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        # Delete previous runs of comgra
-        # This is optional.
-        # The Comgra GUI will display all runs in the folder it is started with so that they can be compared.
+        # Delete previous runs of comgra. This is optional.
         self.comgra_root_path = comgra_root_path
         self.comgra_group = comgra_group
         shutil.rmtree(self.comgra_root_path / self.comgra_group, ignore_errors=True)
-        # Network tensor sizes
+        # Constants and fields for later use
         self.batch_size = 128
         self.memory_size = 50
         self.input_size = 5
@@ -70,16 +29,11 @@ class Demonstration:
         self.model = None
         self.criterion = None
         self.optimizer = None
-        # Generate some fake data for training
-        # This data is meaningless. It's used here to avoid having to download external data for the demonstration.
-        # This data has higher dimensionality than number of datapoints, which means it should be learnable.
-        # Inspecting the results in the comgra visualization later should show
-        # that the loss goes down as the training proceeds.
-        # To see this, select iteration 2 in the UI, click on the Node that represents the loss (on the very right)
-        # and then check how the value changes as you move the slider for the training step.
+        # Generate some synthetic data for training and testing.
         self.task_data = self.generate_task_data()
 
     def run_all_configurations(self):
+        # This example script trains and tests two different configurations of the network.
         configurations = [
             'bugged_original_version',
             'no_activation_function_on_output_layer',
@@ -116,26 +70,24 @@ class Demonstration:
             group=self.comgra_group,
             trial_id=f'trial_{self.current_configuration}',
             # These parameters can be left empty, but it is recommended to fill them in
-            # if your computational graph is complex.
-            # They ensure that similar module parameters get grouped together visually.
+            # if your computation graph is complex.
+            # They ensure that similar module parameters get visually grouped together in the dependency graph.
             # All module parameters whose complete name (including the list of names of modules they are contained in)
             # match one of these prefixes are grouped together.
-            # This can also be used to group tensors together that have a variable number of occurrences,
-            # for example the elements of an attention mechanism.
             prefixes_for_grouping_module_parameters_visually=[
                 'root_module.subnet_pre',
                 'root_module.subnet_out',
                 'root_module.subnet_mem',
             ],
             prefixes_for_grouping_module_parameters_in_nodes=[],
-            # This parameter determines how often Comgra makes a recording.
+            # This parameter determines when and how often Comgra makes a recording.
             # There are several options for this.
             # This one is often the most effective one:
             # At the beginning of each training step, later in this code, you specify what the type of this recording is.
             # For example, you could differentiate between randomly selected training and training on a specific example
             # that you would like to inspect in more detail.
-            # This recording type ensures that a recording is made if the last training of the specified type was at least
-            # N training steps ago.
+            # The DecisionMakerForRecordingsFrequencyPerType recording type ensures that a recording is made
+            # if the last training of the specified type was at least N training steps ago.
             # In this way, you make sure that each type gets recorded often enough to be useful,
             # but not so often that the program slows down and your hard drive gets filled up.
             decision_maker_for_recordings=DecisionMakerForRecordingsFrequencyPerType(min_training_steps_difference=1000),
@@ -152,14 +104,14 @@ class Demonstration:
             # If this is too high, the program may crash due to memory problems.
             # (This problem is caused by a serialization bug in a backend library.)
             max_num_mappings_to_save_at_once_during_serialization=10000,
-            # An optional feature to skip the recording of KPIs that are particularly expensive to calculate.
+            # An optional feature to skip the recording of statistics that are particularly expensive to calculate.
             calculate_svd_and_other_expensive_operations_of_parameters=True,
         )
         # Register the modules you are using.
         # This recursively goes through all contained modules and all their weight parameters
-        # and registers them to be recorded later.
+        # and registers them so that they get recorded along with the other tensors.
         comgra.my_recorder.track_module("root_module", self.model)
-        # Record information about the data we use in comgra
+        # Record information about the training and testing data in comgra
         comgra.my_recorder.add_note(f"Total training data: {sum([len(dataloader.dataset) for _, use_for_training, dataloader in self.task_data if use_for_training]):,.0f}")
         comgra.my_recorder.add_note(f"Total test data: {sum([len(dataloader.dataset) for _, use_for_training, dataloader in self.task_data if not use_for_training]):,.0f}")
         for i, (num_iterations, use_for_training, dataloader) in enumerate(self.task_data):
@@ -183,7 +135,7 @@ class Demonstration:
         batch_size = self.batch_size
         assert input_tensor.shape == (batch_size, num_iterations, 5), input_tensor.shape
         assert target_tensor.shape == (batch_size, 5), target_tensor.shape
-        # Each time a new training step or epoch is started, call this function to inform comgra of this.
+        # Each time a new training step is started, call this function to inform comgra of this.
         # It will automatically decide whether to make a recording based on
         # decision_maker_for_recordings and override__recording_is_active
         comgra.my_recorder.start_next_recording(
@@ -191,13 +143,13 @@ class Demonstration:
             batch_size,
             # This is the string that is used by DecisionMakerForRecordingsFrequencyPerType
             # to decide what type of thing is being recorded here.
-            # Here, we just record even and odd-numbered epochs separately as an example.
-            # You will be able to filter by 'even' and 'odd' in the visualization later.
+            # The string depends on the number of iterations, which will ensure that recordings for each possible
+            # number of iterations are made regularly, even if some of them occurred less often than others.
             type_of_execution=f'{num_iterations:02d}_iterations',
-            # The default value for record_per_batch_index of register_tensor() calls.
-            # Setting this to True means that individual examples will be stored, up to max_num_batch_size_to_record,
-            # in addition to statistics across the batch.
-            # This can be useful if you want to see the full details for a particular training step.
+            # If this is set to False, only statistics are stored by default whenever you call register_tensor() later,
+            # which means less data to be stored and processed.
+            # You can still use record_per_batch_index=True with register_tensor() for the tensors for
+            # which you want to see all details.
             record_all_tensors_per_batch_index_by_default=True,
             # None = use decision_maker_for_recordings to decide whether to record (default)
             # True = record
@@ -214,12 +166,12 @@ class Demonstration:
             # Tell comgra that an iteration has started.
             # You can start recording tensors after this, with register_tensor().
             comgra.my_recorder.start_forward_pass(
-                # This is a string that needs to uniquely identify the shape of the computational graph.
-                # The computational graph usually looks different on the iteration where it receives a loss
+                # This is a string that needs to uniquely identify the shape of the dependency graph.
+                # The dependency graph usually looks different on the iteration where it receives a loss
                 # than on any preceding iteration.
-                # Depending on your use case, other parameters may influence what the computational graph looks like.
+                # Depending on your use case, other parameters may influence what the dependency graph looks like.
                 # The recommended approach is to just concatenate a string here that is built from all the factors
-                # that influence what your computation graph looks like.
+                # that influence what your dependency graph looks like.
                 # Comgra will create a separate configuration for each unique value of this parameter,
                 # so it can slow down if you go overboard with this and create more unique values than necessary.
                 # If you assign the same configuration_type to two calls with a different graph,
@@ -227,13 +179,8 @@ class Demonstration:
                 configuration_type=f"{'has_loss' if iteration == num_iterations - 1 else 'no_loss'}"
             )
             # Record the inputs of the iteration.
-            # This includes both the actual input 'x' and the state variable 'memory'.
+            # This includes both the actual input 'input_for_this_iteration' and the state variable 'memory'.
             # (From the perspective of one iteration only, the memory is an input.)
-            # We are going to record a value for each individual neuron
-            # instead of just statistical information over the whole tensor.
-            # In real applications, whether you want that level of granularity will depend on your use case.
-            # For the 'x' tensor we are skipping that part,
-            # so that you can see the difference in the visualization later.
             #
             # Note that each register_tensor() call uses a different type: is_input, is_output, etc.
             # Each of these will be colored differently in the visualization.
@@ -247,6 +194,9 @@ class Demonstration:
             x = torch.cat([input_for_this_iteration, memory], dim=1)
             # Forward pass
             output, memory = self.model(x)
+            # Apply a sigmoid to the outputs
+            # (This is not necessarily the smartest idea, a softmax is better.
+            # But it's useful for illustrative purposes in this example.)
             output = torch.sigmoid(output)
             comgra.my_recorder.register_tensor(f"output", output, is_output=True)
             comgra.my_recorder.register_tensor(f"memory_out", memory, is_output=True)
@@ -261,8 +211,8 @@ class Demonstration:
                 # The partial sums of the inputs up to some iteration.
                 # The Node 'helper_partial_sums' in the visualization will have several different values,
                 # selectable through the dropdown "Role of tensor".
-                # If this was a real problem rather than a tutorial example, then having information like this
-                # easily accessible right next to the target in the GUI can make debugging a lot faster.
+                # Having information like this easily accessible
+                # right next to the target in the GUI can help you with debugging.
                 for i in range(0, num_iterations):
                     helper_partial_sums = input_tensor[:, :i+1, :].sum(dim=1).detach()
                     comgra.my_recorder.register_tensor(
@@ -281,22 +231,24 @@ class Demonstration:
                 if update_the_model_parameters:
                     self.optimizer.step()
                 # This command causes comgra to record all losses that are currently on the module parameters,
-                # for each module parameter registered through track_module()
+                # for each module parameter registered through comgra.my_recorder.track_module()
                 comgra.my_recorder.record_current_gradients(f"gradients")
-                # We can make use of comgra's smart decision-making which training steps to record
+                # We can make use of comgra's smart decision-making which training steps to record for our own logging
                 if comgra.my_recorder.recording_is_active():
+                    note = ""
                     if num_iterations == 1:
-                        print("-" * 20)
-                    note = (f"{self.current_configuration}, Step {training_step:5}: "
-                            f"{num_iterations:2} iterations "
-                            f"{'(training)' if update_the_model_parameters else ' (testing)'}  -  "
-                            f"Loss = {loss.item():10.6f}  -  "
-                            f"Accuracy on batch = {accuracy:2.3f}")
-                    print(note)
-                    # Make a quick note of the console output in comgra, just so the information is all in one place.
+                        note = "-" * 20 + "\n"
+                    note += (f"{self.current_configuration}, Step {training_step:5}: "
+                             f"{num_iterations:2} iterations "
+                             f"{'(training)' if update_the_model_parameters else ' (testing)'}  -  "
+                             f"Loss = {loss.item():10.6f}  -  "
+                             f"Accuracy on batch = {accuracy:2.3f}")
+                    # Make a quick note of the console output in comgra as well,
+                    # just so the information is all in one place.
                     # This feature is also helpful for recording debug messages.
+                    print(note)
                     comgra.my_recorder.add_note(note)
-                # Tell comgra that the iteration has finished.
+            # Tell comgra that the iteration has finished.
             comgra.my_recorder.finish_iteration()
             # We multiply a tensor with 1 here to prevent an issue:
             # As an error-catching feature, Comgra will raise an exception if the same tensor is
@@ -311,6 +263,7 @@ class Demonstration:
         comgra.my_recorder.finish_batch()
 
     def generate_task_data(self):
+        # Generate some datasets for training (lengths 1 to 10) and for testing (lengths 15 and 20)
         task_data = [
             (number_of_iterations, number_of_iterations <= 10, DataLoader(
                 ExampleDataset(device=self.device, dataset_size=10_000, number_of_iterations=number_of_iterations),
@@ -328,6 +281,8 @@ class ExampleDataset(Dataset):
         self.dataset_size = dataset_size
         self.number_of_iterations = number_of_iterations
         self.data = []
+        # Inputs are sequences of 5 random numbers in [0;1]
+        # Targets are 1 for the sequence with the greatest sum and 0 for the others.
         self.inputs = torch.rand((dataset_size, number_of_iterations, 5)).to(device)
         tmp = self.inputs.sum(dim=1)
         self.targets = tmp.eq(tmp.max(dim=1, keepdim=True)[0].expand(dataset_size, 5)).float()
@@ -341,6 +296,44 @@ class ExampleDataset(Dataset):
             'target': self.targets[idx],
         }
         return sample
+
+
+class NeuralNet(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(NeuralNet, self).__init__()
+        self.fnn1 = nn.Linear(input_size, hidden_size)
+        self.activation = nn.LeakyReLU(negative_slope=0.01)
+        self.fnn2 = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x):
+        x = self.fnn1(x)
+        x = self.activation(x)
+        # Tensors in comgra need to get unique names in order to be recorded correctly.
+        # This nn.Module will be instantiated twice, so its name is not unique.
+        # To ensure the name is unique regardless, comgra provides a helper function to get the name
+        # of the current module and all its parents, as recorded by comgra.my_recorder.track_module()
+        comgra.my_recorder.register_tensor(f"{comgra.my_recorder.get_name_of_module(self)}__hidden_state", x)
+        x = self.fnn2(x)
+        if DEMONSTRATION.current_configuration != 'no_activation_function_on_output_layer':
+            x = self.activation(x)
+        comgra.my_recorder.register_tensor(f"{comgra.my_recorder.get_name_of_module(self)}__out", x)
+        return x * 1
+
+
+# Our model uses several identical modules with different names, for illustration purposes.
+# It also has hidden states that will also be recorded in comgra.
+class CompleteModule(nn.Module):
+    def __init__(self, input_size, hidden_size, memory_size, output_size):
+        super(CompleteModule, self).__init__()
+        self.subnet_pre = NeuralNet(input_size + memory_size, hidden_size, hidden_size)
+        self.subnet_out = NeuralNet(hidden_size, hidden_size, output_size)
+        self.subnet_mem = NeuralNet(hidden_size, hidden_size, memory_size)
+
+    def forward(self, x):
+        pre = self.subnet_pre(x)
+        out = self.subnet_out(pre)
+        memory = self.subnet_mem(pre)
+        return out, memory
 
 
 # A hacky global helper variable, to make it easier to pass parameters to the modules
