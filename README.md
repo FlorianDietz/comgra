@@ -1,16 +1,8 @@
-<style>
-  #user-content-comgra-logo {
-    display: block;
-    margin-left: auto;
-    margin-right: auto;
-  }
-</style>
-
 # Comgra: Computation Graph Analysis
 
-<div>
+<p align="center">
 <img id="comgra-logo" src="src/assets/brandcrowd_logos/FullLogo.png" title="ComgraLogo" height="300" width="300"/>
-</div>
+</p>
 
 Comgra helps you analyze and debug neural networks in pytorch.  
 It records your network internals, visualizes the computation graph, and provides a GUI that makes it fast and easy to investigate any part of your network from a variety of viewpoints.  
