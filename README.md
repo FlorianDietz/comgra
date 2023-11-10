@@ -111,11 +111,8 @@ As a first step, let's look at network summary information and the notes created
 
 <p align="center">
   <img src="src/assets/screenshots_for_tutorial/network_info.png" width="40%"/>
-  <img src="src/assets/brandcrowd_logos/notes.png" width="40%"/>
+  <img src="src/assets/brandcrowd_logos/notes_info.png" width="40%"/>
 </p>
-
-![](src/assets/screenshots_for_tutorial/network_info.png)
-![](src/assets/screenshots_for_tutorial/notes_info.png)
 
 <details>
   <summary>Walking through the computation graph</summary>
