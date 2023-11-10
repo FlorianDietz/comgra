@@ -4,33 +4,7 @@
 <img src="src/assets/brandcrowd_logos/FullLogo.png" title="ComgraLogo" height="300" width="300"/>
 </p>
 
-Comgra helps you analyze and debug neural networks in pytorch.  
-It records your network internals, visualizes the computation graph, and provides a GUI that makes it fast and easy to investigate any part of your network from a variety of viewpoints.  
-Move along the computation graph, check for outliers, investigate both individual data points and summary statistics, compare gradients, automatically record special cases, and more.
-
-Comgra is complementary to tensorboard:  
-Use Tensorboard to get an overview of summary statistics, so you understand what is happening at a high level.  
-Use Comgra to deep dive into your neural network: Comgra records everything that could be relevant to you at a low overhead, and provides a flexible GUI that allows you to inspect your network's behavior from many different angles.
-
-Suitable both for novices and for professional neural architecture designers: Create a simple visualization of your network to understand what is happening under the hood, or perform advanced analyses and trace anomalies through the computation graph.
-
-TODO
-![main_overview_version_1.png](src%2Fassets%2Fscreenshots_for_tutorial%2Fmain_overview_version_1.png)
-TODO add notes to screenshot ; what is displayed here?
-use
-<details>
-  <summary>A more detailed explanation</summary>
-</details>
-color-coded
-this shows one iteration of one training step ; different iterations have different layouts
-This graph is a subgraph of the computation graph, and it is much easier to understand because it is smaller and skips all of the distracting details.
-This cutting away of details also makes it easier to compare different variants of architectures: Their computation graphs may look different, but the simplified dependency graphs are the same.
-While the dependency graph is generated automatically, it can also be customized to be more readable and easier to navigate if necessary.
-Each rectangle in the dependency graph is a node that represents a named tensor that can be selected for inspection. The colors indicate the roles of the tensor in the network, such as input, intermediate, parameter, etc.
-Look at the run code for detailed examples. The following shows how that works
-
-## In this README
-
+- [Overview](#overview)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Tutorial](#tutorial---debugging-an-example-network)
@@ -39,6 +13,33 @@ Look at the run code for detailed examples. The following shows how that works
   - [Finding the bug](#finding-the-bug)
 - [Other features](#other-features)
 - [Future Development](#future-development)
+
+## Overview
+
+Comgra helps you analyze and debug neural networks in pytorch.  
+It records your network internals, visualizes the computation graph, and provides a GUI that makes it fast and easy to investigate any part of your network from a variety of viewpoints.  
+Move along the computation graph, check for outliers, investigate both individual data points and summary statistics, compare gradients, automatically record special cases, and more.
+
+Comgra is complementary to tensorboard:  
+Use Tensorboard to get an overview of what is happening at a high level.  
+Use Comgra to deep dive into your neural network: Comgra records everything that could be relevant to you, and provides a flexible GUI that allows you to inspect your network's behavior from many different angles.
+
+Suitable both for novices and for professional neural architecture designers: Create a simple visualization of your network to understand what is happening under the hood, or perform advanced analyses and trace anomalies through the computation graph.
+
+![main_overview_version_1.png](src%2Fassets%2Fscreenshots_for_tutorial%2Fmain_overview_version_1.png)
+Comgra's GUI has three parts:
+* A dependency graph that visualizes how the tensors in your network depend on each other
+* Selectors that let you choose under what lens you want to inspect the tensors
+* An output that lists both summary statistics and the values of individual neurons for the selected tensors
+<details>
+  <summary><b>Notes on the dependency graph</b></summary>
+
+  Each rectangle in the dependency graph is a node that represents a named tensor. The colors indicate the roles of the tensor in the network, such as input, intermediate, parameter, etc.
+
+  The dependency graph is generated automatically based on the computation graph used by pytorch and the names you assign to tensors through comgra. It is a subgraph of the computation graph, but it is much easier to understand because it is smaller and skips all of the distracting details.
+
+  This cutting away of details also makes it easier to compare different variants of architectures: Their computation graphs may look different, but the simplified dependency graphs are the same.
+</details>
 
 ## Installation
 
@@ -114,7 +115,7 @@ We run two variants of the architecture. The original variant contains a bug, wh
 As a first step, let's look at network summary information and the notes created by the script. To do so, select "Network" and "Notes" respectively at the main radio button at the top left of the screen.
 
 <details>
-  <summary>Viewing notes</summary>
+  <summary><b>Sreenshot of notes</b></summary>
   <img src="src/assets/screenshots_for_tutorial/notes_info.png" width="100%"/>
 </details>
 
@@ -125,7 +126,7 @@ The Notes tab shows anything that we decided to log in our script, such as the l
 Let's see if we can already find a problem at a high level, by clicking the "Network" button.
 
 <details>
-  <summary>Viewing network info</summary>
+  <summary><b>Screenshot of network info</b></summary>
   <img src="src/assets/screenshots_for_tutorial/network_info.png" width="100%"/>
 </details>
 
@@ -134,7 +135,7 @@ The Network tab shows a recursive breakdown of all network parameters, in tree f
 Next, let's click the "Tensors" button and start the main analysis.
 
 <details>
-  <summary>Walking through the computation graph</summary>
+  <summary><b>Examples and screenshots: Walking through the computation graph</b></summary>
   When you start comgra, the screen should look like this.
 
   <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/00_start.png" width="100%"/>
@@ -157,7 +158,7 @@ Next, let's click the "Tensors" button and start the main analysis.
 
   Note how the values displayed at the bottom update immediately whenever you select a new node, or change a selector. This allows you to investigate many different hypotheses quickly, without waiting for results or having to restart your experiment.
 
-  Next, we investigate if the network parameters show any suspicious behavior. To do so, we select a parameter node and move the slider for the training step.
+  Next, we investigate if the network parameters show any suspicious behavior. To do so, we select a node that represents a network parameter and move the slider for the training step.
 
   <img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/00.png" width="100%"/>
   <img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/01.png" width="100%"/>
@@ -181,8 +182,6 @@ All of these explorative analyses are easy and fast to do, so they are often wor
 ### Finding the bug
 
 As we noticed before, the code works, but not very well.
-
-Is there a bug?
 
 If you paid careful attention during the explorative analysis you may have noticed something odd:  
 The neurons of the output tensor should be either 1 or 0. While values close to 1 are reached early in training, values close to 0 are reached only very late. If we look at the mean over the batch, the values are much greater than expected, too.
