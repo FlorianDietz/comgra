@@ -1,7 +1,7 @@
 # Comgra: Computation Graph Analysis
 
 <p align="center">
-<img id="comgra-logo" src="src/assets/brandcrowd_logos/FullLogo.png" title="ComgraLogo" height="300" width="300"/>
+<img src="src/assets/brandcrowd_logos/FullLogo.png" title="ComgraLogo" height="300" width="300"/>
 </p>
 
 Comgra helps you analyze and debug neural networks in pytorch.  
@@ -106,6 +106,16 @@ Our architecture is a simple recurrent neural network that is composed of some s
 We run two variants of the architecture. The original variant contains a bug, which we will discover later in this section of the Readme. For convenience we run both trials in one script, but in a real use case the second variant would have been implemented and run later, after finding the bug. In the GUI, you can switch between the two variants with the 'Trial' selector.
 
 ### Initial exploration
+
+As a first step, let's look at network summary information and the notes created by the script. To do so, select "Network" and "Notes" respectively at the main radio button at the top left of the screen.
+
+<p align="center">
+  <img src="src/assets/screenshots_for_tutorial/network_info.png" width="40%"/>
+  <img src="src/assets/brandcrowd_logos/notes.png" width="40%"/>
+</p>
+
+![](src/assets/screenshots_for_tutorial/network_info.png)
+![](src/assets/screenshots_for_tutorial/notes_info.png)
 
 <details>
   <summary>Walking through the computation graph</summary>
