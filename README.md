@@ -17,12 +17,12 @@
 ## Overview
 
 Comgra helps you analyze and debug neural networks in pytorch.  
-It records your network internals, visualizes the computation graph, and provides a GUI that makes it fast and easy to investigate any part of your network from a variety of viewpoints.  
+It records your network internals, visualizes the computation graph, and provides a GUI to investigate any part of your network from a variety of viewpoints.  
 Move along the computation graph, check for outliers, investigate both individual data points and summary statistics, compare gradients, automatically record special cases, and more.
 
 Comgra is complementary to tensorboard:  
 Use Tensorboard to get an overview of what is happening at a high level.  
-Use Comgra to deep dive into your neural network: Comgra records everything that could be relevant to you, and provides a flexible GUI that allows you to inspect your network's behavior from many different angles.
+Use Comgra to deep dive into your neural network: Comgra records everything that could be relevant to you, and allows you to inspect your network's behavior from many different angles.
 
 Suitable both for novices and for professional neural architecture designers: Create a simple visualization of your network to understand what is happening under the hood, or perform advanced analyses and trace anomalies through the computation graph.
 
