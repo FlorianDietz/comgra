@@ -105,10 +105,10 @@ comgra --use-path-for-test-run
 
 ### The task and the architecture
 
-We use a synthetic task that is designed to test a neural network's ability to generalize to longer sequences while being very simple and human-interpretable.  
-The input is a sequence of N tuples of 5 numbers between 0.0 and 1.0. The network should treat these as 5 separate sequences. Its objective is to determine which of these 5 sequences has the largest sum.
+We use a synthetic task that is designed to test a neural network's ability to generalize to longer sequences while being very simple and human-interpretable. The input is a sequence of N tuples of 5 numbers between 0.0 and 1.0. The network should treat these as 5 separate sequences. Its objective is to determine which of these 5 sequences has the largest sum.
 
-Our architecture is a simple recurrent neural network that is composed of some submodules. It's nothing fancy, but illustrates how comgra can be integrated into an architecture.  
+Our architecture is a simple recurrent neural network that is composed of some submodules. It's nothing fancy, but illustrates how comgra can be integrated into an architecture.
+
 We run two variants of the architecture. The original variant contains a bug, which we will discover later in this section of the Readme. For convenience we run both trials in one script, but in a real use case the second variant would have been implemented and run later, after finding the bug. In the GUI, you can switch between the two variants with the 'Trial' selector.
 
 ### Initial exploration
@@ -116,7 +116,7 @@ We run two variants of the architecture. The original variant contains a bug, wh
 As a first step, let's look at network summary information and the notes created by the script. To do so, select "Network" and "Notes" respectively at the main radio button at the top left of the screen.
 
 <details>
-  <summary><b>Sreenshot of notes</b></summary>
+  <summary><b>Sreenshot of notes selector</b></summary>
   <img src="src/assets/screenshots_for_tutorial/notes_info.png" width="100%"/>
 </details>
 
@@ -127,7 +127,7 @@ The Notes tab shows anything that we decided to log in our script, such as the l
 Let's see if we can already find a problem at a high level, by clicking the "Network" button.
 
 <details>
-  <summary><b>Screenshot of network info</b></summary>
+  <summary><b>Screenshot of network selector</b></summary>
   <img src="src/assets/screenshots_for_tutorial/network_info.png" width="100%"/>
 </details>
 
