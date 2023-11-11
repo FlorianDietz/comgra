@@ -116,10 +116,7 @@ We run two variants of the architecture. The original variant contains a bug, wh
 
 As a first step, let's look at network summary information and the notes created by the script. To do so, select "Network" and "Notes" respectively at the main radio button at the top left of the screen.
 
-<details>
-  <summary><b>Sreenshot of notes selector</b></summary>
-  <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/notes_info.png" width="100%"/></kbd>
-</details>
+<kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/notes_info.png" width="100%"/></kbd>
 
 The Notes tab shows anything that we decided to log in our script, such as the loss and accuracy values. If we scroll down, we see that performance improves, but it does not look very good. Let's use comgra to investigate our architecture and see if we can find a reason for our poor performance.
 
@@ -127,17 +124,12 @@ The Notes tab shows anything that we decided to log in our script, such as the l
 
 Let's see if we can already find a problem at a high level, by clicking the "Network" button.
 
-<details>
-  <summary><b>Screenshot of network selector</b></summary>
-  <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/network_info.png" width="100%"/></kbd>
-</details>
+<kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/network_info.png" width="100%"/></kbd>
 
 The Network tab shows a recursive breakdown of all network parameters, in tree form. We can see that none of the submodules has such a small number of parameters that it could form a bottleneck, which rules out one kind of bug.
 
 Next, let's click the "Tensors" button and start the main analysis.
 
-<details>
-  <summary><b>Examples and screenshots: Walking through the computation graph</b></summary>
   When you start comgra, the screen should look like this.
 
   <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/slideshow_nodes/00_start.png" width="100%"/></kbd>
@@ -147,21 +139,27 @@ Next, let's click the "Tensors" button and start the main analysis.
   * Set the "Type of training Step" to "05_iterations" so that we are only shown training steps that ran for exactly 5 iterations.
   * Select the last iteration: Note that the Node for the Loss only appears in the computational graph if the last iteration is selected, because a loss is only applied on the last iteration.
   * Set "Batch or sample" to "batch index 0": The values at the bottom of the screen now show the values for only the first element of the batch. This makes it possible to investigate how the network reacts to specific examples, while "Mean over the batch" is more useful for investigating how statistics change over time. Note that the values "mean", "abs_mean", "std", and "abs_max" at the bottom of the screen are statistics over the value dimension of the tensor. Setting "Batch or sample" to "Mean over the batch" means that it additionally calculates the mean over the batch dimension after calculating the statistic over the value dimension. This combination gives you a lot of flexibility in how you look at the data.
+
   <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/slideshow_nodes/01_selectors_set.png" width="100%"/></kbd>
 
   We have currently selected the "input" node in the dependency graph (the green node in the top left). The lines that go from the selected node to other nodes indicate dependencies. In the following we move along the dependency graph by clicking on subsequent nodes until we get to the "Loss" node. (Note that a different node is highlighted in each image).
 
+<details>
+  <summary><b>Click here to expand: Walking through the computation graph</b></summary>
   <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/slideshow_nodes/02.png" width="100%"/></kbd>
   <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/slideshow_nodes/03.png" width="100%"/></kbd>
   <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/slideshow_nodes/04.png" width="100%"/></kbd>
   <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/slideshow_nodes/05.png" width="100%"/></kbd>
   <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/slideshow_nodes/06.png" width="100%"/></kbd>
   <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/slideshow_nodes/07.png" width="100%"/></kbd>
+</details>
 
-  Note how the values displayed at the bottom update immediately whenever you select a new node, or change a selector. This allows you to investigate many different hypotheses quickly, without waiting for results or having to restart your experiment.
+Note how the values displayed at the bottom update immediately whenever you select a new node, or change a selector. This allows you to investigate many different hypotheses quickly, without waiting for results or having to restart your experiment.
 
-  Next, we investigate if the network parameters show any suspicious behavior. To do so, we select a node that represents a network parameter and move the slider for the training step.
+Next, we investigate if the network parameters show any suspicious behavior. To do so, we select a node that represents a network parameter and move the slider for the training step.
 
+<details>
+  <summary><b>Click here to expand: Varying the training step</b></summary>
   <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/00.png" width="100%"/></kbd>
   <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/01.png" width="100%"/></kbd>
   <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/02.png" width="100%"/></kbd>
@@ -169,9 +167,9 @@ Next, let's click the "Tensors" button and start the main analysis.
   <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/04.png" width="100%"/></kbd>
   <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/05.png" width="100%"/></kbd>
   <kbd style="border: 1px solid black;"><img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/06.png" width="100%"/></kbd>
-
-  Judging by the way abs_mean and abs_max change over the course of training, the network parameters specialize and become more extreme, but they do not explode. This looks like healthy behavior.
 </details>
+
+Judging by the way abs_mean and abs_max change over the course of training, the network parameters specialize and become more extreme, but they do not explode. This looks like healthy behavior.
 
 The best way to get a feel for the GUI is to try it yourself. There is a lot of basic information that is helpful to investigate, both as a sanity check and to get a better intuitive feel for your network's internals. Try the following:
 
