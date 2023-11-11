@@ -21,8 +21,9 @@ class ComgraRecorder:
 
     def __init__(
             self, comgra_root_path, group, trial_id,
-            prefixes_for_grouping_module_parameters_visually, prefixes_for_grouping_module_parameters_in_nodes,
-            parameters_of_trial, decision_maker_for_recordings,
+            prefixes_for_grouping_module_parameters_visually,
+            prefixes_for_grouping_module_parameters_in_nodes,
+            decision_maker_for_recordings,
             comgra_is_active=True, max_num_batch_size_to_record=None,
             max_num_mappings_to_save_at_once_during_serialization=20000,
             type_of_serialization='msgpack',
@@ -66,7 +67,6 @@ class ComgraRecorder:
             assert any(b for b in self.prefixes_for_grouping_module_parameters_visually if a.startswith(b)), \
                 f"A prefix for node grouping does not have a prefix for visual grouping that is less restrictive." \
                 f"\n{a}"
-        self.parameters_of_trial = parameters_of_trial
         self.max_num_batch_size_to_record = max_num_batch_size_to_record
         self.max_num_mappings_to_save_at_once_during_serialization = max_num_mappings_to_save_at_once_during_serialization
         #
@@ -91,9 +91,8 @@ class ComgraRecorder:
         #
         self.tensor_recordings: Optional[TensorRecordings] = None
         self.mapping_of_tensors_for_extracting_kpis: Dict[Tuple[int, str, Optional[int], Optional[int], str, str, str], Tuple[torch.Tensor, TensorRepresentation]] = {}
-        self.is_training_mode = False
         self.training_step = None
-        self.type_of_execution_for_diversity_of_recordings = None
+        self.type_of_execution = None
         self.iteration = None
         self.record_all_tensors_per_batch_index_by_default = False
         self.computation_step_to_tensor = {}
@@ -105,8 +104,8 @@ class ComgraRecorder:
 
     def recording_is_active(self):
         if self.override__recording_is_active is None:
-            return self.comgra_is_active and self.is_training_mode and self.decision_maker_for_recordings.is_record_on_this_iteration(
-                self.training_step, self.type_of_execution_for_diversity_of_recordings,
+            return self.comgra_is_active and self.decision_maker_for_recordings.is_record_on_this_iteration(
+                self.training_step, self.type_of_execution,
             )
         return self.override__recording_is_active
 
@@ -164,18 +163,17 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def start_next_recording(
-            self, training_step, current_batch_size, is_training_mode,
-            type_of_execution_for_diversity_of_recordings,
+            self, training_step, current_batch_size,
+            type_of_execution,
             record_all_tensors_per_batch_index_by_default=False,
             override__recording_is_active=None,
     ):
-        self.is_training_mode = is_training_mode
         self.training_step = training_step
-        assert type_of_execution_for_diversity_of_recordings is not None, type_of_execution_for_diversity_of_recordings
-        assert type_of_execution_for_diversity_of_recordings != 'any_value', type_of_execution_for_diversity_of_recordings
-        assert not type_of_execution_for_diversity_of_recordings.startswith('__'), type_of_execution_for_diversity_of_recordings
-        assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution_for_diversity_of_recordings)
-        self.type_of_execution_for_diversity_of_recordings = type_of_execution_for_diversity_of_recordings
+        assert type_of_execution is not None, type_of_execution
+        assert type_of_execution != 'any_value', type_of_execution
+        assert not type_of_execution.startswith('__'), type_of_execution
+        assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution)
+        self.type_of_execution = type_of_execution
         self.iteration = None
         self.record_all_tensors_per_batch_index_by_default = record_all_tensors_per_batch_index_by_default
         assert self.current_stage == 'inactive', self.current_stage
@@ -226,7 +224,7 @@ class ComgraRecorder:
             assert index_of_batch_dimension is not None
             value_dimensions = [i for i in range(len(tensor.shape)) if i != index_of_batch_dimension]
             if recording_type is None:
-                recording_type = 'kpis'
+                recording_type = 'neurons'
         if index_of_batch_dimension is None:
             assert not record_per_batch_index, \
                 f"This tensor has no batch dimension and therefore can't have record_per_batch_index=True: {tensor_name}"
@@ -329,8 +327,8 @@ class ComgraRecorder:
                         (val.shape, tensor_representation.full_unique_name)
                 else:
                     raise NotImplementedError(item)
-                # Take the mean over the batch, if possible
-                batching_types = ((['has_no_batch_dimension'] if tensor_representation.index_of_batch_dimension is None else ['batch_mean', 'batch_std']) +
+                # Take aggregates over the batch, if possible
+                batching_types = ((['has_no_batch_dimension'] if tensor_representation.index_of_batch_dimension is None else ['batch_mean', 'batch_abs_max', 'batch_std']) +
                                   (['individual_batch_indices'] if tensor_representation.record_per_batch_index else []))
                 for batching_type in batching_types:
                     if batching_type == 'batch_mean':
@@ -339,6 +337,9 @@ class ComgraRecorder:
                     elif batching_type == 'batch_std':
                         assert len(val.shape) == 2 and val.shape[0] == self.current_batch_size
                         val1 = val.std(dim=0).unsqueeze(dim=0)
+                    elif batching_type == 'batch_abs_max':
+                        assert len(val.shape) == 2 and val.shape[0] == self.current_batch_size
+                        val1 = val.abs().max(dim=0)[0].unsqueeze(dim=0)
                     elif batching_type == 'has_no_batch_dimension':
                         assert len(val.shape) == 1, (val.shape, tensor_representation.full_unique_name)
                         val1 = val.unsqueeze(dim=0)
@@ -369,7 +370,7 @@ class ComgraRecorder:
         self.mapping_of_tensors_for_extracting_kpis[key] = (tensor, tensor_representation)
 
     @utilities.runtime_analysis_decorator
-    def start_forward_pass(self, configuration_type):
+    def start_iteration(self, configuration_type):
         assert self.current_stage in ['started', 'after_iteration'], self.current_stage
         self.current_stage = 'forward'
         self.iteration = 0 if self.iteration is None else (self.iteration + 1)
@@ -377,7 +378,7 @@ class ComgraRecorder:
         self.configuration_type = configuration_type
         self.configuration_path = self.group_path / 'configs' / configuration_type
         self.tensor_recordings.training_step_to_iteration_to_configuration_type.setdefault(self.training_step, {})[self.iteration] = configuration_type
-        self.tensor_recordings.training_step_to_type_of_execution_for_diversity_of_recordings[self.training_step] = self.type_of_execution_for_diversity_of_recordings
+        self.tensor_recordings.training_step_to_type_of_execution[self.training_step] = self.type_of_execution
         if not self.recording_is_active():
             return
 
@@ -404,7 +405,16 @@ class ComgraRecorder:
                 tensor.grad = None
 
     @utilities.runtime_analysis_decorator
-    def finish_iteration(self, sanity_check__verify_graph_and_global_status_equal_existing_file=False):
+    def finish_iteration(self, sanity_check__verify_graph_and_global_status_equal_existing_file=True):
+        """
+        :param sanity_check__verify_graph_and_global_status_equal_existing_file:
+            Specify whether you want to run a sanity check to make sure that you specified
+            configuration_type of start_iteration() correctly.
+            This costs extra time to compute, but if you skip this sanity check,
+            you might not realize that you are recording two different computational
+            graphs under the same name, and this will lead to errors in the visualization later.
+        :return: 
+        """
         assert self.current_stage in ['forward', 'backward'], self.current_stage
         self.current_stage = 'after_iteration'
         self.current_type_of_tensor_recording = 'forward'  # This will be used when the parameters get recorded in traverse_graph_backwards
@@ -481,11 +491,6 @@ class ComgraRecorder:
             if not path.exists():
                 with open(path, 'wb') as f:
                     pickle.dump(status_and_graph, f)
-            #
-            # Save trial information
-            #
-            with open(self.trial_path / 'parameters.json', 'w') as f:
-                json.dump(self.parameters_of_trial, f)
         if sanity_check__verify_graph_and_global_status_equal_existing_file:
             #
             # Verify that the result is identical to previous results.
@@ -559,7 +564,7 @@ class ComgraRecorder:
         return status_and_graph, name_to_tensor_representation_relevant_for_graph_construction
 
     @utilities.runtime_analysis_decorator
-    def finish_batch(self):
+    def finish_recording(self):
         assert self.current_stage == 'after_iteration' or not self.recording_is_active(), self.current_stage
         self.current_stage = 'inactive'
         if not self.recording_is_active():
@@ -583,7 +588,7 @@ class ComgraRecorder:
 
         def save_recordings_so_far():
             nonlocal file_number
-            recordings_path_folder = self.recordings_path / f'{self.training_step}__{self.type_of_execution_for_diversity_of_recordings}'
+            recordings_path_folder = self.recordings_path / f'{self.training_step}__{self.type_of_execution}'
             recordings_path_folder.mkdir(exist_ok=True)
             dump_dict = dataclasses.asdict(self.tensor_recordings)
             dump_dict['recordings'] = dump_dict['recordings'].serialize()

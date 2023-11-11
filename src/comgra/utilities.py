@@ -5,6 +5,7 @@ from typing import List, Any, Tuple, Dict, Set, Optional
 
 from plotly import express as px
 
+DEBUG_MODE = True
 PRINT_EACH_TIME = False
 
 FUNCTION_NAME_TO_TOTAL_TIME = collections.defaultdict(lambda: timedelta(seconds=0))
@@ -15,6 +16,8 @@ _CALL_STACK = []
 
 
 def runtime_analysis_decorator(function):
+    if not DEBUG_MODE:
+        return function
     function_name = function.__name__
 
     def wrapper(*args, **kwargs):

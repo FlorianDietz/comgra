@@ -6,7 +6,7 @@ comgra = ["*.py"]
 scripts = ["*.py"]
 [project]
 name = "comgra"
-version = "0.9.7"
+version = "0.10.0"
 authors = [
     { name="Florian Dietz", email="floriandietz44@gmail.com" },
 ]
@@ -14,7 +14,7 @@ dependencies = [
     'torch',
     'dash',
     'dash-svg',
-    'dash-bootstrap-components',
+    'dash-bootstrap-components>=1.5.0',
     'msgpack',
     'numpy',
     'pandas',

@@ -1,8 +1,40 @@
-.node {
+.btn-group-xs > .btn, .btn-xs {
+    padding: .25rem .4rem;
+    font-size: .875rem;
+    line-height: .5;
+    border-radius: .2rem;
+}
+.floating-prefix-label {
     border: 1px solid black;
+    position: absolute;
+    overflow: hidden;
+    text-align: center;
+    vertical-align: middle;
+}
+#main-body-div.hide-containers-for-tensors #controls-selectors-container, #main-body-div.hide-containers-for-tensors #graph-container, #main-body-div.hide-containers-for-tensors #graph-tooltip {
+    display: none;
+}
+.node {
+    position: absolute;
+    text-align: center;
+    vertical-align: middle;
+}
+.node:not(.dummy-node) {
+    border: 1px solid black;
+    overflow: hidden;
+}
+.node .node-name {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%,-50%);
 }
 .inactive {
     display: none;
+}
+#selected-item-details-container {
+    min-height: 100vh;
+    padding: 0 0 0 10px;
 }
 #selected-item-details-container td {
     white-space: pre;
@@ -12,6 +44,53 @@
     white-space: pre;
     font-family: monospace;
 }
-#controls-container {
-    border-bottom: 1px solid black;
+#controls-selectors-container .row > div:not(:last-child) {
+    position: relative;
+}
+#controls-selectors-container .row > div:not(:last-child) > * {
+    position: absolute;
+    top: 50%;
+    transform: translate(0,-50%);
+}
+#controls-selectors-container .row > div:not(:last-child) > .buttons-for-selecting-filters {
+    right: 0;
+}
+#refresh-button {
+    width: fit-content;
+    white-space: nowrap;
+}
+#display-type-radio-buttons {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    column-gap: 7px;
+    height: 100%;
+}
+#display-type-radio-buttons label {
+    margin: 0;
+    position: relative;
+}
+#display-type-radio-buttons label input {
+    margin-right: 2px;
+}
+#navigation-buttons {
+}
+#navigation-buttons label {
+    padding: 0 5px 0 0;
+}
+#type-of-recording-radio-buttons label input {
+    margin: 0 2px 0 2px;
+}
+#selected-values-summary-table tr th {
+    background-color: rgb(195 195 195);
+    border-width: 1px;
+    border-style: solid;
+    border-color: rgb(63, 63, 63);
+    padding: 0 7px 0 7px;
+}
+#selected-values-summary-table tr td {
+    border-width: 1px;
+    border-style: solid;
+    border-color: rgb(63, 63, 63);
+    padding: 0 7px 0 7px;
 }

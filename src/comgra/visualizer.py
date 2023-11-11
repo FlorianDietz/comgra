@@ -1,5 +1,6 @@
 # BASIC IMPORTS
 import collections
+import os.path
 from dataclasses import dataclass
 import gzip
 import json
@@ -21,10 +22,9 @@ import msgpack
 from comgra.objects import StatusAndGraph, ModuleRepresentation, TensorRecordings
 from comgra import utilities
 
-utilities.PRINT_EACH_TIME = True
-
-DISPLAY_CONNECTIONS_GRAPHICALLY = False
-DISPLAY_NAMES_ON_NODES_GRAPHICALLY = False
+DISPLAY_ALL_CONNECTIONS_GRAPHICALLY = False
+HIGHLIGHT_SELECTED_CONNECTIONS = True
+DISPLAY_NAMES_ON_NODES_GRAPHICALLY = True
 
 LOCK_FOR_RECORDINGS = threading.Lock()
 
@@ -54,21 +54,53 @@ class VisualizationParameters:
 
 vp = VisualizationParameters()
 
+class CustomDash(dash.Dash):
+    def interpolate_index(self, **kwargs):
+        return '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {metas}
+        <title>{title}</title>
+
+        <link rel="apple-touch-icon" sizes="180x180" href="assets/favicons/apple-touch-icon.png">
+        <link rel="icon" type="image/png" sizes="32x32" href="assets/favicons/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="assets/favicons/favicon-16x16.png">
+        <link rel="manifest" href="assets/favicons/site.webmanifest">
+        <link rel="mask-icon" href="assets/favicons/safari-pinned-tab.svg" color="#5bbad5">
+        <meta name="msapplication-TileColor" content="#da532c">
+        <meta name="theme-color" content="#ffffff">
+
+        {css}
+    </head>
+    <body>
+        {app_entry}
+        <footer>
+            {config}
+            {scripts}
+            {renderer}
+        </footer>
+    </body>
+</html>
+        '''.format(**kwargs)
 
 class Visualization:
     """
     Keeps track of KPIs over the course of the Experiment and creates visualizations from them.
     """
-    def __init__(self, path):
+    def __init__(self, path, debug_mode):
         super().__init__()
+        utilities.DEBUG_MODE = debug_mode
+        self.debug_mode = debug_mode
         self.path: Path = path
         assert path.exists(), path
         assets_path = Path(__file__).absolute().parent.parent / 'assets'
         assert assets_path.exists(), "If this fails, files have been moved."
-        self.app = dash.Dash(__name__, assets_folder=str(assets_path), external_stylesheets=[dbc.themes.BOOTSTRAP])
+        self.app = CustomDash(__name__, assets_folder=str(assets_path), external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP])
         self.configuration_type_to_status_and_graph: Dict[str, StatusAndGraph] = {}
         self.configuration_type_to_node_to_corners: Dict[str, Dict[str, Tuple[int, int, int, int]]] = {}
         self.configuration_type_to_grid_of_nodes: Dict[str, List[List[str]]] = {}
+        self.configuration_type_and_node_to_list_of_connections: Dict[Tuple[str, str], List[Tuple[int, int, int, int, str, str]]] = {}
         self._sanity_check_cache_to_avoid_duplicates = {}
         self.cache_for_tensor_recordings = {}
         self.attribute_selection_fallback_values = collections.defaultdict(list)
@@ -123,23 +155,23 @@ class Visualization:
         # Visualize
         #
         self.create_visualization()
-        self.app.run_server(debug=True, port=port)
+        self.app.run_server(debug=self.debug_mode, port=port)
 
     @utilities.runtime_analysis_decorator
     def get_recordings_with_caching(
-            self, trials_value, training_step_value, type_of_execution_for_diversity_of_recordings
+            self, trials_value, training_step_value, type_of_execution
     ) -> TensorRecordings:
         with LOCK_FOR_RECORDINGS:
             key = (trials_value, training_step_value,)
             recordings = self.cache_for_tensor_recordings.get(key, None)
             if recordings is None:
                 recordings_path_base = self.path / 'trials' / trials_value / 'recordings'
-                if type_of_execution_for_diversity_of_recordings == 'any_value':
+                if type_of_execution == 'any_value':
                     for recordings_path in recordings_path_base.iterdir():
                         if recordings_path.name.startswith(f'{training_step_value}__'):
                             break
                 else:
-                    recordings_path = recordings_path_base / f'{training_step_value}__{type_of_execution_for_diversity_of_recordings}'
+                    recordings_path = recordings_path_base / f'{training_step_value}__{type_of_execution}'
                 recording_files = sorted(list(recordings_path.iterdir()))
                 for recording_file in recording_files:
                     if recording_file.suffix == '.json':
@@ -162,9 +194,9 @@ class Visualization:
                         }
                         for k1, v1 in new_recordings.training_step_to_iteration_to_configuration_type.items()
                     }
-                    new_recordings.training_step_to_type_of_execution_for_diversity_of_recordings = {
+                    new_recordings.training_step_to_type_of_execution = {
                         int(k1): v1
-                        for k1, v1 in new_recordings.training_step_to_type_of_execution_for_diversity_of_recordings.items()
+                        for k1, v1 in new_recordings.training_step_to_type_of_execution.items()
                     }
                     if recordings is None:
                         recordings = new_recordings
@@ -213,29 +245,55 @@ class Visualization:
         for i, nodes in enumerate(sag.dag_format):
             list_of_nodes_for_grid = []
             grid_of_nodes.append(list_of_nodes_for_grid)
+            left = int(vp.padding_left + i * (1 + vp.ratio_of_space_between_nodes_to_node_size) * width_per_box)
+            right = int(left + width_per_box)
+            common_prefix = os.path.commonprefix(nodes)
+            if '.' in common_prefix:
+                common_prefix = common_prefix[:common_prefix.rindex('.')+1]
+            else:
+                common_prefix = 'node__'
+            def get_appropriate_font_size_for_text_in_node(width, text):
+                # TODO This formula was determined experimentally to be "good enough".
+                #  Replace it with a better, CSS-based solution.
+                return max(1, min(20, int(width / len(text) * 1.7)))
+            if common_prefix != 'node__':
+                # Display the prefix common to the names of all items in this stack
+                top = 0
+                text_in_node = common_prefix[len('node__'):-1]
+                appropriate_font_size_for_text_in_node = get_appropriate_font_size_for_text_in_node(width_per_box, text_in_node)
+                elements_of_the_graph.append(
+                    html.Div(html.Div(f"{text_in_node}", className='node-name', style={
+                        'font-size': f'{appropriate_font_size_for_text_in_node}px'
+                    }), className='node dummy-node', style={
+                        'width': f'{width_per_box}px',
+                        'height': f'{height_per_box}px',
+                        'left': f'{left}px',
+                        'top': f'{top}px',
+                    })
+                )
+            # Display each of the nodes
             for j, node in enumerate(nodes):
                 list_of_nodes_for_grid.append(node)
-                left = int(vp.padding_left + i * (1 + vp.ratio_of_space_between_nodes_to_node_size) * width_per_box)
                 top = int(vp.padding_top + j * (1 + vp.ratio_of_space_between_nodes_to_node_size) * height_per_box)
-                right = int(left + width_per_box)
                 bottom = int(top + height_per_box)
                 node_to_corners[node] = (left, top, right, bottom)
                 node_type = sag.name_to_node[node].type_of_tensor
-                elements_of_the_graph.append(html.Div(id=self._node_name_to_dash_id(configuration_type, node), style={
+                text_in_node = node[len(common_prefix):]
+                appropriate_font_size_for_text_in_node = get_appropriate_font_size_for_text_in_node(width_per_box, text_in_node)
+                elements_of_the_graph.append(
+                    html.Div(id=self._node_name_to_dash_id(configuration_type, node), className='node', style={
                     'width': f'{width_per_box}px',
                     'height': f'{height_per_box}px',
-                    'backgroundColor': 'white',
-                    'position': 'absolute',
                     'left': f'{left}px',
                     'top': f'{top}px',
-                    'background': vp.node_type_to_color[node_type]
+                    'background': vp.node_type_to_color[node_type],
                 }, title=node[len("node__"):], children=(
-                    [f'{node[len("node__"):]}'] if DISPLAY_NAMES_ON_NODES_GRAPHICALLY else [])
+                    [html.Div(f'{text_in_node}', className='node-name', style={
+                        'font-size': f'{appropriate_font_size_for_text_in_node}px'
+                    })] if DISPLAY_NAMES_ON_NODES_GRAPHICALLY else [])
                 ))
-        connection_names_to_source_and_target = {}
-        node_to_incoming_and_outgoing_lines = {n: ([], []) for n in sag.nodes}
         svg_connection_lines = []
-        if DISPLAY_CONNECTIONS_GRAPHICALLY:
+        if DISPLAY_ALL_CONNECTIONS_GRAPHICALLY or HIGHLIGHT_SELECTED_CONNECTIONS:
             for connection in sag.connections:
                 source, target = tuple(connection)
                 source_left, source_top, _, _ = node_to_corners[source]
@@ -245,15 +303,20 @@ class Visualization:
                 target_x = int(target_left)
                 target_y = int(target_top + 0.5 * height_per_box)
                 connection_name = self._nodes_to_connection_dash_id(configuration_type, source, target)
-                svg_connection_lines.append(dash_svg.Line(
-                    id=connection_name,
-                    x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
-                    stroke=vp.node_type_to_color[sag.name_to_node[source].type_of_tensor],
-                    strokeWidth=1,
-                ))
-                connection_names_to_source_and_target[connection_name] = (source, target)
-                node_to_incoming_and_outgoing_lines[source][1].append(connection_name)
-                node_to_incoming_and_outgoing_lines[target][0].append(connection_name)
+                stroke_color = vp.node_type_to_color[sag.name_to_node[source].type_of_tensor]
+                if DISPLAY_ALL_CONNECTIONS_GRAPHICALLY:
+                    svg_connection_lines.append(dash_svg.Line(
+                        id=connection_name,
+                        x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
+                        stroke=stroke_color,
+                        strokeWidth=1,
+                    ))
+                if HIGHLIGHT_SELECTED_CONNECTIONS:
+                    for n1, n2 in [(source, target), (target, source)]:
+                        self.configuration_type_and_node_to_list_of_connections.setdefault((configuration_type, n1), []).append((
+                            source_x, source_y, target_x, target_y, n2,
+                            (vp.highlighting_colors['highlighted'] if DISPLAY_ALL_CONNECTIONS_GRAPHICALLY else stroke_color)
+                        ))
         elements_of_the_graph.append(dash_svg.Svg(svg_connection_lines, viewBox=f'0 0 {vp.total_display_width} {vp.total_display_height}'))
         return elements_of_the_graph
 
@@ -261,9 +324,22 @@ class Visualization:
     def create_visualization(self):
         app = self.app
         # Define the Layout of the App
-        app.layout = html.Div(style={
+        app.layout = html.Div(id='main-body-div', style={
             'backgroundColor': 'white',
         }, children=[
+            html.Div(id='main-controls-buttons-container', children=[
+                dbc.Row([
+                    dbc.Col(dcc.RadioItems(id='display-type-radio-buttons', options=['Tensors', 'Network', 'Notes'], value='Tensors', inline=True), width=3),
+                    dbc.Col([html.Label("Navigation:"),
+                        html.Button(html.I(className="bi bi-arrow-left"), id='navigate-left-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-right"), id='navigate-right-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-up"), id='navigate-up-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-down"), id='navigate-down-button', className='btn btn-outline-secondary btn-xs', n_clicks=0)
+                    ], id='navigation-buttons', width=4),
+                    dbc.Col("", width=3),
+                    dbc.Col(html.Button('Reload from disk', id='refresh-button', n_clicks=0), width=2),
+                ]),
+            ]),
             html.Div(id='dummy-for-selecting-a-node'),  # This dummy stores some data
             html.Div(id='graph-container', style={
                 'position': 'relative',
@@ -290,53 +366,46 @@ class Visualization:
                 )
             ]),
             dcc.Tooltip(id="graph-tooltip"),
-            html.Div(id='controls-container', children=[
-                html.Div(id='controls-buttons-container', children=[
-                    dbc.Row([
-                        dbc.Col(html.Button('Reload from disk', id='refresh-button', n_clicks=0), width=1),
-                        dbc.Col(dcc.RadioItems(id='display-type-radio-buttons', options=['Tensors', 'Network', 'Notes'], value='Tensors', inline=True), width=2),
-                        dbc.Col([
-                            html.Label("Navigate between Nodes:"),
-                            html.Button('Left', id='navigate-left-button', n_clicks=0),
-                            html.Button('Right', id='navigate-right-button', n_clicks=0),
-                            html.Button('Up', id='navigate-up-button', n_clicks=0),
-                            html.Button('Down', id='navigate-down-button', n_clicks=0)
-                        ], width=3),
-                    ]),
+            html.Div(id='controls-selectors-container', children=[
+                dbc.Row([
+                    dbc.Col(html.Label("Trial"), width=2),
+                    dbc.Col(dcc.Dropdown(id='trials-dropdown', options=[], value=None), width=9),
                 ]),
-                html.Div(children=[
-                    dbc.Row([
-                        dbc.Col(html.Label("Trial"), width=2),
-                        dbc.Col(dcc.Dropdown(id='trials-dropdown', options=[], value=None), width=9),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(html.Label("Type of training step"), width=2),
-                        dbc.Col(dcc.Dropdown(id='type-of-execution-for-diversity-of-recordings-dropdown', options=[], value=None), width=9),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(html.Label("Training step"), width=1),
-                        dbc.Col([
-                            html.Button('<', id='decrement-training-step-button', n_clicks=0),
-                            html.Button('>', id='increment-training-step-button', n_clicks=0),
-                        ], width=1),
-                        dbc.Col(dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None), width=9),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(html.Label("Type of recording"), width=2),
-                        dbc.Col(dcc.RadioItems(id='type-of-recording-radio-buttons', options=[], value=None, inline=True), width=9),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(html.Label("Batch or individual sample"), width=2),
-                        dbc.Col(dcc.Dropdown(id='batch-index-dropdown', options=[], value=None), width=9),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(html.Label("Iteration"), width=2),
-                        dbc.Col(dcc.Slider(id='iteration-slider', min=0, max=0, step=1, value=0), width=9),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(html.Label("Role of tensor"), width=2),
-                        dbc.Col(dcc.Dropdown(id='role-of-tensor-in-node-dropdown', options=[], value=None), width=9),
-                    ]),
+                dbc.Row([
+                    dbc.Col(html.Label("Role of tensor"), width=2),
+                    dbc.Col(dcc.Dropdown(id='role-of-tensor-in-node-dropdown', options=[], value=None), width=9),
+                ]),
+                dbc.Row([
+                    dbc.Col(html.Label("Type of recording"), width=2),
+                    dbc.Col(dcc.RadioItems(id='type-of-recording-radio-buttons', options=[], value=None, inline=True), width=9),
+                ]),
+                dbc.Row([
+                    dbc.Col(html.Label("Type of training step"), width=2),
+                    dbc.Col(dcc.Dropdown(id='type-of-execution-for-diversity-of-recordings-dropdown', options=[], value=None), width=9),
+                ]),
+                dbc.Row([
+                    dbc.Col(html.Label("Training step"), width=1),
+                    dbc.Col(html.Div([
+                        html.Button(html.I(className="bi bi-arrow-left"), id='decrement-training-step-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-right"), id='increment-training-step-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                    ], className='buttons-for-selecting-filters'), width=1),
+                    dbc.Col(dcc.Slider(id='training-step-slider', min=0, max=100, step=None, value=None), width=9),
+                ]),
+                dbc.Row([
+                    dbc.Col(html.Label("Iteration"), width=1),
+                    dbc.Col(html.Div([
+                        html.Button(html.I(className="bi bi-arrow-left"), id='decrement-iteration-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-right"), id='increment-iteration-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                    ], className='buttons-for-selecting-filters'), width=1),
+                    dbc.Col(dcc.Slider(id='iteration-slider', min=0, max=0, step=1, value=0), width=9),
+                ]),
+                dbc.Row([
+                    dbc.Col(html.Label("Batch or sample"), width=1),
+                    dbc.Col(html.Div([
+                        html.Button(html.I(className="bi bi-arrow-left"), id='decrement-batch-index-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-right"), id='increment-batch-index-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                    ], className='buttons-for-selecting-filters'), width=1),
+                    dbc.Col(dcc.Dropdown(id='batch-index-dropdown', options=[], value=None), width=9),
                 ]),
             ]),
             html.Div(id='selected-item-details-container', children=[
@@ -380,6 +449,10 @@ class Visualization:
                         Input('type-of-execution-for-diversity-of-recordings-dropdown', 'value'),
                         Input('decrement-training-step-button', 'n_clicks'),
                         Input('increment-training-step-button', 'n_clicks'),
+                        Input('decrement-iteration-button', 'n_clicks'),
+                        Input('increment-iteration-button', 'n_clicks'),
+                        Input('decrement-batch-index-button', 'n_clicks'),
+                        Input('increment-batch-index-button', 'n_clicks'),
                         Input('training-step-slider', 'value'),
                         Input('type-of-recording-radio-buttons', 'value'),
                         Input('batch-index-dropdown', 'value'),
@@ -395,8 +468,10 @@ class Visualization:
                         for node in sag.name_to_node.keys()]))
         @utilities.runtime_analysis_decorator
         def update_selectors(
-                trials_value, type_of_execution_for_diversity_of_recordings,
+                trials_value, type_of_execution,
                 decrement_training_step, increment_training_step,
+                decrement_iteration, increment_iteration,
+                decrement_batch_index, increment_batch_index,
                 training_step_value, type_of_recording_value, batch_index_value,
                 iteration_value, role_of_tensor_in_node_value, previous_name_of_selected_node,
                 *lsts,
@@ -427,23 +502,23 @@ class Visualization:
             #
             # Selection of valid values for training steps.
             #
-            # Training steps and type_of_execution_for_diversity_of_recordings come from file names,
+            # Training steps and type_of_execution come from file names,
             # while all other attributes are held by the contents of the files that training steps are named after.
-            type_of_execution_for_diversity_of_recordings = (type_of_execution_for_diversity_of_recordings or 'any_value')
+            type_of_execution = (type_of_execution or 'any_value')
             recordings_path = self.path / 'trials' / trials_value / 'recordings'
             training_steps_and_types = []
             for possible_path in recordings_path.iterdir():
                 match = re.match(r'^([0-9]+)__(.+)$', possible_path.name)
                 training_step_value_of_path = int(match.group(1))
-                type_of_execution_for_diversity_of_recordings_of_path = match.group(2)
-                training_steps_and_types.append((training_step_value_of_path, type_of_execution_for_diversity_of_recordings_of_path))
-            list_of_type_of_execution_for_diversity_of_recordings = sorted(list(set(['any_value'] + [a[1] for a in training_steps_and_types])), key=lambda a: '' if a == 'any_value' else a)
+                type_of_execution_of_path = match.group(2)
+                training_steps_and_types.append((training_step_value_of_path, type_of_execution_of_path))
+            list_of_type_of_execution = sorted(list(set(['any_value'] + [a[1] for a in training_steps_and_types])), key=lambda a: '' if a == 'any_value' else a)
             training_steps = sorted([a[0] for a in training_steps_and_types
-                                     if type_of_execution_for_diversity_of_recordings == 'any_value'
-                                     or type_of_execution_for_diversity_of_recordings == a[1]])
+                                     if type_of_execution == 'any_value'
+                                     or type_of_execution == a[1]])
             assert len(training_steps) > 0
-            type_of_execution_for_diversity_of_recordings_options, type_of_execution_for_diversity_of_recordings = create_options_and_value_from_list(
-                type_of_execution_for_diversity_of_recordings, list_of_type_of_execution_for_diversity_of_recordings,
+            type_of_execution_options, type_of_execution = create_options_and_value_from_list(
+                type_of_execution, list_of_type_of_execution,
                 label_maker=lambda a: "Any training step" if a == 'any_value' else a
             )
             training_step_min, training_step_max, training_step_marks, training_step_value = create_slider_data_from_list(
@@ -458,7 +533,8 @@ class Visualization:
             elif ctx.triggered_id == 'decrement-training-step-button':
                 idx = max(0, min(len(training_steps) - 1, idx - 1))
                 training_step_value = training_steps[idx]
-            recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution_for_diversity_of_recordings)
+            # Get the recordings
+            recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution)
             db: utilities.PseudoDb = recordings.recordings
             if program_is_initializing:
                 # Initialize everything
@@ -473,7 +549,7 @@ class Visualization:
             else:
                 # Select the node, or change it if the user clicked something.
                 name_of_selected_node = self.get_or_change_selected_node(
-                    trials_value, type_of_execution_for_diversity_of_recordings,
+                    trials_value, type_of_execution,
                     training_step_value, iteration_value, previous_name_of_selected_node,
                     navigation_button_clicks, clicks_per_node,
                 )
@@ -552,20 +628,31 @@ class Visualization:
             _, possible_attribute_values = query_database_using_current_values(
                 [], current_params_dict_for_querying_database
             )
-            # Get the values to return
+            # Options for the type of recording
             type_of_recording_options, type_of_recording_value = create_options_and_value_from_list(
                 type_of_recording_value, possible_attribute_values['type_of_tensor_recording'],
             )
             type_of_recording_options.sort(key=lambda a: a['value'])
+            # Options for the batch_index
             batch_index_options, batch_index_value = create_options_and_value_from_list(
                 batch_index_value, possible_attribute_values['batch_aggregation'],
                 label_maker=lambda a: {
                     'batch_mean': "Mean over the batch",
+                    'batch_abs_max': "Maximum absolute value over the batch",
                     'batch_std': "STD over the batch",
                     'has_no_batch_dimension': "Has no batch dimension",
                 }.get(a, f"batch index {a}")
             )
-            batch_index_options.sort(key=lambda a: -1 if a['value'] in ['batch_mean', 'batch_std'] else (-2 if a['value'] == 'has_no_batch_dimension' else a['value']))
+            batch_index_options.sort(key=lambda a: -1 if a['value'] in ['batch_mean', 'batch_abs_max', 'batch_std'] else (-2 if a['value'] == 'has_no_batch_dimension' else a['value']))
+            # Increment or decrement the batch index if the user clicked the buttons.
+            idx = [a['value'] for a in batch_index_options].index(batch_index_value)
+            if ctx.triggered_id == 'increment-batch-index-button':
+                idx = max(0, min(len(batch_index_options) - 1, idx + 1))
+                batch_index_value = batch_index_options[idx]['value']
+            elif ctx.triggered_id == 'decrement-batch-index-button':
+                idx = max(0, min(len(batch_index_options) - 1, idx - 1))
+                batch_index_value = batch_index_options[idx]['value']
+            # Options for the iteration
             if self.node_is_a_parameter[name_of_selected_node]:
                 iteration_options = list(recordings.training_step_to_iteration_to_configuration_type[training_step_value].keys())
                 iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
@@ -578,6 +665,16 @@ class Visualization:
                 iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
                     iteration_value, possible_attribute_values['iteration'],
                 )
+            # Increment or decrement the iteration if the user clicked the buttons.
+            possible_iteration_values = sorted(list(iteration_marks.keys()))
+            idx = possible_iteration_values.index(iteration_value)
+            if ctx.triggered_id == 'increment-iteration-button':
+                idx = max(0, min(len(possible_iteration_values) - 1, idx + 1))
+                iteration_value = possible_iteration_values[idx]
+            elif ctx.triggered_id == 'decrement-iteration-button':
+                idx = max(0, min(len(possible_iteration_values) - 1, idx - 1))
+                iteration_value = possible_iteration_values[idx]
+            # Options for the role of the tensor
             role_of_tensor_in_node_options, role_of_tensor_in_node_value = create_options_and_value_from_list(
                 role_of_tensor_in_node_value, possible_attribute_values['role_within_node'],
             )
@@ -592,7 +689,7 @@ class Visualization:
             ]
             res = [
                       name_of_selected_node,
-                      type_of_execution_for_diversity_of_recordings_options, type_of_execution_for_diversity_of_recordings,
+                      type_of_execution_options, type_of_execution,
                       training_step_min, training_step_max, training_step_marks, training_step_value,
                       type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value,
                       iteration_min, iteration_max, iteration_marks, iteration_value,
@@ -602,7 +699,8 @@ class Visualization:
 
         @app.callback(
             [Output('selected-item-details-container', 'children'),
-             Output('graph-overlay-for-selections', 'children')],
+             Output('graph-overlay-for-selections', 'children'),
+             Output('main-body-div', 'className')],
             [Input('display-type-radio-buttons', 'value'),
              Input('dummy-for-selecting-a-node', 'className'),
              Input('trials-dropdown', 'value'),
@@ -616,13 +714,13 @@ class Visualization:
         @utilities.runtime_analysis_decorator
         def update_kpis_to_display_for_selection(
                 display_type_radio_buttons,
-                node_name, trials_value, type_of_execution_for_diversity_of_recordings,
+                node_name, trials_value, type_of_execution,
                 training_step_value, type_of_recording_value,
                 batch_index_value, iteration_value, role_of_tensor_in_node_value,
         ):
-            recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution_for_diversity_of_recordings)
+            recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution)
             configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][iteration_value]
-            type_of_execution_for_diversity_of_recordings = recordings.training_step_to_type_of_execution_for_diversity_of_recordings[training_step_value]
+            type_of_execution = recordings.training_step_to_type_of_execution[training_step_value]
             sag = self.configuration_type_to_status_and_graph[configuration_type]
             if self.node_is_a_parameter[node_name]:
                 iteration_value = 0
@@ -659,6 +757,15 @@ class Visualization:
                     graph_overlay_elements.append(dash_svg.Line(
                         x1=str(x1), x2=str(x2), y1=str(y1), y2=str(y2),
                         stroke=color,
+                        strokeWidth=3,
+                    ))
+            if HIGHLIGHT_SELECTED_CONNECTIONS:
+                for coordinates in self.configuration_type_and_node_to_list_of_connections.get((configuration_type, node_name), []):
+                    source_x, source_y, target_x, target_y, other_node, stroke_color = coordinates
+                    graph_overlay_elements.append(dash_svg.Line(
+                        id=f'highlight_connection__{configuration_type}__{node}__{other_node}',
+                        x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
+                        stroke=stroke_color,
                         strokeWidth=3,
                     ))
             graph_overlay_for_selections_children = [
@@ -719,44 +826,83 @@ class Visualization:
                 else:
                     raise ValueError(key[index_of_item])
             # Create the graphical display
+
+            def optionally_add_tooltip_about_aggregation(item):
+                if item != 'mean':
+                    return item
+                return html.Div([
+                    html.Div(
+                        [
+                            f"{item}",
+                            html.Span(
+                                "?",
+                                id='tooltip-target',
+                                style={
+                                    'textDecoration': 'underline',
+                                    'cursor': 'pointer',
+                                    'float': 'right'
+                                },
+                            ),
+                        ]
+                    ),
+                    dbc.Tooltip(
+                        "A note on the order of operations: The aggregation over the batch, if one is selected, "
+                        "is applied after the aggregation over the tensor. "
+                        "For example, let's say 'Mean over the Batch' is selected, "
+                        "and we look at the value of the item 'abs_max'. "
+                        "This value is calculated by first calculating the maximum absolute neuron value "
+                        "for each tensor in the batch and then taking the mean over those values.",
+                        target='tooltip-target',
+                    ),
+                ])
             rows = []
             for key, val in list_of_matches:
                 row = [
-                    html.Td(key[index_of_item]),
+                    html.Td(optionally_add_tooltip_about_aggregation(key[index_of_item])),
                     html.Td(key[index_of_metadata]),
                     html.Td(f"", style={'width': '15px', 'background': utilities.number_to_hex(val)} if isinstance(val, numbers.Number) else {}),
                     html.Td(f"{val:17.10f}     -     {' ' if val >= 0.0 else ''}{val:.8e}" if isinstance(val, numbers.Number) else val),
                 ]
                 rows.append(html.Tr(row))
-            desc_text = node.type_of_tensor
             if display_type_radio_buttons == 'Tensors':
+                hide_containers_for_tensors = False
                 children = [
-                    # html.Header(f"{trials_value}   -   {training_step_value}"),
-                    html.Header(f"Training step {training_step_value}, Type: {type_of_execution_for_diversity_of_recordings}"),
-                    html.Header(f"Node: {node.full_unique_name} - {role_of_tensor_in_node_value}"),
-                    html.Div(desc_text),
-                    html.Div(f"Shape: [{', '.join([str(a) for a in tensor_shape])}]"),
-                    html.Table([html.Tr([html.Th(col) for col in ['KPI', 'metadata', '', 'value']])] + rows),
+                    html.Table(
+                        [html.Tr([html.Th(col) for col in ['Trial', 'Step Type', 'Node', 'Role', 'Tensor Type', 'Tensor Shape', 'Training Step', 'Iteration']])] +
+                        [html.Tr([
+                            html.Td(val) for val in [
+                                trials_value, type_of_execution,
+                                node.full_unique_name[len('node__'):],
+                                role_of_tensor_in_node_value, node.type_of_tensor, f"[{', '.join([str(a) for a in tensor_shape])}]",
+                                training_step_value, iteration_value,
+                            ]
+                        ])],
+                        id='selected-values-summary-table',
+                    ),
+                    html.Table([html.Tr([html.Th(col) for col in ['Item', '', '', 'value']])] + rows),
                 ]
             elif display_type_radio_buttons == 'Network':
+                hide_containers_for_tensors = True
                 children = [
                     html.Div(f"{self.get_formatted_overview_of_module_parameters(sag)}", className="metadata-div"),
                 ]
             elif display_type_radio_buttons == 'Notes':
+                hide_containers_for_tensors = True
                 children = [
                     html.Div('\n'.join(self.get_notes_for_trial(trials_value)), className="metadata-div"),
                 ]
             else:
                 raise ValueError(display_type_radio_buttons)
-            return children, graph_overlay_for_selections_children
+            class_for_main_div = ('hide-containers-for-tensors' if hide_containers_for_tensors else '')
+            return children, graph_overlay_for_selections_children, class_for_main_div
 
     @utilities.runtime_analysis_decorator
     def get_or_change_selected_node(
-            self, trials_value, type_of_execution_for_diversity_of_recordings,
+            self, trials_value, type_of_execution,
             training_step_value, iteration_value, previous_name_of_selected_node,
             navigation_button_clicks, clicks_per_node,
     ):
-        recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution_for_diversity_of_recordings)
+        recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution)
         # Special case: If nothing was clicked, just return the previous_name_of_selected_node
         if max([-1 if a is None else a for a in navigation_button_clicks + clicks_per_node]) <= self.last_navigation_click_event_time:
             return previous_name_of_selected_node
@@ -860,9 +1006,8 @@ class Visualization:
     @utilities.runtime_analysis_decorator
     def get_notes_for_trial(self, trial_id):
         path = self.path / 'trials' / str(trial_id) / 'notes.json'
-        print(path)
         if path.exists():
             with open(path, 'r') as f:
                 notes = json.load(f)
             return notes
-        return "No Notes have been recorded for this trial."
+        return ["No Notes have been recorded for this trial."]

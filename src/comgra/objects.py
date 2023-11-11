@@ -54,7 +54,7 @@ class Node:
 
 @dataclasses.dataclass
 class TensorRecordings:
-    training_step_to_type_of_execution_for_diversity_of_recordings: Dict[int, str] = dataclasses.field(default_factory=dict)
+    training_step_to_type_of_execution: Dict[int, str] = dataclasses.field(default_factory=dict)
     training_step_to_iteration_to_configuration_type: Dict[int, Dict[int, str]] = dataclasses.field(default_factory=dict)
     recordings: Optional[utilities.PseudoDb] = None
 
@@ -209,7 +209,7 @@ class DecisionMakerForRecordings(abc.ABC):
     pass
 
     @abc.abstractmethod
-    def is_record_on_this_iteration(self, training_step, type_of_execution_for_diversity_of_recordings):
+    def is_record_on_this_iteration(self, training_step, type_of_execution):
         pass
 
 
@@ -217,7 +217,7 @@ class DecisionMakerForRecordings(abc.ABC):
 class DecisionMakerForRecordingsHardcoded(DecisionMakerForRecordings):
     fixed_training_steps: set[int]
 
-    def is_record_on_this_iteration(self, training_step, type_of_execution_for_diversity_of_recordings):
+    def is_record_on_this_iteration(self, training_step, type_of_execution):
         return training_step in self.fixed_training_steps
 
 
@@ -226,14 +226,14 @@ class DecisionMakerForRecordingsFrequencyPerType(DecisionMakerForRecordings):
     min_training_steps_difference: int
     identifier_to_last_recorded_step: Dict = dataclasses.field(default_factory=dict)
 
-    def is_record_on_this_iteration(self, training_step, type_of_execution_for_diversity_of_recordings):
-        if type_of_execution_for_diversity_of_recordings is None:
+    def is_record_on_this_iteration(self, training_step, type_of_execution):
+        if type_of_execution is None:
             return False
-        last_recorded_step = self.identifier_to_last_recorded_step.get(type_of_execution_for_diversity_of_recordings, None)
+        last_recorded_step = self.identifier_to_last_recorded_step.get(type_of_execution, None)
         if last_recorded_step == training_step:
             return True
         if last_recorded_step is None or training_step >= last_recorded_step + self.min_training_steps_difference:
-            self.identifier_to_last_recorded_step[type_of_execution_for_diversity_of_recordings] = training_step
+            self.identifier_to_last_recorded_step[type_of_execution] = training_step
             return True
         return False
 
@@ -250,7 +250,7 @@ class DecisionMakerForRecordingsExponentialFalloff(DecisionMakerForRecordings):
         self.current_valid_steps = []
         self.current_step_size = starting_step_size
 
-    def is_record_on_this_iteration(self, training_step, type_of_execution_for_diversity_of_recordings):
+    def is_record_on_this_iteration(self, training_step, type_of_execution):
         if self.current_step_size * (self.maximum_number_of_recordings - 1) < training_step:
             self.current_step_size *= 2
         self.current_valid_steps = [
