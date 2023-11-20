@@ -38,6 +38,8 @@ Comgra's GUI has three parts:
 
   Each rectangle in the dependency graph is a node that represents a named tensor. The colors indicate the roles of the tensor in the network, such as input, intermediate result, parameter, etc.
 
+  When you select a node it becomes highlighted, along with all nodes / tensors that it depends on (to the left) and that depend on it (to the right). Only the links for the selected node are shown by default to avoid visual clutter, but by clicking through the nodes you can explore the entire dependency graph.
+
   The dependency graph is generated automatically based on the computation graph used by pytorch and the names you assign to tensors through comgra. It is a subgraph of the computation graph, but it is much easier to understand because it is smaller and skips all of the distracting details.
 
   This cutting away of details also makes it easier to compare different variants of architectures: Their computation graphs may look different, but the simplified dependency graphs are the same.
