@@ -36,7 +36,8 @@ class ComgraRecorder:
         self.group_path = comgra_root_path / group
         self.trial_path = self.group_path / 'trials' / trial_id
         self.recordings_path = self.trial_path / 'recordings'
-        self.recordings_path.mkdir(parents=True, exist_ok=True)
+        if comgra_is_active:
+            self.recordings_path.mkdir(parents=True, exist_ok=True)
         self.configuration_type = None
         self.configuration_path = None
         self.type_of_serialization = type_of_serialization
@@ -128,6 +129,8 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def add_note(self, note):
+        if not self.comgra_is_active:
+            return
         self.notes.append(str(note))
         with open(self.trial_path / 'notes.json', 'w') as f:
             json.dump(self.notes, f)
