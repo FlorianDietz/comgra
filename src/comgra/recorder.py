@@ -36,7 +36,8 @@ class ComgraRecorder:
         self.group_path = comgra_root_path / group
         self.trial_path = self.group_path / 'trials' / trial_id
         self.recordings_path = self.trial_path / 'recordings'
-        self.recordings_path.mkdir(parents=True, exist_ok=True)
+        if comgra_is_active:
+            self.recordings_path.mkdir(parents=True, exist_ok=True)
         self.configuration_type = None
         self.configuration_path = None
         self.type_of_serialization = type_of_serialization
@@ -107,7 +108,7 @@ class ComgraRecorder:
             return self.comgra_is_active and self.decision_maker_for_recordings.is_record_on_this_iteration(
                 self.training_step, self.type_of_execution,
             )
-        return self.override__recording_is_active
+        return self.comgra_is_active and self.override__recording_is_active
 
     def _verify_uniqueness_of_name(self, name, type_of_name):
         if type_of_name == 'module':
@@ -128,6 +129,8 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def add_note(self, note):
+        if not self.comgra_is_active:
+            return
         self.notes.append(str(note))
         with open(self.trial_path / 'notes.json', 'w') as f:
             json.dump(self.notes, f)
