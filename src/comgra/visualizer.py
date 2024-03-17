@@ -1,5 +1,6 @@
 # BASIC IMPORTS
 import collections
+import importlib
 import os.path
 from dataclasses import dataclass
 import gzip
@@ -88,11 +89,12 @@ class Visualization:
     """
     Keeps track of KPIs over the course of the Experiment and creates visualizations from them.
     """
-    def __init__(self, path, debug_mode):
+    def __init__(self, path, debug_mode, external_visualization_file):
         super().__init__()
         utilities.DEBUG_MODE = debug_mode
         self.debug_mode = debug_mode
         self.path: Path = path
+        self.external_visualization_file = external_visualization_file
         assert path.exists(), path
         assets_path = Path(__file__).absolute().parent.parent / 'assets'
         assert assets_path.exists(), "If this fails, files have been moved."
@@ -323,20 +325,23 @@ class Visualization:
     @utilities.runtime_analysis_decorator
     def create_visualization(self):
         app = self.app
+        display_type_radio_button_options = ['Tensors', 'Network', 'Notes']
+        if self.external_visualization_file is not None:
+            display_type_radio_button_options.append('Visualization')
         # Define the Layout of the App
         app.layout = html.Div(id='main-body-div', style={
             'backgroundColor': 'white',
         }, children=[
             html.Div(id='main-controls-buttons-container', children=[
                 dbc.Row([
-                    dbc.Col(dcc.RadioItems(id='display-type-radio-buttons', options=['Tensors', 'Network', 'Notes'], value='Tensors', inline=True), width=3),
+                    dbc.Col(dcc.RadioItems(id='display-type-radio-buttons', options=display_type_radio_button_options, value='Tensors', inline=True), width=4),
                     dbc.Col([html.Label("Navigation:"),
                         html.Button(html.I(className="bi bi-arrow-left"), id='navigate-left-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
                         html.Button(html.I(className="bi bi-arrow-right"), id='navigate-right-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
                         html.Button(html.I(className="bi bi-arrow-up"), id='navigate-up-button', className='btn btn-outline-secondary btn-xs', n_clicks=0),
                         html.Button(html.I(className="bi bi-arrow-down"), id='navigate-down-button', className='btn btn-outline-secondary btn-xs', n_clicks=0)
                     ], id='navigation-buttons', width=4),
-                    dbc.Col("", width=3),
+                    dbc.Col("", width=2),
                     dbc.Col(html.Button('Reload from disk', id='refresh-button', n_clicks=0), width=2),
                 ]),
             ]),
@@ -891,6 +896,15 @@ class Visualization:
                 children = [
                     html.Div('\n'.join(self.get_notes_for_trial(trials_value)), className="metadata-div"),
                 ]
+            elif display_type_radio_buttons == 'Visualization':
+                hide_containers_for_tensors = False
+                children = [
+                    html.Div(self.create_external_visualization(
+                        recordings, configuration_type, type_of_execution, sag, db,
+                        training_step_value, type_of_recording_value, batch_index_value, iteration_value, node_name,
+                        role_of_tensor_in_node_value,
+                    ), className="external-visualization-div"),
+                ]
             else:
                 raise ValueError(display_type_radio_buttons)
             class_for_main_div = ('hide-containers-for-tensors' if hide_containers_for_tensors else '')
@@ -1011,3 +1025,17 @@ class Visualization:
                 notes = json.load(f)
             return notes
         return ["No Notes have been recorded for this trial."]
+
+    @utilities.runtime_analysis_decorator
+    def create_external_visualization(self, *args):
+        try:
+            from importlib import util as importlib_util
+            spec = importlib_util.spec_from_file_location("module_name", self.external_visualization_file)
+            my_module = importlib_util.module_from_spec(spec)
+            spec.loader.exec_module(my_module)
+            # my_module = importlib.import_module(self.external_visualization_file)
+            res = my_module.create_visualization(*args)
+            return res
+        except Exception as e:
+            error_message = utilities.get_error_message_details()
+            return f"Failed to execute the file {self.external_visualization_file}:\n{error_message}"
