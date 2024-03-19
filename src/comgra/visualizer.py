@@ -1111,9 +1111,9 @@ class Visualization:
             self.load_kpi_graphs_for_trial(trials_value)
         graph_excerpt = self.trial_to_kpi_graph_excerpt[trials_value]
         graphs = []
-        for type_of_execution, a in graph_excerpt.items():
-            for kpi_group, b in a.items():
-                plots = []
+        for kpi_group, a in graph_excerpt.items():
+            plots = []
+            for type_of_execution, b in a.items():
                 for kpi_name, stats in b.items():
                     vals = stats['vals']
                     xs = []
@@ -1123,15 +1123,15 @@ class Visualization:
                         y = val['val']
                         xs.append(x)
                         ys.append(y)
-                    plots.append(go.Scatter(x=xs, y=ys, name=kpi_name))
-                fig = go.Figure(data=plots, layout=go.Layout(
-                    title=f'{type_of_execution}__{kpi_group}',
-                    xaxis=dict(title='step'),
-                    yaxis=dict(title='value'),
-                    legend=dict(x=0, y=1),  # Positioning of the legend (0 to 1, where 0 is left/bottom and 1 is right/top)
-                    hovermode='closest'
-                ))
-                graphs.append(dcc.Graph(figure=fig))
+                    plots.append(go.Scatter(x=xs, y=ys, name=f"{type_of_execution}__{kpi_name}"))
+            fig = go.Figure(data=plots, layout=go.Layout(
+                title=f'{kpi_group}',
+                xaxis=dict(title='step'),
+                yaxis=dict(title='value'),
+                legend=dict(x=0, y=1),  # Positioning of the legend (0 to 1, where 0 is left/bottom and 1 is right/top)
+                hovermode='closest'
+            ))
+            graphs.append(dcc.Graph(figure=fig))
         content_div = html.Div(children=graphs, style={
         })
         return html.Div(children=[

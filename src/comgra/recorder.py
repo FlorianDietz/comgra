@@ -727,7 +727,7 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def record_kpi_in_graph(self, kpi_group, kpi_name, val, timepoint):
-        stats = self.kpi_graph_excerpt.setdefault(self.type_of_execution, {}).setdefault(kpi_group, {}).setdefault(kpi_name, {
+        stats = self.kpi_graph_excerpt.setdefault(kpi_group, {}).setdefault(self.type_of_execution, {}).setdefault(kpi_name, {
             'vals': [],
             'next_timepoint': 0,
         })
