@@ -3,7 +3,10 @@ import dataclasses
 import functools
 import gzip
 import json
+import numbers
+import os
 import re
+import shutil
 from pathlib import Path
 import pickle
 from typing import List, Dict, Optional, Tuple
@@ -83,6 +86,13 @@ class ComgraRecorder:
         self.current_stage = 'inactive'
         self.types_of_tensor_recordings = ['forward']
         self.current_type_of_tensor_recording = None
+        #
+        # KPI graph recording
+        #
+        self.kpi_graph_exponential_backoff_factor = 1.2
+        self.kpi_graph_excerpt = {}
+        self.kpi_graph_changed = False
+        self.kpi_graph_next_training_step_to_update_file = 10.0
         #
         # Things that are recorded once and then compared to
         #
@@ -595,18 +605,7 @@ class ComgraRecorder:
             recordings_path_folder.mkdir(exist_ok=True)
             dump_dict = dataclasses.asdict(self.tensor_recordings)
             dump_dict['recordings'] = dump_dict['recordings'].serialize()
-            if self.type_of_serialization == 'json':
-                self.save_json(dump_dict, recordings_path_folder, file_number)
-            elif self.type_of_serialization == 'zip_json':
-                self.save_zip_json(dump_dict, recordings_path_folder, file_number)
-            elif self.type_of_serialization == 'pkl':
-                self.save_pickle(dump_dict, recordings_path_folder, file_number)
-            elif self.type_of_serialization == 'msgpack':
-                self.save_msgpack(dump_dict, recordings_path_folder, file_number)
-            elif self.type_of_serialization == 'zip_msgpack':
-                self.save_zip_msgpack(dump_dict, recordings_path_folder, file_number)
-            else:
-                raise ValueError(self.type_of_serialization)
+            self.save_file(dump_dict, recordings_path_folder, file_number)
             file_number += 1
             self.tensor_recordings.recordings = utilities.PseudoDb(attributes=attributes_for_tensor_recordings)
         batch_size_to_record = self.current_batch_size if self.max_num_batch_size_to_record is None else min(
@@ -673,29 +672,87 @@ class ComgraRecorder:
         assert len(all_tensors_to_combine) == 0
         total_number_of_tensor_values = sum(t.numel() for t, tr in self.mapping_of_tensors_for_extracting_kpis.values())
         assert sanity_check_c == total_number_of_tensor_values, (sanity_check_c, total_number_of_tensor_values)
+        self.save_recorded_kpi_graphs_if_needed()
+
+    @utilities.runtime_analysis_decorator
+    def save_file(self, dump_dict, recordings_path_folder, file_number):
+        if self.type_of_serialization == 'json':
+            return self.save_json(dump_dict, recordings_path_folder, file_number)
+        elif self.type_of_serialization == 'zip_json':
+            return self.save_zip_json(dump_dict, recordings_path_folder, file_number)
+        elif self.type_of_serialization == 'pkl':
+            return self.save_pickle(dump_dict, recordings_path_folder, file_number)
+        elif self.type_of_serialization == 'msgpack':
+            return self.save_msgpack(dump_dict, recordings_path_folder, file_number)
+        elif self.type_of_serialization == 'zip_msgpack':
+            return self.save_zip_msgpack(dump_dict, recordings_path_folder, file_number)
+        else:
+            raise ValueError(self.type_of_serialization)
 
     @utilities.runtime_analysis_decorator
     def save_json(self, dump_dict, recordings_path_folder, file_number):
-        with open(recordings_path_folder / f'{file_number}.json', 'w') as f:
+        path = recordings_path_folder / f'{file_number}.json'
+        with open(path, 'w') as f:
             json.dump(dump_dict, f)
+        return path
 
     @utilities.runtime_analysis_decorator
     def save_zip_json(self, dump_dict, recordings_path_folder, file_number):
-        with gzip.open(recordings_path_folder / f'{file_number}.zip_json', 'w') as fout:
+        path = recordings_path_folder / f'{file_number}.zip_json'
+        with gzip.open(path, 'w') as fout:
             json_bytes = (json.dumps(dump_dict) + "\n").encode('utf-8')
             fout.write(json_bytes)
+        return path
 
     @utilities.runtime_analysis_decorator
     def save_pickle(self, dump_dict, recordings_path_folder, file_number):
-        with open(recordings_path_folder / f'{file_number}.pkl', 'wb') as f:
+        path = recordings_path_folder / f'{file_number}.pkl'
+        with open(path, 'wb') as f:
             pickle.dump(dump_dict, f)
+        return path
 
     @utilities.runtime_analysis_decorator
     def save_msgpack(self, dump_dict, recordings_path_folder, file_number):
-        with open(recordings_path_folder / f'{file_number}.msgpack', 'wb') as f:
+        path = recordings_path_folder / f'{file_number}.msgpack'
+        with open(path, 'wb') as f:
             msgpack.dump(dump_dict, f)
+        return path
 
     @utilities.runtime_analysis_decorator
     def save_zip_msgpack(self, dump_dict, recordings_path_folder, file_number):
-        with gzip.open(recordings_path_folder / f'{file_number}.zip_msgpack', 'wb') as fout:
+        path = recordings_path_folder / f'{file_number}.zip_msgpack'
+        with gzip.open(path, 'wb') as fout:
             fout.write(msgpack.dumps(dump_dict))
+        return path
+
+    @utilities.runtime_analysis_decorator
+    def record_kpi_in_graph(self, kpi_group, kpi_name, val, timepoint):
+        stats = self.kpi_graph_excerpt.setdefault(kpi_group, {}).setdefault(self.type_of_execution, {}).setdefault(kpi_name, {
+            'vals': [],
+            'next_timepoint': 0,
+        })
+        if timepoint >= stats['next_timepoint']:
+            if isinstance(val, torch.Tensor):
+                val = val.item()
+            assert isinstance(val, numbers.Number)
+            stats['vals'].append({
+                'timepoint': timepoint,
+                'val': val,
+            })
+            while timepoint >= stats['next_timepoint']:
+                stats['next_timepoint'] = max([1, stats['next_timepoint'] * self.kpi_graph_exponential_backoff_factor])
+            self.kpi_graph_changed = True
+
+    @utilities.runtime_analysis_decorator
+    def save_recorded_kpi_graphs_if_needed(self):
+        if not self.kpi_graph_changed:
+            return
+        if self.training_step < self.kpi_graph_next_training_step_to_update_file:
+            return
+        self.kpi_graph_changed = False
+        self.kpi_graph_next_training_step_to_update_file *= self.kpi_graph_exponential_backoff_factor
+        # Save the file with a tmp suffix first, then overwrite the real one.
+        # This prevents issues in case the visualizer is accessing the file while it is being overwritten.
+        tmp_path = self.save_file(self.kpi_graph_excerpt, self.trial_path, 'kpi_graph_tmp')
+        real_path = tmp_path.parent / f'kpi_graph{tmp_path.suffix}'
+        os.replace(tmp_path, real_path)

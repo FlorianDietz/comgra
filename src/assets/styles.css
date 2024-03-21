@@ -44,6 +44,8 @@
     white-space: pre;
     font-family: monospace;
 }
+#selected-item-details-container .external-visualization-div {
+}
 #controls-selectors-container .row > div:not(:last-child) {
     position: relative;
 }

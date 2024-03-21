@@ -1,6 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="server_single_test_0" type="PythonConfigurationType" factoryName="Python">
     <module name="comgra" />
+    <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
@@ -13,8 +14,8 @@
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
-    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/scripts/start_server.py" />
-    <option name="PARAMETERS" value="--name &quot;debugging0&quot; --port 8050" />
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/src/scripts/server.py" />
+    <option name="PARAMETERS" value="--path &quot;$PROJECT_DIR$/../comgra_data/debugging0&quot; --port 8050 --visualization-file &quot;$PROJECT_DIR$/../erg/erg/architectures/comgra_visualization__interactive_2d_classification.py&quot;" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

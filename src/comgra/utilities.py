@@ -1,6 +1,8 @@
 import collections
 from datetime import datetime, timedelta
 import math
+import sys
+import traceback
 from typing import List, Any, Tuple, Dict, Set, Optional
 
 from plotly import express as px
@@ -14,6 +16,16 @@ FUNCTION_NAME_TO_TOTAL_NUM_CALLS = collections.defaultdict(lambda: 0)
 _CURRENT_INDENT = 0
 _CALL_STACK = []
 
+
+def get_error_message_details(exception=None):
+    """
+    Get a nicely formatted string for an error message collected with sys.exc_info().
+    """
+    if exception is None:
+        exception = sys.exc_info()
+    exc_type, exc_obj, exc_trace = exception
+    printed_traceback_items = traceback.format_exception(exc_type, exc_obj, exc_trace)
+    return ''.join(printed_traceback_items)
 
 def runtime_analysis_decorator(function):
     if not DEBUG_MODE:
