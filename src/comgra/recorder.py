@@ -333,9 +333,8 @@ class ComgraRecorder:
                 elif item == 'svd':
                     val = self.get_highest_svd(tensor)
                 elif item == 'neurons':
-                    assert len(value_dimensions) == 1, \
-                        "This is not implemented for multi-dimensional tensors, as it is unclear how best to portray that."
-                    val = tensor.transpose(0, tensor_representation.index_of_batch_dimension)
+                    val = torch.movedim(tensor, tensor_representation.index_of_batch_dimension, 0)
+                    val = val.reshape((val.shape[0], -1))
                     assert len(val.shape) == 2 and val.shape[0] == self.current_batch_size, \
                         (val.shape, tensor_representation.full_unique_name)
                 else:
@@ -644,7 +643,21 @@ class ComgraRecorder:
                 batch_values = [batching_type]
                 assert tensor.shape[0] == 1, (tensor.shape, self.current_batch_size, batch_size_to_record, key)
             if item == 'neurons':
-                neuron_values = range(tensor.shape[1])
+                neuron_values = []
+                shape_without_batch_dimension = list(tensor_representation.shape)
+                del shape_without_batch_dimension[tensor_representation.index_of_batch_dimension]
+
+                def rec_helper(buffer):
+                    if len(buffer) == len(shape_without_batch_dimension):
+                        neuron_values.append(', '.join(map(str, buffer)))
+                        return
+                    buffer.append(None)
+                    for j in range(shape_without_batch_dimension[len(buffer) - 1]):
+                        buffer[-1] = j
+                        rec_helper(buffer)
+                    del buffer[:-1]
+
+                rec_helper([])
             else:
                 neuron_values = [None]
                 assert tensor.shape[1] == 1
