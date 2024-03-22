@@ -1123,7 +1123,7 @@ class Visualization:
                         y = val['val']
                         xs.append(x)
                         ys.append(y)
-                    plots.append(go.Scatter(x=xs, y=ys, name=f"{type_of_execution}__{kpi_name}"))
+                    plots.append(go.Scatter(x=xs, y=ys, name=f"{kpi_name}__{type_of_execution}"))
             fig = go.Figure(data=plots, layout=go.Layout(
                 title=f'{kpi_group}',
                 xaxis=dict(title='step'),
