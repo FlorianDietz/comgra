@@ -90,6 +90,8 @@ class ComgraRecorder:
         # KPI graph recording
         #
         self.kpi_graph_exponential_backoff_factor = 1.2
+        self.kpi_graph_history_to_check_for_outliers = 6
+        self.kpi_graph_factor_for_detecting_outliers = 0.5
         self.kpi_graph_excerpt = {}
         self.kpi_graph_changed = False
         self.kpi_graph_next_training_step_to_update_file = 10.0
@@ -744,7 +746,16 @@ class ComgraRecorder:
             'vals': [],
             'next_timepoint': 0,
         })
-        if timepoint >= stats['next_timepoint']:
+        if len(stats['vals']) == self.kpi_graph_history_to_check_for_outliers:
+            history_to_check = [a['val'] for a in stats['vals'][-self.kpi_graph_history_to_check_for_outliers:]]
+            max_ = max(history_to_check)
+            min_ = min(history_to_check)
+            dist = max_ - min_
+            is_outlier = (val > max_ + dist * self.kpi_graph_factor_for_detecting_outliers
+                          or val < min_ - dist * self.kpi_graph_factor_for_detecting_outliers)
+        else:
+            is_outlier = False
+        if timepoint >= stats['next_timepoint'] or is_outlier:
             if isinstance(val, torch.Tensor):
                 val = val.item()
             assert isinstance(val, numbers.Number)
