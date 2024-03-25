@@ -1110,6 +1110,21 @@ class Visualization:
         if trials_value not in self.trial_to_kpi_graph_excerpt:
             self.load_kpi_graphs_for_trial(trials_value)
         graph_excerpt = self.trial_to_kpi_graph_excerpt[trials_value]
+        #
+        # Determine colors to use for the graphs
+        #
+        colors_by_type_of_execution = {}
+        colors_by_kpi_name = {}
+        for kpi_group, a in graph_excerpt.items():
+            for type_of_execution, b in a.items():
+                for kpi_name, stats in b.items():
+                    colors_by_type_of_execution[type_of_execution] = True
+                    colors_by_kpi_name[kpi_name] = True
+        colors_by_type_of_execution = utilities.map_to_distinct_colors(colors_by_type_of_execution)
+        colors_by_kpi_name = utilities.map_to_distinct_colors(colors_by_kpi_name)
+        #
+        # Draw the graphs
+        #
         graphs = []
         for kpi_group, a in graph_excerpt.items():
             plots = []
@@ -1123,12 +1138,15 @@ class Visualization:
                         y = val['val']
                         xs.append(x)
                         ys.append(y)
+                    name = f"{kpi_name}__{type_of_execution}" if kpi_name else type_of_execution
                     plots.append(go.Scatter(
                         x=xs, y=ys,
-                        name=(name:=f"{kpi_name}__{type_of_execution}" if kpi_name else type_of_execution),
+                        name=name,
                         mode="lines+markers",
                         textposition="bottom center",
                         text=name,
+                        marker=dict(color=colors_by_type_of_execution[type_of_execution]),
+                        line=dict(color=colors_by_kpi_name[kpi_name]),
                     ))
             fig = go.Figure(data=plots, layout=go.Layout(
                 title=f'{kpi_group}',

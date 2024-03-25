@@ -1,4 +1,5 @@
 import collections
+import colorsys
 from datetime import datetime, timedelta
 import math
 import sys
@@ -198,7 +199,8 @@ class PseudoDb:
                     # If the record either matches, or doesn't match but only because of the attribute in question,
                     # then that attribute value is a legal value for selection.
                     if num_mismatches == 0 or \
-                            (num_mismatches == 1 and idx in filters_with_indices and attr_values[idx] != filters_with_indices[idx]):
+                            (num_mismatches == 1 and idx in filters_with_indices and attr_values[idx] !=
+                             filters_with_indices[idx]):
                         possible_attribute_values[attr_name].add(attr_values[idx])
         return list_of_matches, possible_attribute_values
 
@@ -212,3 +214,76 @@ def number_to_hex(number):
         number = 1
     colorscale = px.colors.sequential.Viridis
     return colorscale[int((number + 1) / 2 * (len(colorscale) - 1))]
+
+
+#
+# Color hierarchy
+#
+
+def generate_hierarchically_organized_colors_for_groups(
+        list_of_hierarchies, min_saturation=0.2, max_saturation=0.8,
+        min_luminance=0.2, max_luminance=0.8
+):
+    """
+    Determine what color to use for each level of the hierarchy.
+    This is based on this paper: "Hierarchical Qualitative Color Palettes"
+    https://mtennekes.github.io/downloads/publications/hiercolor_infovis2013.pdf
+    Saturation increases with depth, luminance falls off with depth.
+    """
+    graph = {}
+    max_depth = 0
+    for visualization_layout_hierarchy in list_of_hierarchies:
+        node = graph
+        depth = 0
+        for level in visualization_layout_hierarchy:
+            if level not in node:
+                node[level] = {}
+            node = node[level]
+            depth += 1
+            max_depth = max(max_depth, depth)
+    color_hierarchy = {}
+
+    def rec(node_key, node_dict, min_hue, max_hue):
+        n_children = len(node_dict)
+        depth = len(node_key)
+        mean_hue = (max_hue + min_hue) / 2
+        hue_gap_factor_for_recursion = 0.75
+        if depth != 0:  # Ignore the root, which is not a real group
+            assert 1 <= depth <= max_depth, f"{depth}, {max_depth}"
+            this_node_hue = mean_hue
+            depth_factor = 0 if max_depth == 1 else (depth - 1) / (max_depth - 1)
+            this_node_saturation = min_saturation + depth_factor * (max_saturation - min_saturation)
+            this_node_saturation = max(min_saturation, min(max_saturation, this_node_saturation))
+            this_node_luminance = max_luminance - depth_factor * (max_luminance - min_luminance)
+            this_node_luminance = max(min_luminance, min(max_luminance, this_node_luminance))
+            rgb = colorsys.hls_to_rgb(this_node_hue, this_node_luminance, this_node_saturation)
+            for a in rgb:
+                assert 0 <= a <= 255, [rgb, this_node_hue, this_node_luminance, this_node_saturation]
+            hex_code = "#{0:02x}{1:02x}{2:02x}".format(*[max(0, min(255, int(a * 255))) for a in rgb])
+            color_hierarchy[tuple(node_key)] = hex_code
+        if n_children == 0:
+            return
+        min_hue = min_hue + (mean_hue - min_hue) * (1 - hue_gap_factor_for_recursion)
+        max_hue = max_hue - (max_hue - mean_hue) * (1 - hue_gap_factor_for_recursion)
+        hue_range_split = [min_hue + i / n_children * (max_hue - min_hue) for i in range(n_children + 1)]
+        for min_hue, max_hue, (child_key_component, child_node_dict) in \
+                zip(hue_range_split[:-1], hue_range_split[1:], node_dict.items()):
+            child_node_key = node_key + [child_key_component]
+            rec(child_node_key, child_node_dict, min_hue, max_hue)
+
+    rec([], graph, 0.0, 1.0)
+    return color_hierarchy
+
+def map_to_distinct_colors(vals, colors=None):
+    if colors is None:
+        # Check here for more colors to use if this turns out to be insufficient:
+        # https://plotly.com/python/discrete-color/
+        # Note that plotly does not have a way to easily convert a continuous color scale
+        # to an arbitrary number of discrete colors.
+        # So we have to use modulo instead and just hope this won't come up too often.
+        colors = px.colors.qualitative.Plotly
+    vals = sorted(list(vals))
+    return {
+        k: colors[vals.index(k) % len(colors)]
+        for k in vals
+    }
