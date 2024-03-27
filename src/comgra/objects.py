@@ -118,6 +118,8 @@ class StatusAndGraph:
                     f"{recorder.prefixes_for_grouping_module_parameters_visually}"
         nodes_list_for_parameters_and_targets.append([k for k, v in name_to_tensor_representation.items() if v.type_of_tensor == 'target'])
         nodes_to_sort = [k for k, v in name_to_tensor_representation.items() if v.type_of_tensor in ['intermediate', 'output']]
+        nodes_without_dependencies = [n for n in nodes_to_sort if not dependencies_of[n]]
+        nodes_to_sort = [n for n in nodes_to_sort if n not in nodes_without_dependencies]
         nodes_without_open_dependencies = {k: True for k, v in name_to_tensor_representation.items() if not dependencies_of[k]}
         c = 0
         while c < len(nodes_to_sort):
@@ -126,9 +128,10 @@ class StatusAndGraph:
                 f"The graph is too large. The most likely cause for this error is that register_tensor() " \
                 f"was called on a tensor that can't be discovered through backtracking from the losses. " \
                 f"To fix this, find the responsible tensor and call register_tensor() on it " \
-                f"with is_target=True instead.\n" \
+                f"with is_target=True or is_output=True instead.\n" \
                 f"{c}, {len(nodes_to_sort)}\n{[a for a in nodes_list_list if a]}\n{nodes_to_sort}\n" \
-                f"{[c for c in nodes_to_sort if c not in [b for a in nodes_list_list for b in a]]}"
+                f"{ {c: dependencies_of[c] for c in nodes_to_sort if c not in [b for a in nodes_list_list for b in a]} }\n" \
+                f"{[c for c in nodes_without_dependencies]}"
             next_set_of_nodes = []
             nodes_list_list.append(next_set_of_nodes)
             for n in nodes_to_sort:
@@ -144,6 +147,7 @@ class StatusAndGraph:
             for n in next_set_of_nodes:
                 nodes_without_open_dependencies[n] = True
         assert c == len(nodes_to_sort)
+        nodes_list_list.append(nodes_without_dependencies)
         for list_of_parameters_and_targets in nodes_list_for_parameters_and_targets:
             farthest_possible_index = 0
             for i, nodes in enumerate(nodes_list_list):
@@ -154,6 +158,7 @@ class StatusAndGraph:
             nodes_list_list.insert(farthest_possible_index, list_of_parameters_and_targets)
         nodes_list_list.append([k for k, v in name_to_tensor_representation.items() if v.type_of_tensor == 'loss'])
         nodes_list_list = [a for a in nodes_list_list if len(a) > 0]
+        assert sum([len(a) for a in nodes_list_list]) == len(name_to_tensor_representation)
         for i, nodes0 in enumerate(nodes_list_list):
             for j, nodes1 in enumerate(nodes_list_list):
                 if i < j:
