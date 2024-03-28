@@ -229,16 +229,21 @@ class DecisionMakerForRecordingsHardcoded(DecisionMakerForRecordings):
 @dataclasses.dataclass
 class DecisionMakerForRecordingsFrequencyPerType(DecisionMakerForRecordings):
     min_training_steps_difference: int
-    identifier_to_last_recorded_step: Dict = dataclasses.field(default_factory=dict)
+    exponential_backoff_factor: float = 1.0
+    identifier_to_last_recorded_step_and_min_difference: Dict = dataclasses.field(default_factory=dict)
 
     def is_record_on_this_iteration(self, training_step, type_of_execution):
         if type_of_execution is None:
             return False
-        last_recorded_step = self.identifier_to_last_recorded_step.get(type_of_execution, None)
+        assert self.exponential_backoff_factor >= 1.0, self.exponential_backoff_factor
+        last_recorded_step, min_difference = self.identifier_to_last_recorded_step_and_min_difference.get(
+            type_of_execution, (None, self.min_training_steps_difference)
+        )
         if last_recorded_step == training_step:
             return True
-        if last_recorded_step is None or training_step >= last_recorded_step + self.min_training_steps_difference:
-            self.identifier_to_last_recorded_step[type_of_execution] = training_step
+        if last_recorded_step is None or training_step >= last_recorded_step + min_difference:
+            min_difference = min_difference * self.exponential_backoff_factor
+            self.identifier_to_last_recorded_step_and_min_difference[type_of_execution] = (training_step, min_difference)
             return True
         return False
 

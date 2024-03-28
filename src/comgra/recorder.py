@@ -89,7 +89,7 @@ class ComgraRecorder:
         #
         # KPI graph recording
         #
-        self.kpi_graph_exponential_backoff_factor = 1.2
+        self.kpi_graph_exponential_backoff_factor = 1.05
         self.kpi_graph_history_to_check_for_outliers = 6
         self.kpi_graph_factor_for_detecting_outliers = 0.5
         self.kpi_graph_excerpt = {}
