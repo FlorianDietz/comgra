@@ -11,7 +11,7 @@
     text-align: center;
     vertical-align: middle;
 }
-#main-body-div.hide-containers-for-tensors #controls-selectors-container, #main-body-div.hide-containers-for-tensors #graph-container, #main-body-div.hide-containers-for-tensors #graph-tooltip {
+#main-body-div.hide-containers-for-tensors #controls-selectors-container > :not(.display-even-when-kpi-graphs-are-selected), #main-body-div.hide-containers-for-tensors #graph-container, #main-body-div.hide-containers-for-tensors #graph-tooltip {
     display: none;
 }
 .node {

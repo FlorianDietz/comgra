@@ -376,36 +376,11 @@ class Visualization:
             ]),
             html.Div(id='dummy-placeholder-output-for-updating-graphs'),  # This dummy stores some data
             html.Div(id='dummy-for-selecting-a-node'),  # This dummy stores some data
-            html.Div(id='graph-container', style={
-                'position': 'relative',
-                'width': f'{vp.total_display_width}px',
-                'height': f'{vp.total_display_height}px',
-                'border': '1px solid black',
-            }, children=[
-                            html.Div(id=f'graph_container__{configuration_type}', style={
-                                'position': 'relative',
-                                'width': f'{vp.total_display_width}px',
-                                'height': f'{vp.total_display_height}px',
-                            }, children=self.create_nodes_and_arrows(configuration_type, sag)
-                                     )
-                            for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
-                        ] + [
-                            html.Div(id='graph-overlay-for-selections', style={
-                                'position': 'absolute',
-                                'top': '0',
-                                'left': '0',
-                                'width': f'{vp.total_display_width}px',
-                                'height': f'{vp.total_display_height}px',
-                                'pointer-events': 'none',
-                            }
-                                     )
-                        ]),
-            dcc.Tooltip(id="graph-tooltip"),
             html.Div(id='controls-selectors-container', children=[
                 dbc.Row([
                     dbc.Col(html.Label("Trial"), width=2),
                     dbc.Col(dcc.Dropdown(id='trials-dropdown', options=[], value=None), width=9),
-                ]),
+                ], className="display-even-when-kpi-graphs-are-selected"),
                 dbc.Row([
                     dbc.Col(html.Label("Role of tensor"), width=2),
                     dbc.Col(dcc.Dropdown(id='role-of-tensor-in-node-dropdown', options=[], value=None), width=9),
@@ -451,6 +426,31 @@ class Visualization:
                     dbc.Col(dcc.Dropdown(id='batch-index-dropdown', options=[], value=None), width=9),
                 ]),
             ]),
+            html.Div(id='graph-container', style={
+                'position': 'relative',
+                'width': f'{vp.total_display_width}px',
+                'height': f'{vp.total_display_height}px',
+                'border': '1px solid black',
+            }, children=[
+                            html.Div(id=f'graph_container__{configuration_type}', style={
+                                'position': 'relative',
+                                'width': f'{vp.total_display_width}px',
+                                'height': f'{vp.total_display_height}px',
+                            }, children=self.create_nodes_and_arrows(configuration_type, sag)
+                                     )
+                            for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
+                        ] + [
+                            html.Div(id='graph-overlay-for-selections', style={
+                                'position': 'absolute',
+                                'top': '0',
+                                'left': '0',
+                                'width': f'{vp.total_display_width}px',
+                                'height': f'{vp.total_display_height}px',
+                                'pointer-events': 'none',
+                            }
+                                     )
+            ]),
+            dcc.Tooltip(id="graph-tooltip"),
             html.Div(id='selected-item-details-container', children=[
             ]),
         ])
