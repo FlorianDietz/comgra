@@ -965,15 +965,19 @@ class Visualization:
                 children = [
                     html.Table(
                         [html.Tr([html.Th(col) for col in
-                                  ['Trial', 'Step Type', 'Node', 'Role', 'Tensor Type', 'Tensor Shape', 'Training Step',
-                                   'Iteration']])] +
+                                  ['Trial', 'Training Step', 'Iteration',
+                                   'Step Type',
+                                   'Node', 'Role',
+                                   'Tensor Type', 'Tensor Shape',
+                                   ]])] +
                         [html.Tr([
                             html.Td(val) for val in [
-                                trials_value, type_of_execution,
+                                trials_value, training_step_value, iteration_value,
+                                type_of_execution,
                                 node.full_unique_name[len('node__'):],
-                                role_of_tensor_in_node_value, node.type_of_tensor,
+                                role_of_tensor_in_node_value,
+                                node.type_of_tensor,
                                 f"[{', '.join([str(a) for a in tensor_shape])}]",
-                                training_step_value, iteration_value,
                             ]
                         ])],
                         id='selected-values-summary-table',
