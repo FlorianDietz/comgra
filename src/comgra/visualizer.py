@@ -59,6 +59,29 @@ vp = VisualizationParameters()
 
 class CustomDash(dash.Dash):
     def interpolate_index(self, **kwargs):
+        extra_script = """
+        <script>
+            window.addEventListener("keydown", (event) => {
+                console.log(event);
+                if (event.key == 'ArrowUp') {
+                    document.getElementById("navigate-up-button").click();
+                    event.preventDefault();
+                }
+                if (event.key == 'ArrowRight') {
+                    document.getElementById("navigate-right-button").click();
+                    event.preventDefault();
+                }
+                if (event.key == 'ArrowDown') {
+                    document.getElementById("navigate-down-button").click();
+                    event.preventDefault();
+                }
+                if (event.key == 'ArrowLeft') {
+                    document.getElementById("navigate-left-button").click();
+                    event.preventDefault();
+                }
+            });
+        </script>
+        """
         return '''
 <!DOCTYPE html>
 <html>
@@ -81,11 +104,12 @@ class CustomDash(dash.Dash):
         <footer>
             {config}
             {scripts}
+            {extra_script}
             {renderer}
         </footer>
     </body>
 </html>
-        '''.format(**kwargs)
+        '''.format(**kwargs, extra_script=extra_script)
 
 
 class Visualization:
