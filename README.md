@@ -263,17 +263,3 @@ The anomaly "abnormally high loss" has 87% correlation with the anomaly "Tensor 
 This would save a lot of time with debugging, by automatically generating a list of possible reasons for unexpected behavior.
 
 Anomalies could be defined in many different ways, and standard tools for causality analysis already exist. If you are interested in a feature like this and/or want to help, please let me know at floriandietz44@gmail.com
-
-
-## Citation
-
-Please cite this library as:
-
-```BibTeX
-@misc{dietz2022comgra,
-    title = {Comgra},
-    author = {Florian Dietz},
-    year = {2022},
-    howpublished = {\url{https://github.com/FlorianDietz/comgra}},
-}
-```

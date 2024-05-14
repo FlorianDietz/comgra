@@ -1,0 +1,6 @@
+@misc{dietz2022comgra,
+    title = {Comgra},
+    author = {Florian Dietz},
+    year = {2022},
+    howpublished = {\url{https://github.com/FlorianDietz/comgra}},
+}
