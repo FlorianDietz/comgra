@@ -687,6 +687,9 @@ class ComgraRecorder:
         assert len(all_tensors_to_combine) == 0
         total_number_of_tensor_values = sum(t.numel() for t, tr in self.mapping_of_tensors_for_extracting_kpis.values())
         assert sanity_check_c == total_number_of_tensor_values, (sanity_check_c, total_number_of_tensor_values)
+        #
+        # Save the graph of KPIs, which is independent of the rest of the recordings
+        #
         self.save_recorded_kpi_graphs_if_needed()
 
     @utilities.runtime_analysis_decorator

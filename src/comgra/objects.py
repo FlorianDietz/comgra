@@ -114,8 +114,8 @@ class StatusAndGraph:
         for a in name_to_tensor_representation.values():
             if a.type_of_tensor == 'parameter':
                 assert a.full_unique_name in used_nodes, \
-                    f"The parameter {a.full_unique_name} is not covered by any of the provided prefixes: " \
-                    f"{recorder.prefixes_for_grouping_module_parameters_visually}"
+                    (f"The parameter {a.full_unique_name} is not covered by any of the provided prefixes: "
+                     f"{recorder.prefixes_for_grouping_module_parameters_visually}")
         nodes_list_for_parameters_and_targets.append([k for k, v in name_to_tensor_representation.items() if v.type_of_tensor == 'target'])
         nodes_to_sort = [k for k, v in name_to_tensor_representation.items() if v.type_of_tensor in ['intermediate', 'output']]
         nodes_without_dependencies = [n for n in nodes_to_sort if not dependencies_of[n]]
@@ -125,13 +125,14 @@ class StatusAndGraph:
         while c < len(nodes_to_sort):
             debug += 1
             assert debug < 100000, \
-                f"The graph is too large. The most likely cause for this error is that register_tensor() " \
-                f"was called on a tensor that can't be discovered through backtracking from the losses. " \
-                f"To fix this, find the responsible tensor and call register_tensor() on it " \
-                f"with is_target=True or is_output=True instead.\n" \
-                f"{c}, {len(nodes_to_sort)}\n{[a for a in nodes_list_list if a]}\n{nodes_to_sort}\n" \
-                f"{ {c: dependencies_of[c] for c in nodes_to_sort if c not in [b for a in nodes_list_list for b in a]} }\n" \
-                f"{[c for c in nodes_without_dependencies]}"
+                (f"The graph is too large. The most likely cause for this error is that register_tensor() "
+                 f"was called on a tensor that can't be discovered through backtracking from the losses, "
+                 f"which results in an infinite loop. "
+                 f"To fix this, find the responsible tensor and call register_tensor() on it "
+                 f"with is_target=True or is_output=True instead.\n"
+                 f"{c}, {len(nodes_to_sort)}\n{[a for a in nodes_list_list if a]}\n{nodes_to_sort}\n"
+                 f"{ {c: dependencies_of[c] for c in nodes_to_sort if c not in [b for a in nodes_list_list for b in a]} }\n"
+                 f"{[c for c in nodes_without_dependencies]}")
             next_set_of_nodes = []
             nodes_list_list.append(next_set_of_nodes)
             for n in nodes_to_sort:
@@ -164,9 +165,13 @@ class StatusAndGraph:
                 if i < j:
                     shared_dependencies_of_nodes = {b for a in nodes0 for b in dependencies_of[a]}
                     assert not any(a in shared_dependencies_of_nodes for a in nodes1), \
-                        f"The construction of the DAG is faulty. Probably the easiest way to debug this is " \
-                        f"to deactivate this assert and check what the graph looks like. " \
-                        f"Some arrows for dependencies should be pointing in the wrong direction."
+                        (f"The construction of the DAG is faulty. "
+                         f"This error message should never be visible to end users. "
+                         f"If you are seeing this, please contact us. "
+                         f"Probably the easiest way to debug this is "
+                         f"to deactivate this assert and check what the graph looks like. "
+                         f"Some arrows for dependencies should be pointing in the wrong direction.\n"
+                         f"{nodes0}\n{[a for a in nodes1 if a in shared_dependencies_of_nodes]}\n{shared_dependencies_of_nodes}")
         #
         # At this point the nodes_list_list contains tensor_names, not node_names.
         # Translate between these, and make sure there are no contradictions.
