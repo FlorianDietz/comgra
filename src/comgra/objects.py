@@ -1,7 +1,7 @@
 import abc
 import collections
 import dataclasses
-from typing import List, Dict, Optional, TYPE_CHECKING
+from typing import List, Dict, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from comgra.recorder import ComgraRecorder
@@ -24,12 +24,24 @@ class ModuleRepresentation:
     parameters: Dict[str, ParameterRepresentation]
 
 
-@dataclasses.dataclass
-class TensorRepresentation:
-    full_unique_name: str
+@dataclasses.dataclass(frozen=True)
+class TensorReference:
+    tensor_name: str
+    iteration: int
     node_name: str
     role_within_node: str
-    iteration: int
+    is_canonical_reference: bool
+    previous_reference: Optional['TensorReference']
+
+    def get_canonical_reference(self) -> 'TensorReference':
+        if self.is_canonical_reference:
+            return self
+        return self.previous_reference.get_canonical_reference()
+
+
+@dataclasses.dataclass(frozen=True)
+class TensorRepresentation:
+    original_reference: TensorReference
     configuration_type: str
     type_of_tensor: str
     shape: List[int]
@@ -38,7 +50,6 @@ class TensorRepresentation:
     recording_type: str
     items_to_record: List[str]
     record_per_batch_index: bool
-    is_a_dependency_of: List[str] = dataclasses.field(default_factory=list)
 
     def get_size_of_tensor(self):
         assert len(self.shape) == 2

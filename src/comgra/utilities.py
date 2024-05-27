@@ -11,11 +11,19 @@ from plotly import express as px
 DEBUG_MODE = True
 PRINT_EACH_TIME = False
 
+_WARNINGS_ISSUED = {}
+
 FUNCTION_NAME_TO_TOTAL_TIME = collections.defaultdict(lambda: timedelta(seconds=0))
 FUNCTION_NAME_TO_TOTAL_NUM_CALLS = collections.defaultdict(lambda: 0)
 
 _CURRENT_INDENT = 0
 _CALL_STACK = []
+
+
+def warn_once(msg):
+    if msg not in _WARNINGS_ISSUED:
+        _WARNINGS_ISSUED[msg] = True
+        print(msg)
 
 
 def get_error_message_details(exception=None):

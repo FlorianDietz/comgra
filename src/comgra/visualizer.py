@@ -43,9 +43,9 @@ class VisualizationParameters:
     node_type_to_color = {
         'input': '#60c156',
         'target': '#068989',
-        'output': '#00ffff',
+        # 'output': '#00ffff',
         'loss': '#c74fb7',
-        'intermediate': '#a29fc9',
+        'calculated': '#a29fc9',
         'parameter': '#cfc100',
     }
     highlighting_colors = {
