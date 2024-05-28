@@ -1,5 +1,6 @@
 import collections
 import colorsys
+import numbers
 from datetime import datetime, timedelta
 import math
 import sys
@@ -137,10 +138,16 @@ class PseudoDb:
         }
         return self
 
-    def add_record(self, attr_values, result):
+    def add_record_value(self, attr_values, val):
         assert len(attr_values) == len(self.attributes)
         assert attr_values not in self.record_set, attr_values
-        self.record_set[attr_values] = result
+        self.record_set[attr_values] = {'val': val}
+
+    def add_record_redirection(self, attr_values, redirection):
+        assert len(attr_values) == len(self.attributes)
+        assert attr_values not in self.record_set, attr_values
+        assert isinstance(redirection, Tuple) and len(self.attributes) == len(redirection), redirection
+        self.record_set[attr_values] = {'redirect': redirection}
 
     @runtime_analysis_decorator
     def create_index(self, index_attributes):
@@ -149,9 +156,18 @@ class PseudoDb:
         index_attribute_indices = [self.attributes.index(a) for a in self.index_attributes]
         self.index_tree = {}
         for key, val in self.record_set.items():
+            # Recursively go through the tree structure
             tree = self.index_tree
             for idx in index_attribute_indices:
                 tree = tree.setdefault(key[idx], {})
+            # Resolve redirection before saving the value at the leaf node
+            if 'val' in val:
+                val = val['val']
+            elif 'redirect' in val:
+                redirected_key = tuple(val['redirect'])
+                val = self.record_set[redirected_key]['val']
+            else:
+                assert False, val
             tree[key] = val
         self.record_set = None
 

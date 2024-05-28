@@ -16,7 +16,9 @@ import msgpack
 import torch
 from torch import nn as torch_nn
 
-from comgra.objects import DecisionMakerForRecordings, StatusAndGraph, ModuleRepresentation, Node, ParameterRepresentation, TensorRecordings, TensorReference, TensorRepresentation
+from comgra.objects import SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS, \
+    DecisionMakerForRecordings, StatusAndGraph, ModuleRepresentation, Node, ParameterRepresentation, TensorRecordings, \
+    TensorReference, TensorRepresentation
 from comgra import utilities
 
 
@@ -208,10 +210,19 @@ class ComgraRecorder:
             index_of_batch_dimension=0,
             is_input=False, is_parameter=False, is_output=None, is_target=False, is_loss=False,
             recording_type=None, record_per_batch_index=None,
-            node_name=None, role_within_node=None
+            node_name=None, role_within_node=None, is_initial_value=False,
     ):
         if not self.recording_is_active():
             return
+        assert self.iteration is not None or is_initial_value, \
+            "You must call start_iteration() before registering any tensors, unless you use is_initial_value=True."
+        assert not is_initial_value or self.iteration is None, \
+            ("You can only use is_initial_value=True when registering a tensor "
+             "before the first call of start_iteration().")
+        assert not is_initial_value or self.current_stage == 'started', \
+            ("Use is_initial_value=True to register the initial value of a hidden state after "
+             "calling start_recording() but before start_iteration().")
+        iteration_to_use_for_registration = -1 if is_initial_value else self.iteration
         assert (1 if is_input else 0) + (1 if is_parameter else 0) + (1 if is_output else 0) + \
                (1 if is_target else 0) + (1 if is_loss else 0) <= 1, tensor_name
         assert not tensor_name.startswith('node__')
@@ -222,11 +233,13 @@ class ComgraRecorder:
             )
         node_name = 'node__' + (tensor_name if node_name is None else node_name)
         role_within_node = tensor_name if role_within_node is None else role_within_node
+        # Safety checks to avoid overlap with SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS
+        assert '*' not in tensor_name, "tensor_name can't contain an asterisk."
+        assert '*' not in node_name, "node_name can't contain an asterisk."
         # Make sure that gradients are generated and retained for later.
-        if not is_target:
-            if not tensor.requires_grad:
-                tensor.requires_grad = True
-            tensor.retain_grad()
+        if not tensor.requires_grad:
+            tensor.requires_grad = True
+        tensor.retain_grad()
         # Make parameters of this function call consistent with each other
         if is_loss:
             recording_type = 'single_value'
@@ -239,6 +252,7 @@ class ComgraRecorder:
                 recording_type = 'kpis'
             index_of_batch_dimension = None
             value_dimensions = [i for i in range(len(tensor.shape))]
+            iteration_to_use_for_registration = -1
         else:
             assert index_of_batch_dimension is not None
             value_dimensions = [i for i in range(len(tensor.shape)) if i != index_of_batch_dimension]
@@ -276,14 +290,23 @@ class ComgraRecorder:
             items_to_record = ['single_value']
         else:
             raise NotImplementedError(recording_type)
-        assert (tensor_name, self.iteration) not in [(ref.tensor_name, ref.iteration) for k, refs in self.tensor_to_list_of_references.items() for ref in refs], \
+        assert (tensor_name, iteration_to_use_for_registration) not in [(ref.tensor_name, ref.iteration) for k, refs in self.tensor_to_list_of_references.items() for ref in refs], \
             (f"Two tensors were recorded with the same name in the same iteration. "
-             f"Give your tensors unique names: {(tensor_name, self.iteration)}")
+             f"Give your tensors unique names: {(tensor_name, iteration_to_use_for_registration)}")
+        assert (node_name, role_within_node) not in [
+            (ref.node_name, ref.role_within_node)
+            for refs in self.tensor_to_list_of_references.values()
+            for ref in refs
+            if ref.iteration == iteration_to_use_for_registration
+        ], \
+            (f"For iteration {iteration_to_use_for_registration}, the tensor '{tensor_name}' defined for node '{node_name}' "
+             f"has the same role as a previously recorded "
+             f"tensor within that same node: '{role_within_node}'")
         tensor_is_registered_for_the_first_time = (tensor not in self.tensor_to_list_of_references)
         previous_reference = (None if tensor_is_registered_for_the_first_time else self.tensor_to_list_of_references[tensor][-1])
         tensor_reference = TensorReference(
             tensor_name=tensor_name,
-            iteration=self.iteration,
+            iteration=iteration_to_use_for_registration,
             node_name=node_name,
             role_within_node=role_within_node,
             is_canonical_reference=tensor_is_registered_for_the_first_time,
@@ -312,7 +335,8 @@ class ComgraRecorder:
             self.tensor_to_list_of_references[tensor].append(tensor_reference)
             canonical_reference = self.tensor_to_list_of_references[tensor][0]
             tr = self.tensor_reference_to_representation[canonical_reference]
-            msg = (f"The tensor '{tensor_name}' on iteration {self.iteration} was previously recorded with "
+            msg = (f"The tensor '{tensor_name}' on iteration {iteration_to_use_for_registration} "
+                   f"was previously recorded with "
                    f"the name '{tr.original_reference.tensor_name}' "
                    f"and iteration {tr.original_reference.iteration}, "
                    f"but with different values for ")
@@ -415,7 +439,12 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def store_value_of_tensor_helper(self, batching_type, iteration, tensor_representation: TensorRepresentation, item, tensor):
-        key = (self.training_step, self.current_type_of_tensor_recording, batching_type, iteration, tensor_representation.original_reference.node_name, tensor_representation.original_reference.role_within_node, item)
+        key = (
+            self.training_step, self.current_type_of_tensor_recording, batching_type, iteration,
+            tensor_representation.original_reference.node_name,
+            tensor_representation.original_reference.role_within_node,
+            item,
+        )
         assert key not in self.mapping_of_tensors_for_extracting_kpis, key
         assert len(tensor.shape) == 2, (tensor.shape, key)
         self.mapping_of_tensors_for_extracting_kpis[key] = (tensor, tensor_representation)
@@ -503,10 +532,23 @@ class ComgraRecorder:
             keep_recursing = True
             if t is not None:
                 # Get the first and the last reference to this tensor on this iteration.
-                # Or if there is none on this iteration, get the last reference from a previous iteration.
+                # Or if there is none on this iteration, create a new reference.
                 refs = self.tensor_to_list_of_references[t]
                 tmp = [ref for ref in refs if ref.iteration == self.iteration]
-                tmp = tmp if tmp else [[ref for ref in refs if ref.iteration < self.iteration][-1]]
+                if not tmp:
+                    original_ref = refs[0]
+                    self.tensor_to_list_of_references[t].append(TensorReference(
+                        tensor_name=original_ref.tensor_name + SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS,
+                        iteration=self.iteration,
+                        node_name=original_ref.node_name + SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS,
+                        # node_name=original_ref.node_name + f'__reuse_iteration_{original_ref.iteration}' + SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS,
+                        role_within_node=original_ref.role_within_node + f'__from_iteration_{original_ref.iteration}',
+                        is_canonical_reference=False,
+                        previous_reference=self.tensor_to_list_of_references[t][-1],
+                    ))
+                    refs = self.tensor_to_list_of_references[t]
+                    tmp = [ref for ref in refs if ref.iteration == self.iteration]
+                    assert len(tmp) == 1
                 for ref in tmp:
                     tensor_references_to_use_for_this_iteration.add(ref)
                 first_ref = tmp[0]
@@ -532,7 +574,9 @@ class ComgraRecorder:
                              "just form part of an uninterrupted chain.")
                     # Set the last_encountered_reference and recurse
                     # unless the iteration is earlier than the current iteration or type_of_tensor == 'input'
-                    keep_recursing = (first_ref.iteration == self.iteration) and (tensor_representation.type_of_tensor != 'input')
+                    keep_recursing = ((not first_ref.node_name.endswith(
+                        SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS))
+                                      and (tensor_representation.type_of_tensor != 'input'))
                     last_encountered_reference = first_ref
             if keep_recursing:
                 for predecessor, other in step.next_functions:
@@ -546,19 +590,21 @@ class ComgraRecorder:
         for tensor in tensors_to_show:
             traverse_graph_backwards(tensor.grad_fn, None)
         # Build the dependency graph based on the data extracted while recursing through the computation graph
-        status_and_graph, name_to_tensor_representation_relevant_for_graph_construction = \
-            self.build_global_status_and_graph(
-                tensor_references_to_use_for_this_iteration,
-                tensor_reference_to_list_of_dependents,
-            )
+        status_and_graph = self.build_global_status_and_graph(
+            tensor_references_to_use_for_this_iteration, tensor_reference_to_list_of_dependents,
+        )
         if self.configuration_type not in self.configuration_type_to_status_and_graph:
-            assert sum([len(a.is_a_dependency_of) for a in self.tensor_name_and_iteration_to_representation.values()]) > 0, \
+            assert any([ref1 for ref1, refs in tensor_reference_to_list_of_dependents.items() if
+                        any([ref2 for ref2 in refs if ref1.get_canonical_reference() != ref2.get_canonical_reference()])]), \
                 "No computational graph could be constructed. " \
                 "The most common error that could cause this is that gradient computations are turned off."
             #
             # Construct global status and graph information
             #
-            status_and_graph.build_dag_format(self, name_to_tensor_representation_relevant_for_graph_construction)
+            status_and_graph.build_dag_format(
+                self, tensor_references_to_use_for_this_iteration, tensor_reference_to_list_of_dependents,
+                self.tensor_reference_to_representation,
+            )
             # Make sure the graph and global_status are only DERIVED once per run
             self.configuration_type_to_status_and_graph[self.configuration_type] = status_and_graph
             # Make sure the graph and global_status are only SAVED once per set of multiple trials.
@@ -571,12 +617,13 @@ class ComgraRecorder:
             #
             # Verify that the result is identical to previous results.
             #
-            new_version, name_to_tensor_representation_relevant_for_graph_construction = \
-                self.build_global_status_and_graph(
-                    tensor_references_to_use_for_this_iteration,
-                    tensor_reference_to_list_of_dependents,
-                )
-            new_version.build_dag_format(self, name_to_tensor_representation_relevant_for_graph_construction)
+            new_version = self.build_global_status_and_graph(
+                tensor_references_to_use_for_this_iteration, tensor_reference_to_list_of_dependents,
+            )
+            new_version.build_dag_format(
+                self, tensor_references_to_use_for_this_iteration, tensor_reference_to_list_of_dependents,
+                self.tensor_reference_to_representation,
+            )
             path = self.configuration_path / 'status_and_graph.pkl'
             with open(path, 'rb') as f:
                 existing_version: StatusAndGraph = pickle.load(f)
@@ -603,45 +650,53 @@ class ComgraRecorder:
                     assert c == d
 
     @utilities.runtime_analysis_decorator
-    def build_global_status_and_graph_and_record_tensor_metadata(self) -> Tuple[StatusAndGraph, Dict]:
-        nodes = list(dict.fromkeys([
-            v.node_name
-            for (name, iteration), v in self.tensor_name_and_iteration_to_representation.items()
-            if iteration == self.iteration or v.type_of_tensor == 'parameter'
-        ]))
+    def build_global_status_and_graph(
+            self,
+            tensor_references_to_use_for_this_iteration,
+            tensor_reference_to_list_of_dependents,
+    ) -> StatusAndGraph:
+        for ref1 in tensor_references_to_use_for_this_iteration:
+            for ref2 in tensor_references_to_use_for_this_iteration:
+                if ref1.get_canonical_reference() == ref2.get_canonical_reference():
+                    assert ((ref1.iteration < self.iteration) and (ref1 == ref2)) or \
+                           (ref1.iteration == self.iteration), \
+                        ("Programming error. All references to the same tensor should belong to the same iteration. "
+                         "Either multiple from this one, or one from a previous one. "
+                         "If this assertion fails, then probably traverse_graph_backwards() has a bug")
+        nodes = list(set([a.node_name for a in tensor_references_to_use_for_this_iteration]))
         connections = [
-            [dependency, dependent]
-            for (dependency, iteration), v in self.tensor_name_and_iteration_to_representation.items()
-            for dependent in v.is_a_dependency_of
-            if iteration == self.iteration or v.type_of_tensor == 'parameter'
+            (dependency, dependent)
+            for (dependency, dependents) in tensor_reference_to_list_of_dependents.items()
+            for dependent in dependents
         ]
+        assert len(connections) == len(set(connections)), \
+            ("Programming error. This should have no duplicates. "
+             "If it does, probably the graph traversal has redundant steps and could be optimized.")
         name_to_node = {}
-        name_to_tensor_representation_relevant_for_graph_construction = {}
-        for (tensor_name, iteration), v in self.tensor_name_and_iteration_to_representation.items():
-            if iteration == self.iteration or v.type_of_tensor == 'parameter':
-                node_name = self.tensor_name_to_node_name[tensor_name]
-                if node_name in name_to_node:
-                    node = name_to_node[node_name]
-                else:
-                    node = Node(
-                        full_unique_name=node_name,
-                        type_of_tensor=v.type_of_tensor,
-                        items_to_record=list(v.items_to_record),
-                    )
-                    name_to_node[node_name] = node
-                assert v.type_of_tensor == node.type_of_tensor, \
-                    f"Node {node_name} stores tensors with different type_of_tensor." \
-                    f"\n{v.type_of_tensor}\n{node.type_of_tensor}"
-                name_to_tensor_representation_relevant_for_graph_construction[tensor_name] = v
+        for ref in tensor_references_to_use_for_this_iteration:
+            tr = self.tensor_reference_to_representation[ref.get_canonical_reference()]
+            node_name = ref.node_name
+            if node_name in name_to_node:
+                node = name_to_node[node_name]
+            else:
+                node = Node(
+                    full_unique_name=node_name,
+                    type_of_tensor=tr.type_of_tensor,
+                    items_to_record=list(tr.items_to_record),
+                )
+                name_to_node[node_name] = node
+            assert tr.type_of_tensor == node.type_of_tensor, \
+                f"Node {node_name} stores tensors with different type_of_tensor." \
+                f"\n{tr.type_of_tensor}\n{node.type_of_tensor}"
         status_and_graph = StatusAndGraph(
             configuration_type=self.configuration_type,
             modules_and_parameters=self.set_of_top_level_modules,
             name_to_node=name_to_node,
             types_of_tensor_recordings=list(self.types_of_tensor_recordings),
             nodes=nodes,
-            connections=connections,
+            connections=[list(a) for a in connections],
         )
-        return status_and_graph, name_to_tensor_representation_relevant_for_graph_construction
+        return status_and_graph
 
     @utilities.runtime_analysis_decorator
     def finish_recording(self):
@@ -686,13 +741,16 @@ class ComgraRecorder:
         # Save a preliminary file with information about each tensor.
         # (This is saved in the database just in case the values differ between different iterations, etc.)
         # (For example, the shape of a tensor may in rare cases depend on the iteration.)
-        for (tensor_name, iteration), tr in self.tensor_name_and_iteration_to_representation.items():
+        assert len(self.tensor_reference_to_representation) == len(set([(tr.original_reference.tensor_name, tr.original_reference.iteration) for tr in self.tensor_reference_to_representation.values()])), \
+            (f"Programming error. TensorRepresentations are saved in duplicates, which may clog the database.\n"
+             f"{len(self.tensor_reference_to_representation), len(set([(tr.original_reference.tensor_name, tr.original_reference.iteration) for tr in self.tensor_reference_to_representation.values()]))}")
+        for main_ref, tr in self.tensor_reference_to_representation.items():
             for item, metadata, val in [
                 ('tensor_shape', None, list(tr.shape)),
                 ('index_of_batch_dimension', None, tr.index_of_batch_dimension),
             ]:
-                final_key = self.training_step, 'not_applicable', 'not_applicable', iteration, tr.node_name, tr.role_within_node, 'meta_information', item, metadata
-                self.tensor_recordings.recordings.add_record(final_key, val)
+                final_key = self.training_step, 'not_applicable', 'not_applicable', main_ref.iteration, main_ref.node_name, main_ref.role_within_node, 'meta_information', item, metadata
+                self.add_tensor_recordings_for_key_and_register_alternate_references(final_key, val, main_ref)
         save_recordings_so_far()
         # Get the KPIs from tensors
         total_num_mappings = len(self.mapping_of_tensors_for_extracting_kpis)
@@ -735,17 +793,18 @@ class ComgraRecorder:
             for batch_value in batch_values:
                 for neuron_value in neuron_values:
                     metadata = neuron_value
+                    main_ref = tensor_representation.original_reference
                     final_key = training_step, type_of_tensor_recording, batch_value, iteration, node_name, role_within_node, 'data', item, metadata
-                    all_keys_to_process.append(final_key)
+                    all_keys_to_process.append((final_key, main_ref))
             # Combine and retrieve once enough tensors have been accumulated
             if (i + 1) % self.max_num_mappings_to_save_at_once_during_serialization == 0 or i == total_num_mappings - 1:
                 combined_tensor = torch.cat(all_tensors_to_combine)
                 assert len(combined_tensor.shape) == 1
                 list_of_floats = combined_tensor.cpu().tolist()
                 assert len(list_of_floats) == len(all_keys_to_process), (len(list_of_floats), len(all_keys_to_process))
-                for key_to_process, float_value in zip(all_keys_to_process, list_of_floats):
+                for (key_to_process, main_ref), float_value in zip(all_keys_to_process, list_of_floats):
                     assert isinstance(float_value, float), (float_value, key_to_process)
-                    self.tensor_recordings.recordings.add_record(key_to_process, float_value)
+                    self.add_tensor_recordings_for_key_and_register_alternate_references(key_to_process, float_value, main_ref)
                     sanity_check_c += 1
                 all_tensors_to_combine = []
                 all_keys_to_process = []
@@ -757,6 +816,35 @@ class ComgraRecorder:
         # Save the graph of KPIs, which is independent of the rest of the recordings
         #
         self.save_recorded_kpi_graphs_if_needed()
+
+    def add_tensor_recordings_for_key_and_register_alternate_references(self, key, float_value, ref: TensorReference):
+        # Sanity check
+        assert sum([
+            1 if attr in (tmp:={
+                'node_name': ref.node_name,
+                'role_within_node': ref.role_within_node,
+                'iteration': ref.iteration,
+            }) and tmp[attr] == val else 0
+            for attr, val in zip(self.tensor_recordings.recordings.attributes, key)
+        ]) == 3, (f"The reference does not match the key\n{self.tensor_recordings.recordings.attributes}\n"
+                  f"{key}\n{ref}")
+        # Register the value
+        self.tensor_recordings.recordings.add_record_value(key, float_value)
+        # Find alternate references
+        tmp = [a for a in self.tensor_to_list_of_references.values() if a[0] is ref]
+        assert len(tmp) == 1
+        alternate_references = tmp[0][1:]
+        # Iterate over all alternate references
+        for alt_ref in alternate_references:
+            alt_key = tuple([
+                {
+                    'node_name': alt_ref.node_name,
+                    'role_within_node': alt_ref.role_within_node,
+                    'iteration': alt_ref.iteration,
+                }.get(attr, val)
+                for attr, val in zip(self.tensor_recordings.recordings.attributes, key)
+            ])
+            self.tensor_recordings.recordings.add_record_redirection(alt_key, key)
 
     @utilities.runtime_analysis_decorator
     def save_file(self, dump_dict, recordings_path_folder, file_number):

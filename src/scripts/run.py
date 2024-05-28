@@ -189,8 +189,9 @@ class Demonstration:
             # which can be costly for performance if the tensor is very large.
             # You can also specify recording_type='kpis' to record only KPIs instead of all neurons.
             # KPIs are mean(), abs().mean(), std(), and abs().max()
+            if iteration == 0:
+                comgra.my_recorder.register_tensor(f"initial_memory", memory, is_input=True)
             comgra.my_recorder.register_tensor(f"input", input_for_this_iteration, is_input=True)
-            comgra.my_recorder.register_tensor(f"memory_in", memory, is_input=True)
             x = torch.cat([input_for_this_iteration, memory], dim=1)
             # Forward pass
             output, memory = self.model(x)
@@ -317,7 +318,7 @@ class NeuralNet(nn.Module):
         if DEMONSTRATION.current_configuration != 'no_activation_function_on_output_layer':
             x = self.activation(x)
         comgra.my_recorder.register_tensor(f"{comgra.my_recorder.get_name_of_module(self)}__out", x)
-        return x * 1
+        return x
 
 
 # Our model uses several identical modules with different names, for illustration purposes.
