@@ -150,12 +150,19 @@ class PseudoDb:
         self.record_set[attr_values] = {'redirect': redirection}
 
     @runtime_analysis_decorator
-    def create_index(self, index_attributes):
+    def create_index(self, index_attributes: List, filter_values_to_ignore: Dict[str, Set]):
         assert all(a in self.attributes for a in index_attributes)
+        assert all(a in self.attributes for a in filter_values_to_ignore)
+        index_in_key_to_forbidden_values = {
+            self.attributes.index(k): v for k, v in filter_values_to_ignore.items()
+        }
         self.index_attributes = list(index_attributes)
         index_attribute_indices = [self.attributes.index(a) for a in self.index_attributes]
         self.index_tree = {}
         for key, val in self.record_set.items():
+            # Skip any keys that have forbidden values in them according to filter_values_to_ignore
+            if any(key[idx] in vals for idx, vals in index_in_key_to_forbidden_values.items()):
+                continue
             # Recursively go through the tree structure
             tree = self.index_tree
             for idx in index_attribute_indices:

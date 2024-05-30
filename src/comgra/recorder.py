@@ -694,7 +694,7 @@ class ComgraRecorder:
             name_to_node=name_to_node,
             types_of_tensor_recordings=list(self.types_of_tensor_recordings),
             nodes=nodes,
-            connections=[list(a) for a in connections],
+            tensor_connections=[list(a) for a in connections],
         )
         return status_and_graph
 

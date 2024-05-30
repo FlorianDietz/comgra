@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 from comgra import utilities
 
-SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS = '__reused_from_older_iteration'
+SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS = '*old'
 
 @dataclasses.dataclass
 class ParameterRepresentation:
@@ -82,7 +82,8 @@ class StatusAndGraph:
     name_to_node: Dict[str, Node]
     types_of_tensor_recordings: List[str]
     nodes: List[str]
-    connections: List[List[TensorReference]]
+    tensor_connections: List[List[TensorReference]]
+    node_connections: List[List[str]] = dataclasses.field(default_factory=list)
     dag_format: List[List[str]] = dataclasses.field(default_factory=list)
 
     def __post_init__(self):
@@ -257,10 +258,10 @@ class StatusAndGraph:
             list(a)
             for a in list(dict.fromkeys([
                 (dependency.node_name, dependent.node_name)
-                for dependency, dependent in self.connections
+                for dependency, dependent in self.tensor_connections
             ]))
         ]
-        self.connections = node_level_connections
+        self.node_connections = node_level_connections
         assert sum([len(a) for a in dag_format]) == len(self.nodes), \
             (sum([len(a) for a in dag_format]), len(self.nodes), dag_format, self.nodes)
         inconsistency_found_but_not_identified = False

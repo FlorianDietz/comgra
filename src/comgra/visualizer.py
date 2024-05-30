@@ -21,7 +21,7 @@ import dash_svg
 import msgpack
 import plotly.graph_objs as go
 
-from comgra.objects import StatusAndGraph, ModuleRepresentation, TensorRecordings
+from comgra.objects import StatusAndGraph, ModuleRepresentation, TensorRecordings, TensorReference, SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS
 from comgra import utilities
 
 DISPLAY_ALL_CONNECTIONS_GRAPHICALLY = False
@@ -137,7 +137,6 @@ class Visualization:
         self.cache_for_tensor_recordings = {}
         self.attribute_selection_fallback_values = collections.defaultdict(list)
         self.last_navigation_click_event_time = -1
-        self.node_is_a_parameter: Dict[str, bool] = {}
         self.trial_to_kpi_graph_excerpt = {}
 
     def _node_name_to_dash_id(self, configuration_type, node_name):
@@ -163,27 +162,6 @@ class Visualization:
             with open(config_folder / 'status_and_graph.pkl', 'rb') as f:
                 status_and_graph: StatusAndGraph = pickle.load(f)
             self.configuration_type_to_status_and_graph[configuration_type] = status_and_graph
-        #
-        # Get helper data
-        #
-        # Special handling for parameters:
-        # They are independent of iterations, and all their values are stored for iteration 0.
-        # But we do not want to change the iteration slider when they are selected,
-        # and also the layout of the graph may actually change when the iteration changes,
-        # so that should be avoided as well.
-        all_node_names = set([
-            node_name
-            for sag in self.configuration_type_to_status_and_graph.values()
-            for node_name in sag.name_to_node.keys()
-        ])
-        for node_name in all_node_names:
-            is_parameter_node = set([
-                sag.name_to_node[node_name].type_of_tensor == 'parameter'
-                for sag in self.configuration_type_to_status_and_graph.values()
-                if node_name in sag.name_to_node
-            ])
-            is_parameter_node = utilities.the(is_parameter_node)
-            self.node_is_a_parameter[node_name] = is_parameter_node
         #
         # Visualize
         #
@@ -225,7 +203,14 @@ class Visualization:
                     else:
                         recordings.update_with_more_recordings(new_recordings)
                 recordings.recordings.create_index(
-                    ['training_step', 'record_type', 'node_name', 'role_within_node', 'batch_aggregation', 'iteration'])
+                    ['training_step', 'record_type', 'node_name', 'role_within_node', 'batch_aggregation', 'iteration'],
+                    # Special case while accessing the database:
+                    # We never want tensors from iteration -1, since those are dummy values
+                    # If there is no filter on the iteration, then add one that excludes -1
+                    filter_values_to_ignore={
+                        'iteration': {-1},
+                    }
+                )
                 self.cache_for_tensor_recordings[key] = recordings
             return recordings
 
@@ -323,7 +308,8 @@ class Visualization:
                 bottom = int(top + height_per_box)
                 node_to_corners[node] = (left, top, right, bottom)
                 node_type = sag.name_to_node[node].type_of_tensor
-                text_in_node = node[len(common_prefix):]
+                text_in_node = self.clean_name_of_tensor_or_node('tensor', node_type, node[len(common_prefix):])
+                text_on_mouseover = self.clean_name_of_tensor_or_node('node', node_type, node)
                 appropriate_font_size_for_text_in_node = get_appropriate_font_size_for_text_in_node(width_per_box,
                                                                                                     text_in_node)
                 elements_of_the_graph.append(
@@ -333,14 +319,14 @@ class Visualization:
                         'left': f'{left}px',
                         'top': f'{top}px',
                         'background': vp.node_type_to_color[node_type],
-                    }, title=node[len("node__"):], children=(
+                    }, title=text_on_mouseover, children=(
                         [html.Div(f'{text_in_node}', className='node-name', style={
                             'font-size': f'{appropriate_font_size_for_text_in_node}px'
                         })] if DISPLAY_NAMES_ON_NODES_GRAPHICALLY else [])
                              ))
         svg_connection_lines = []
         if DISPLAY_ALL_CONNECTIONS_GRAPHICALLY or HIGHLIGHT_SELECTED_CONNECTIONS:
-            for connection in sag.connections:
+            for connection in sag.node_connections:
                 source, target = tuple(connection)
                 source_left, source_top, _, _ = node_to_corners[source]
                 target_left, target_top, _, _ = node_to_corners[target]
@@ -619,6 +605,9 @@ class Visualization:
                 # Initialize everything
                 current_params_dict_for_querying_database = {
                     'record_type': 'data',
+                    # Otherwise it might select something with iteration==-1,
+                    # which is a useful dummy but invalid to display
+                    'iteration': 0,
                 }
                 list_of_matches, possible_attribute_values = query_database_using_current_values(
                     [], current_params_dict_for_querying_database,
@@ -627,12 +616,11 @@ class Visualization:
                 selected_record_values = tuple(list_of_matches[0][0])
             else:
                 # Select the node, or change it if the user clicked something.
-                name_of_selected_node = self.get_or_change_selected_node(
+                name_of_selected_node, node_was_explicitly_selected = self.get_or_change_selected_node(
                     trials_value, type_of_execution,
                     training_step_value, iteration_value, previous_name_of_selected_node,
                     navigation_button_clicks, clicks_per_node,
                 )
-                original_iteration_value = iteration_value
                 #
                 # Query the database to determine the best-fitting record to set the current value.
                 #
@@ -640,7 +628,7 @@ class Visualization:
                     'training_step': training_step_value,
                     'type_of_tensor_recording': type_of_recording_value,
                     'batch_aggregation': batch_index_value,
-                    'iteration': None if self.node_is_a_parameter[name_of_selected_node] else iteration_value,
+                    'iteration': iteration_value,
                     'node_name': name_of_selected_node,
                     'role_within_node': role_of_tensor_in_node_value,
                     'record_type': 'data',
@@ -649,8 +637,15 @@ class Visualization:
                 }
                 list_of_matches = []
                 possible_attribute_values = {}
-                attributes_to_ignore_in_order = ['role_within_node', 'batch_aggregation', 'type_of_tensor_recording',
-                                                 'training_step', 'iteration']
+                attributes_to_ignore_in_order = [
+                    'role_within_node', 'batch_aggregation', 'type_of_tensor_recording',
+                    'node_name', 'training_step', 'iteration'
+                ]
+                if node_was_explicitly_selected:
+                    # Move the item to the end of the list if it was explicitly selected
+                    # which causes other filters to be relaxed first
+                    attributes_to_ignore_in_order.remove('node_name')
+                    attributes_to_ignore_in_order.append('node_name')
                 for i in range(len(attributes_to_ignore_in_order) + 1):
                     # If it is not possible to find a match, set the filters to None one by one until a match is found.
                     # This can happen e.g. if you select a different node
@@ -675,12 +670,13 @@ class Visualization:
                 for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
                     fallback_list = self.attribute_selection_fallback_values[attr]
                     val = current_params_dict_for_querying_database[attr]
-                    value_to_switch_to = next((a for a in fallback_list[::-1] if a in possible_attribute_values[attr]),
-                                              None)
+                    value_to_switch_to = next(
+                        (a for a in fallback_list[::-1] if a in possible_attribute_values[attr]), None
+                    )
                     if value_to_switch_to is not None and val != value_to_switch_to and value_to_switch_to != \
                             fallback_list[-1]:
                         current_params_dict_for_querying_database[attr] = value_to_switch_to
-                        list_of_matches, possible_attribute_values = query_database_using_current_values(
+                        list_of_matches, _ = query_database_using_current_values(
                             [], current_params_dict_for_querying_database
                         )
                         assert list_of_matches
@@ -688,6 +684,12 @@ class Visualization:
                         for attr_, val_ in zip(db.attributes, selected_record_values):
                             assert attr_ in current_params_dict_for_querying_database, attr_
                             current_params_dict_for_querying_database[attr_] = val_
+                        # Rerun this, because possible_attribute_values is now a subset of before,
+                        # since we are limiting the search to selected_record_values
+                        list_of_matches, possible_attribute_values = query_database_using_current_values(
+                            [], current_params_dict_for_querying_database
+                        )
+                        assert selected_record_values == tuple(list_of_matches[0][0]), "This shouldn't have changed."
                     for a in possible_attribute_values[attr]:
                         while a in fallback_list:
                             fallback_list.remove(a)
@@ -738,13 +740,12 @@ class Visualization:
                 idx = max(0, min(len(batch_index_options) - 1, idx - 1))
                 batch_index_value = batch_index_options[idx]['value']
             # Options for the iteration
-            if self.node_is_a_parameter[name_of_selected_node]:
+            always_show_all_iterations = True
+            if always_show_all_iterations:
                 iteration_options = list(
                     recordings.training_step_to_iteration_to_configuration_type[training_step_value].keys())
                 iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
-                    original_iteration_value
-                    if self.node_is_a_parameter[name_of_selected_node] and original_iteration_value in iteration_options
-                    else iteration_value,
+                    iteration_value,
                     iteration_options,
                 )
             else:
@@ -811,8 +812,6 @@ class Visualization:
                 iteration_value]
             type_of_execution = recordings.training_step_to_type_of_execution[training_step_value]
             sag = self.configuration_type_to_status_and_graph[configuration_type]
-            if self.node_is_a_parameter[node_name]:
-                iteration_value = 0
             #
             # Select the node and visually highlight it.
             #
@@ -827,8 +826,11 @@ class Visualization:
             # This made this approach infeasible in practice.
             #
             node = sag.name_to_node[node_name]
-            connected_node_names = {a[0] for a in sag.connections if a[1] == node_name} | {a[1] for a in sag.connections
-                                                                                           if a[0] == node_name}
+            connected_node_names = {
+                                       a[0] for a in sag.node_connections if a[1] == node_name
+                                   } | {
+                                       a[1] for a in sag.node_connections if a[0] == node_name
+                                   }
             graph_overlay_elements = []
             for node_name_, (left, top, right, bottom) in self.configuration_type_to_node_to_corners[
                 configuration_type].items():
@@ -962,6 +964,12 @@ class Visualization:
                 rows.append(html.Tr(row))
             if display_type_radio_buttons == 'Tensors':
                 hide_containers_for_tensors = False
+                cleaned_tensor_name = self.clean_name_of_tensor_or_node(
+                    'tensor', node.type_of_tensor, node.full_unique_name[len('node__'):],
+                )
+                cleaned_role_within_tensor = self.clean_name_of_tensor_or_node(
+                    'role', node.type_of_tensor, role_of_tensor_in_node_value,
+                )
                 children = [
                     html.Table(
                         [html.Tr([html.Th(col) for col in
@@ -974,8 +982,8 @@ class Visualization:
                             html.Td(val) for val in [
                                 trials_value, training_step_value, iteration_value,
                                 type_of_execution,
-                                node.full_unique_name[len('node__'):],
-                                role_of_tensor_in_node_value,
+                                cleaned_tensor_name,
+                                cleaned_role_within_tensor,
                                 node.type_of_tensor,
                                 f"[{', '.join([str(a) for a in tensor_shape])}]",
                             ]
@@ -1025,7 +1033,7 @@ class Visualization:
         # Special case: If nothing was clicked, just return the previous_name_of_selected_node
         if max([-1 if a is None else a for a in
                 navigation_button_clicks + clicks_per_node]) <= self.last_navigation_click_event_time:
-            return previous_name_of_selected_node
+            return previous_name_of_selected_node, False
         # Identify which Nodes exist in the selected configuration
         names = [
             node
@@ -1033,7 +1041,8 @@ class Visualization:
             for node in sag.name_to_node.keys()
         ]
         selected_configuration_type = recordings.training_step_to_iteration_to_configuration_type[training_step_value][
-            iteration_value]
+            iteration_value
+        ]
         names_that_exist_in_the_selected_configuration = {
             node for node in
             self.configuration_type_to_status_and_graph[selected_configuration_type].name_to_node.keys()
@@ -1095,7 +1104,7 @@ class Visualization:
         else:
             name_of_selected_node = previous_name_of_selected_node
         assert name_of_selected_node is not None
-        return name_of_selected_node
+        return name_of_selected_node, True
 
     @utilities.runtime_analysis_decorator
     def get_formatted_overview_of_module_parameters(self, sag: StatusAndGraph):
@@ -1123,6 +1132,26 @@ class Visualization:
         total_parameters, lines = rec(sag.modules_and_parameters, 0)
         res = f"Total parameters: {total_parameters:18,d}\n" + "\n".join(lines)
         return res
+
+    def clean_name_of_tensor_or_node(self, obj_type, node_type, text):
+        if obj_type == 'tensor':
+            pass
+        elif obj_type == 'node':
+            assert text.startswith("node__")
+            text = text[len("node__"):]
+        elif obj_type == 'role':
+            pass
+        else:
+            assert False, obj_type
+        # For parameters, remove the suffix.
+        # It will always be present, so there is no point in displaying it at all
+        if node_type == 'parameter':
+            if obj_type in ['tensor', 'node']:
+                assert text.endswith(SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS)
+                text = text[:-len(SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS)]
+            elif obj_type == 'role':
+                text = text[:text.index('__from_iteration')]
+        return text
 
     @utilities.runtime_analysis_decorator
     def get_notes_for_trial(self, trial_id):
