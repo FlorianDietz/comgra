@@ -1,5 +1,6 @@
 import collections
 import colorsys
+import copy
 import numbers
 from datetime import datetime, timedelta
 import math
@@ -179,44 +180,37 @@ class PseudoDb:
         self.record_set = None
 
     @runtime_analysis_decorator
-    def get_matches(self, filters: Dict[str, Any]) -> Tuple[List[Tuple[Tuple[Any, ...], Any]], Dict[str, Set]]:
+    def get_matches(
+            self,
+            filters: Dict[str, Any],
+    ) -> Tuple[List[Tuple[Tuple[Any, ...], Any]], Dict[str, Set]]:
         filters_with_indices = {self.attributes.index(k): v for k, v in filters.items()}
+        index_attribute_indices = [self.attributes.index(a) for a in self.index_attributes]
         # Filter using an index.
-        # While doing so, up to max_num_mismatches_to_allow many attributes may be mismatched
-        # while going through the index.
-        # (This is important for determining possible_attribute_values later).
-        max_num_mismatches_to_allow = 1
-        if self.index_attributes is None:
-            assert self.index_tree is None
-            record_set = self.record_set
-        else:
-            assert self.record_set is None
-            index_attribute_indices = [self.attributes.index(a) for a in self.index_attributes]
-            trees_to_process = [([], self.index_tree)]
-            for idx in index_attribute_indices:
-                next_level_of_trees_to_process = []
-                has_filter = (idx in filters_with_indices)
-                if has_filter:
-                    filter_value = filters_with_indices[idx]
-                    for mismatches, tree in trees_to_process:
-                        if filter_value in tree:
-                            next_level_of_trees_to_process.append((mismatches, tree[filter_value]))
-                        if len(mismatches) < max_num_mismatches_to_allow:
-                            for a, subtree in tree.items():
-                                if a != filter_value or ((a is None) != (filter_value is None)):
-                                    next_level_of_trees_to_process.append((mismatches + [idx], subtree))
-                else:
-                    for mismatches, tree in trees_to_process:
-                        for subtree in tree.values():
-                            next_level_of_trees_to_process.append((mismatches, subtree))
-                trees_to_process = next_level_of_trees_to_process
-            record_set = {}
-            for mismatches, d in trees_to_process:
-                record_set.update(d)
+        # While doing so, one attribute may be mismatched (has_a_mismatch).
+        # This is used to determine possible_attribute_values.
+        assert self.record_set is None
+        trees_to_process = [(False, self.index_tree)]
+        for idx in index_attribute_indices:
+            next_level_of_trees_to_process = []
+            has_filter = (idx in filters_with_indices)
+            filter_value = filters_with_indices.get(idx, None)
+            for has_a_mismatch, tree in trees_to_process:
+                for a, subtree in tree.items():
+                    if not has_filter or filter_value == a:
+                        next_level_of_trees_to_process.append((has_a_mismatch, subtree))
+                    elif not has_a_mismatch:
+                        next_level_of_trees_to_process.append((True, subtree))
+            trees_to_process = next_level_of_trees_to_process
+        records_with_at_most_one_mismatch_in_the_indexed_attributes: Dict[Tuple, Any] = {}
+        for _, result in trees_to_process:
+            records_with_at_most_one_mismatch_in_the_indexed_attributes.update(result)
         # Search for records
         list_of_matches = []
         possible_attribute_values = {k: set() for k in self.attributes}
-        for attr_values, result in record_set.items():
+        for attr_values, result in records_with_at_most_one_mismatch_in_the_indexed_attributes.items():
+            # Get the total number of mismatches
+            # (this includes attributes that are not part of the index)
             num_mismatches = 0
             for idx, filter_value in filters_with_indices.items():
                 if attr_values[idx] != filter_value:
@@ -226,13 +220,13 @@ class PseudoDb:
             if num_mismatches == 0:
                 list_of_matches.append((attr_values, result))
             if num_mismatches < 2:
+                debug = 0
                 for idx, attr_name, in enumerate(self.attributes):
-                    # If the record either matches, or doesn't match but only because of the attribute in question,
-                    # then that attribute value is a legal value for selection.
-                    if num_mismatches == 0 or \
-                            (num_mismatches == 1 and idx in filters_with_indices and attr_values[idx] !=
-                             filters_with_indices[idx]):
-                        possible_attribute_values[attr_name].add(attr_values[idx])
+                    possible_attribute_values[attr_name].add(attr_values[idx])
+                    if idx in filters_with_indices and attr_values[idx] != filters_with_indices[idx]:
+                        debug += 1
+                assert num_mismatches == debug, \
+                    (attr_values, filters_with_indices)
         return list_of_matches, possible_attribute_values
 
 
