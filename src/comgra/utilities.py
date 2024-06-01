@@ -10,7 +10,7 @@ from typing import List, Any, Tuple, Dict, Set, Optional
 
 from plotly import express as px
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 PRINT_EACH_TIME = False
 
 _WARNINGS_ISSUED = {}

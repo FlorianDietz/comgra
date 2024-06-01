@@ -100,7 +100,6 @@ class StatusAndGraph:
             for dependent_ref in dependents:
                 dependency_type = tensor_reference_to_representation[dependency_ref.get_canonical_reference()].type_of_tensor
                 dependent_type = tensor_reference_to_representation[dependent_ref.get_canonical_reference()].type_of_tensor
-                # TODO
                 # NOTE: If this does turn out to be a required feature, I will need to change the DAG construction.
                 # The tensors of type target and loss are currently only added at the end,
                 # and are not part of the DAG sorting algorithm.

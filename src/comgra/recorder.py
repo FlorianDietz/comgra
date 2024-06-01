@@ -16,6 +16,7 @@ import msgpack
 import torch
 from torch import nn as torch_nn
 
+import comgra
 from comgra.objects import SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS, \
     DecisionMakerForRecordings, StatusAndGraph, ModuleRepresentation, Node, ParameterRepresentation, TensorRecordings, \
     TensorReference, TensorRepresentation
@@ -30,7 +31,11 @@ class ComgraRecorder:
             prefixes_for_grouping_module_parameters_in_nodes,
             decision_maker_for_recordings,
             comgra_is_active=True, max_num_batch_size_to_record=None,
-            max_num_mappings_to_save_at_once_during_serialization=20000,
+            # An optional parameter you can experiment with if comgra is too slow.
+            # If this is too low, comgra becomes slow.
+            # If this is too high, the program may crash due to memory problems.
+            # (This problem is caused by a serialization bug in a backend library.)
+            max_num_mappings_to_save_at_once_during_serialization=10000,
             type_of_serialization='msgpack',
             calculate_svd_and_other_expensive_operations_of_parameters=True,
     ):
@@ -485,16 +490,7 @@ class ComgraRecorder:
                 tensor.grad = None
 
     @utilities.runtime_analysis_decorator
-    def finish_iteration(self, sanity_check__verify_graph_and_global_status_equal_existing_file=True):
-        """
-        :param sanity_check__verify_graph_and_global_status_equal_existing_file:
-            Specify whether you want to run a sanity check to make sure that you specified
-            configuration_type of start_iteration() correctly.
-            This costs extra time to compute, but if you skip this sanity check,
-            you might not realize that you are recording two different computational
-            graphs under the same name, and this will lead to errors in the visualization later.
-        :return: 
-        """
+    def finish_iteration(self):
         assert self.current_stage in ['forward', 'backward'], self.current_stage
         self.current_stage = 'after_iteration'
         self.current_type_of_tensor_recording = 'forward'  # This will be used when the parameters get recorded in traverse_graph_backwards
@@ -537,12 +533,24 @@ class ComgraRecorder:
                 tmp = [ref for ref in refs if ref.iteration == self.iteration]
                 if not tmp:
                     original_ref = refs[0]
+                    if self.tensor_reference_to_representation[original_ref].type_of_tensor == 'parameter':
+                        # Parameters are a special case since they are only registered once,
+                        # and that is done automatically, not by the user.
+                        # There can be only one older (node, iteration, role_within_node) tuple for each parameter,
+                        # so creating a new one with the current iteration will be unique even if the role_within_node
+                        # is not changed.
+                        assert original_ref.iteration == -1
+                        role_within_node_suffix = f''
+                    elif original_ref.iteration == -1:
+                        role_within_node_suffix = '__from_initialization'
+                    else:
+                        role_within_node_suffix = f'__from_iteration_{original_ref.iteration}'
                     self.tensor_to_list_of_references[t].append(TensorReference(
                         tensor_name=original_ref.tensor_name + SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS,
                         iteration=self.iteration,
                         node_name=original_ref.node_name + SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS,
                         # node_name=original_ref.node_name + f'__reuse_iteration_{original_ref.iteration}' + SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS,
-                        role_within_node=original_ref.role_within_node + f'__from_iteration_{original_ref.iteration}',
+                        role_within_node=original_ref.role_within_node + role_within_node_suffix,
                         is_canonical_reference=False,
                         previous_reference=self.tensor_to_list_of_references[t][-1],
                     ))
@@ -613,10 +621,24 @@ class ComgraRecorder:
             if not path.exists():
                 with open(path, 'wb') as f:
                     pickle.dump(status_and_graph, f)
-        if sanity_check__verify_graph_and_global_status_equal_existing_file:
-            #
-            # Verify that the result is identical to previous results.
-            #
+        #
+        # Verify that the result is identical to previous results.
+        #
+        self.verify_graph_and_global_status_equal_existing_file(
+            tensor_reference_to_list_of_dependents, tensor_references_to_use_for_this_iteration)
+
+    @utilities.runtime_analysis_decorator
+    def verify_graph_and_global_status_equal_existing_file(
+            self, tensor_reference_to_list_of_dependents, tensor_references_to_use_for_this_iteration
+    ):
+        """
+        Run a sanity check to make sure that configuration_type of start_iteration()
+        was specified correctly: It should result in the same graph every time.
+        This costs extra time to compute, but if you skip this sanity check,
+        you might not realize that you are recording two different computational
+        graphs under the same name, and this will lead to errors in the visualization later.
+        """
+        try:
             new_version = self.build_global_status_and_graph(
                 tensor_references_to_use_for_this_iteration, tensor_reference_to_list_of_dependents,
             )
@@ -639,7 +661,7 @@ class ComgraRecorder:
                     vv2 = v2[kk1]
                     vv1 = tuple(vv1) if isinstance(vv1, list) else vv1
                     vv2 = tuple(vv2) if isinstance(vv2, list) else vv2
-                    assert vv1 == vv2, f"{k1}\n{kk1}\n{vv1}\n{vv2}"
+                    assert vv1 == vv2, f"{new_version.configuration_type}\n{k1}\n{kk1}\n{vv1}\n{vv2}\n{v1}\n{v2}"
             assert tuple(new_version.types_of_tensor_recordings) == tuple(existing_version.types_of_tensor_recordings), \
                 f"{tuple(new_version.types_of_tensor_recordings)}\n" \
                 f"{tuple(existing_version.types_of_tensor_recordings)}"
@@ -648,6 +670,20 @@ class ComgraRecorder:
                 assert len(a) == len(b)
                 for c, d in zip(a, b):
                     assert c == d
+            for a, b in zip(new_version.node_connections, existing_version.node_connections):
+                assert len(a) == len(b)
+                for c, d in zip(a, b):
+                    assert c == d
+        except AssertionError as e:
+            raise ValueError(
+                f"Sanity check failed: Two different dependency graphs have been recorded under the same name. "
+                f"This is caused by the configuration_type parameter of start_iteration(). "
+                f"To prevent this error, make configuration_type a string that depends on everything that might "
+                f"influence what the graph looks like. For example, the first and last iteration typically look "
+                f"different than the ones in between. If you are uncertain, just make configuration_type depend on "
+                f"everything you can think of and then inspect the GUI after running comgra to find out what caused "
+                f"this."
+            ) from e
 
     @utilities.runtime_analysis_decorator
     def build_global_status_and_graph(

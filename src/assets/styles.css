@@ -29,6 +29,12 @@
     left: 50%;
     transform: translate(-50%,-50%);
 }
+.node:not(.dummy-node).node-without-dependency {
+    border-left: 3px dotted black;
+}
+.node:not(.dummy-node).node-without-dependent {
+    border-right: 3px dotted black;
+}
 .inactive {
     display: none;
 }

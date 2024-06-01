@@ -268,6 +268,12 @@ class Visualization:
                 highest_number_of_nodes - 1) * vp.ratio_of_space_between_nodes_to_node_size))
         width_per_box = int((vp.total_display_width - vp.padding_left - vp.padding_right) / (
                 len(sag.dag_format) + (len(sag.dag_format) - 1) * vp.ratio_of_space_between_nodes_to_node_size))
+        nodes_that_have_dependencies = {
+            source_and_target[1] for source_and_target in sag.node_connections
+        }
+        nodes_that_have_dependents = {
+            source_and_target[0] for source_and_target in sag.node_connections
+        }
         elements_of_the_graph = []
         for i, nodes in enumerate(sag.dag_format):
             list_of_nodes_for_grid = []
@@ -312,8 +318,13 @@ class Visualization:
                 text_on_mouseover = self.clean_name_of_tensor_or_node('node', node_type, node)
                 appropriate_font_size_for_text_in_node = get_appropriate_font_size_for_text_in_node(width_per_box,
                                                                                                     text_in_node)
+                node_classes = 'node'
+                if node not in nodes_that_have_dependencies and node_type != 'parameter':
+                    node_classes += ' node-without-dependency'
+                if node not in nodes_that_have_dependents and node_type != 'parameter':
+                    node_classes += ' node-without-dependent'
                 elements_of_the_graph.append(
-                    html.Div(id=self._node_name_to_dash_id(configuration_type, node), className='node', style={
+                    html.Div(id=self._node_name_to_dash_id(configuration_type, node), className=node_classes, style={
                         'width': f'{width_per_box}px',
                         'height': f'{height_per_box}px',
                         'left': f'{left}px',
@@ -1150,7 +1161,7 @@ class Visualization:
                 assert text.endswith(SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS)
                 text = text[:-len(SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS)]
             elif obj_type == 'role':
-                text = text[:text.index('__from_iteration')]
+                pass
         return text
 
     @utilities.runtime_analysis_decorator
