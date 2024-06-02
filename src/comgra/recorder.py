@@ -18,8 +18,8 @@ from torch import nn as torch_nn
 
 import comgra
 from comgra.objects import SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS, \
-    DecisionMakerForRecordings, StatusAndGraph, ModuleRepresentation, Node, ParameterRepresentation, TensorRecordings, \
-    TensorReference, TensorRepresentation
+    DecisionMakerForRecordings, StatusAndGraph, StatusAndGraphPerIteration, ModuleRepresentation, Node, \
+    ParameterRepresentation, TensorRecordings, TensorReference, TensorRepresentation
 from comgra import utilities
 
 
@@ -120,6 +120,7 @@ class ComgraRecorder:
         self.tensor_reference_to_representation: Dict[TensorReference, TensorRepresentation] = {}
         self.current_batch_size = None
         self.override__recording_is_active = None
+        self.current_status_and_graph: Optional[StatusAndGraph] = None
 
     def recording_is_active(self):
         if self.override__recording_is_active is None:
@@ -183,9 +184,10 @@ class ComgraRecorder:
         return self.module_to_name[module]
 
     @utilities.runtime_analysis_decorator
-    def start_next_recording(
+    def start_recording(
             self, training_step, current_batch_size,
-            type_of_execution,
+            configuration_type='main_configuration',
+            type_of_execution='main_execution_type',
             record_all_tensors_per_batch_index_by_default=False,
             override__recording_is_active=None,
     ):
@@ -208,12 +210,17 @@ class ComgraRecorder:
         self.tensor_recordings = TensorRecordings()
         self.mapping_of_tensors_for_extracting_kpis = {}
         self.override__recording_is_active = override__recording_is_active
+        assert isinstance(configuration_type, str) and re.match(r'^[a-zA-Z0-9-_,.]+$', configuration_type) \
+               and '__' not in configuration_type, configuration_type
+        self.configuration_type = configuration_type
+        self.configuration_path = self.group_path / 'configs' / configuration_type
+        self.tensor_recordings.training_step_to_configuration_type[self.training_step] = configuration_type
 
     @utilities.runtime_analysis_decorator
     def register_tensor(
             self, tensor_name, tensor: torch.Tensor,
             index_of_batch_dimension=0,
-            is_input=False, is_parameter=False, is_output=None, is_target=False, is_loss=False,
+            is_input=False, is_parameter=False, is_target=False, is_loss=False,
             recording_type=None, record_per_batch_index=None,
             node_name=None, role_within_node=None, is_initial_value=False,
     ):
@@ -228,14 +235,9 @@ class ComgraRecorder:
             ("Use is_initial_value=True to register the initial value of a hidden state after "
              "calling start_recording() but before start_iteration().")
         iteration_to_use_for_registration = -1 if is_initial_value else self.iteration
-        assert (1 if is_input else 0) + (1 if is_parameter else 0) + (1 if is_output else 0) + \
+        assert (1 if is_input else 0) + (1 if is_parameter else 0) + \
                (1 if is_target else 0) + (1 if is_loss else 0) <= 1, tensor_name
         assert not tensor_name.startswith('node__')
-        if is_output is not None:
-            utilities.warn_once(
-                "Comgra API warning: The is_output parameter of register_tensor() is deprecated. "
-                "Outputs are now detected automatically, so this argument can be removed."
-            )
         node_name = 'node__' + (tensor_name if node_name is None else node_name)
         role_within_node = tensor_name if role_within_node is None else role_within_node
         # Safety checks to avoid overlap with SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS
@@ -455,14 +457,10 @@ class ComgraRecorder:
         self.mapping_of_tensors_for_extracting_kpis[key] = (tensor, tensor_representation)
 
     @utilities.runtime_analysis_decorator
-    def start_iteration(self, configuration_type):
+    def start_iteration(self):
         assert self.current_stage in ['started', 'after_iteration'], self.current_stage
         self.current_stage = 'forward'
         self.iteration = 0 if self.iteration is None else (self.iteration + 1)
-        assert isinstance(configuration_type, str) and re.match(r'^[a-zA-Z0-9-_,.]+$', configuration_type), configuration_type
-        self.configuration_type = configuration_type
-        self.configuration_path = self.group_path / 'configs' / configuration_type
-        self.tensor_recordings.training_step_to_iteration_to_configuration_type.setdefault(self.training_step, {})[self.iteration] = configuration_type
         self.tensor_recordings.training_step_to_type_of_execution[self.training_step] = self.type_of_execution
         if not self.recording_is_active():
             return
@@ -598,99 +596,45 @@ class ComgraRecorder:
         for tensor in tensors_to_show:
             traverse_graph_backwards(tensor.grad_fn, None)
         # Build the dependency graph based on the data extracted while recursing through the computation graph
-        status_and_graph = self.build_global_status_and_graph(
-            tensor_references_to_use_for_this_iteration, tensor_reference_to_list_of_dependents,
+        self.build_global_status_and_graph(tensor_references_to_use_for_this_iteration)
+        assert any([ref1 for ref1, refs in tensor_reference_to_list_of_dependents.items() if
+                    any([ref2 for ref2 in refs if ref1.get_canonical_reference() != ref2.get_canonical_reference()])]), \
+            "No computational graph could be constructed. " \
+            "The most common error that could cause this is that gradient computations are turned off."
+        self.current_status_and_graph.build_dag_format(
+            self, tensor_references_to_use_for_this_iteration, tensor_reference_to_list_of_dependents,
+            self.tensor_reference_to_representation,
         )
-        if self.configuration_type not in self.configuration_type_to_status_and_graph:
-            assert any([ref1 for ref1, refs in tensor_reference_to_list_of_dependents.items() if
-                        any([ref2 for ref2 in refs if ref1.get_canonical_reference() != ref2.get_canonical_reference()])]), \
-                "No computational graph could be constructed. " \
-                "The most common error that could cause this is that gradient computations are turned off."
-            #
-            # Construct global status and graph information
-            #
-            status_and_graph.build_dag_format(
-                self, tensor_references_to_use_for_this_iteration, tensor_reference_to_list_of_dependents,
-                self.tensor_reference_to_representation,
-            )
-            # Make sure the graph and global_status are only DERIVED once per run
-            self.configuration_type_to_status_and_graph[self.configuration_type] = status_and_graph
-            # Make sure the graph and global_status are only SAVED once per set of multiple trials.
-            self.configuration_path.mkdir(parents=True, exist_ok=True)
-            path = self.configuration_path / 'status_and_graph.pkl'
-            if not path.exists():
-                with open(path, 'wb') as f:
-                    pickle.dump(status_and_graph, f)
-        #
-        # Verify that the result is identical to previous results.
-        #
-        self.verify_graph_and_global_status_equal_existing_file(
-            tensor_reference_to_list_of_dependents, tensor_references_to_use_for_this_iteration)
 
     @utilities.runtime_analysis_decorator
-    def verify_graph_and_global_status_equal_existing_file(
-            self, tensor_reference_to_list_of_dependents, tensor_references_to_use_for_this_iteration
-    ):
+    def verify_graph_and_global_status_equal_existing_file(self):
         """
         Run a sanity check to make sure that configuration_type of start_iteration()
         was specified correctly: It should result in the same graph every time.
-        This costs extra time to compute, but if you skip this sanity check,
-        you might not realize that you are recording two different computational
-        graphs under the same name, and this will lead to errors in the visualization later.
         """
         try:
-            new_version = self.build_global_status_and_graph(
-                tensor_references_to_use_for_this_iteration, tensor_reference_to_list_of_dependents,
-            )
-            new_version.build_dag_format(
-                self, tensor_references_to_use_for_this_iteration, tensor_reference_to_list_of_dependents,
-                self.tensor_reference_to_representation,
-            )
             path = self.configuration_path / 'status_and_graph.pkl'
             with open(path, 'rb') as f:
                 existing_version: StatusAndGraph = pickle.load(f)
-            assert new_version.configuration_type == existing_version.configuration_type
-            assert len(new_version.name_to_node) == len(existing_version.name_to_node), \
-                f"{self.configuration_type}\n" \
-                f"{len(new_version.name_to_node)}, {len(existing_version.name_to_node)}\n" \
-                f"{[a for a in new_version.name_to_node if a not in existing_version.name_to_node]}\n" \
-                f"{[a for a in existing_version.name_to_node if a not in new_version.name_to_node]}"
-            for k1, v1 in new_version.name_to_node.items():
-                v2 = dataclasses.asdict(existing_version.name_to_node[k1])
-                for kk1, vv1 in dataclasses.asdict(v1).items():
-                    vv2 = v2[kk1]
-                    vv1 = tuple(vv1) if isinstance(vv1, list) else vv1
-                    vv2 = tuple(vv2) if isinstance(vv2, list) else vv2
-                    assert vv1 == vv2, f"{new_version.configuration_type}\n{k1}\n{kk1}\n{vv1}\n{vv2}\n{v1}\n{v2}"
-            assert tuple(new_version.types_of_tensor_recordings) == tuple(existing_version.types_of_tensor_recordings), \
-                f"{tuple(new_version.types_of_tensor_recordings)}\n" \
-                f"{tuple(existing_version.types_of_tensor_recordings)}"
-            assert len(new_version.dag_format) == len(existing_version.dag_format)
-            for a, b in zip(new_version.dag_format, existing_version.dag_format):
-                assert len(a) == len(b)
-                for c, d in zip(a, b):
-                    assert c == d
-            for a, b in zip(new_version.node_connections, existing_version.node_connections):
-                assert len(a) == len(b)
-                for c, d in zip(a, b):
-                    assert c == d
+            utilities.recursive_equality_check(self.current_status_and_graph, existing_version, [])
         except AssertionError as e:
             raise ValueError(
                 f"Sanity check failed: Two different dependency graphs have been recorded under the same name. "
-                f"This is caused by the configuration_type parameter of start_iteration(). "
+                f"This is caused by the configuration_type parameter of start_recording(). "
                 f"To prevent this error, make configuration_type a string that depends on everything that might "
-                f"influence what the graph looks like. For example, the first and last iteration typically look "
-                f"different than the ones in between. If you are uncertain, just make configuration_type depend on "
+                f"influence what the graph looks like. If you are uncertain, just make configuration_type depend on "
                 f"everything you can think of and then inspect the GUI after running comgra to find out what caused "
                 f"this."
             ) from e
 
     @utilities.runtime_analysis_decorator
-    def build_global_status_and_graph(
-            self,
-            tensor_references_to_use_for_this_iteration,
-            tensor_reference_to_list_of_dependents,
-    ) -> StatusAndGraph:
+    def build_global_status_and_graph(self, tensor_references_to_use_for_this_iteration):
+        if self.iteration == 0:
+            assert self.current_status_and_graph is None
+            self.current_status_and_graph = StatusAndGraph(
+                configuration_type=self.configuration_type,
+                modules_and_parameters=self.set_of_top_level_modules,
+            )
         for ref1 in tensor_references_to_use_for_this_iteration:
             for ref2 in tensor_references_to_use_for_this_iteration:
                 if ref1.get_canonical_reference() == ref2.get_canonical_reference():
@@ -700,14 +644,6 @@ class ComgraRecorder:
                          "Either multiple from this one, or one from a previous one. "
                          "If this assertion fails, then probably traverse_graph_backwards() has a bug")
         nodes = list(set([a.node_name for a in tensor_references_to_use_for_this_iteration]))
-        connections = [
-            (dependency, dependent)
-            for (dependency, dependents) in tensor_reference_to_list_of_dependents.items()
-            for dependent in dependents
-        ]
-        assert len(connections) == len(set(connections)), \
-            ("Programming error. This should have no duplicates. "
-             "If it does, probably the graph traversal has redundant steps and could be optimized.")
         name_to_node = {}
         for ref in tensor_references_to_use_for_this_iteration:
             tr = self.tensor_reference_to_representation[ref.get_canonical_reference()]
@@ -723,15 +659,12 @@ class ComgraRecorder:
             assert tr.type_of_tensor == node.type_of_tensor, \
                 f"Node {node_name} stores tensors with different type_of_tensor." \
                 f"\n{tr.type_of_tensor}\n{node.type_of_tensor}"
-        status_and_graph = StatusAndGraph(
-            configuration_type=self.configuration_type,
-            modules_and_parameters=self.set_of_top_level_modules,
+        sagi = StatusAndGraphPerIteration(
             name_to_node=name_to_node,
-            types_of_tensor_recordings=list(self.types_of_tensor_recordings),
             nodes=nodes,
-            tensor_connections=[list(a) for a in connections],
         )
-        return status_and_graph
+        assert self.iteration not in self.current_status_and_graph.iteration_to_data
+        self.current_status_and_graph.iteration_to_data[self.iteration] = sagi
 
     @utilities.runtime_analysis_decorator
     def finish_recording(self):
@@ -739,6 +672,19 @@ class ComgraRecorder:
         self.current_stage = 'inactive'
         if not self.recording_is_active():
             return
+        #
+        # Save the dependency graph
+        #
+        if self.configuration_type in self.configuration_type_to_status_and_graph:
+            self.verify_graph_and_global_status_equal_existing_file()
+        else:
+            self.configuration_type_to_status_and_graph[self.configuration_type] = self.current_status_and_graph
+            self.configuration_path.mkdir(parents=True, exist_ok=True)
+            path = self.configuration_path / 'status_and_graph.pkl'
+            if not path.exists():
+                with open(path, 'wb') as f:
+                    pickle.dump(self.current_status_and_graph, f)
+        self.current_status_and_graph = None
         #
         # Get the KPIs and serialize them.
         #

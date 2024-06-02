@@ -1,6 +1,7 @@
 import collections
 import colorsys
 import copy
+import dataclasses
 import numbers
 from datetime import datetime, timedelta
 import math
@@ -93,6 +94,50 @@ def the(a):
         raise ValueError(f"Item should have exactly one element, but has {lngth}")
     return list(a)[0]
 
+
+def recursive_equality_check(a, b, location_list, compare_instead_of_asserting=False):
+    if compare_instead_of_asserting:
+        try:
+            recursive_equality_check(a, b, location_list, compare_instead_of_asserting=False)
+            return True
+        except ValueError:
+            return False
+    if dataclasses.is_dataclass(a):
+        if not dataclasses.is_dataclass(b):
+            raise ValueError((location_list, a, b))
+        a = dataclasses.asdict(a)
+        b = dataclasses.asdict(b)
+    if isinstance(a, dict):
+        if not isinstance(b, dict):
+            raise ValueError((location_list, a, b))
+        if len(a) != len(b):
+            raise ValueError((location_list, a, b))
+        for k1, v1 in a.items():
+            if k1 not in b:
+                raise ValueError((location_list + [k1], a, b))
+            v2 = b[k1]
+            recursive_equality_check(v1, v2, location_list + [k1])
+    elif isinstance(a, list):
+        if not isinstance(b, list):
+            raise ValueError((location_list, a, b))
+        if len(a) != len(b):
+            raise ValueError((location_list, a, b))
+
+        def key_extractor_for_arbitrary_but_consistent_sorting(o):
+            if isinstance(o, tuple):
+                return tuple(key_extractor_for_arbitrary_but_consistent_sorting(p) for p in o)
+            if dataclasses.is_dataclass(o):
+                o = dataclasses.asdict(o)
+            if isinstance(o, dict):
+                return key_extractor_for_arbitrary_but_consistent_sorting(sorted(list(o.keys()))[0])
+            return o
+
+        a = sorted(a, key=key_extractor_for_arbitrary_but_consistent_sorting)
+        b = sorted(b, key=key_extractor_for_arbitrary_but_consistent_sorting)
+        for i, (v1, v2) in enumerate(zip(a, b)):
+            recursive_equality_check(v1, v2, location_list + [i])
+    elif a != b:
+        raise ValueError((location_list, a, b))
 
 class PseudoDb:
     def __init__(self, attributes):
