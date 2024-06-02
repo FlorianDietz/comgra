@@ -61,7 +61,6 @@ class TensorRepresentation:
 class Node:
     full_unique_name: str
     type_of_tensor: str
-    items_to_record: List[str]
 
 
 @dataclasses.dataclass

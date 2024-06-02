@@ -718,7 +718,6 @@ class ComgraRecorder:
                 node = Node(
                     full_unique_name=node_name,
                     type_of_tensor=tr.type_of_tensor,
-                    items_to_record=list(tr.items_to_record),
                 )
                 name_to_node[node_name] = node
             assert tr.type_of_tensor == node.type_of_tensor, \
