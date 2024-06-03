@@ -941,7 +941,6 @@ class Visualization:
                         strokeWidth=stroke_width,
                     ))
             if HIGHLIGHT_SELECTED_CONNECTIONS:
-                print(sagi.tensor_connections)
                 for source_x, source_y, target_x, target_y, other_node, stroke_color in \
                         self.configuration_type_and_iteration_to_node_to_list_of_connections.get(
                             (configuration_type, iteration_value), {}).get(node_name, []):
