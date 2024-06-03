@@ -10,14 +10,14 @@ from comgra import utilities
 
 SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS = '*old'
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ParameterRepresentation:
     name: str
     full_unique_name: str
     shape: List[int]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ModuleRepresentation:
     name: str
     full_unique_name: str
@@ -57,7 +57,7 @@ class TensorRepresentation:
         return self.shape[1 - self.index_of_batch_dimension]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Node:
     full_unique_name: str
     type_of_tensor: str
@@ -264,7 +264,7 @@ class StatusAndGraphPerIteration:
                 for dependency, dependent in tensor_connections
             ]))
         ]
-        self.tensor_connections = [list(a) for a in tensor_connections]
+        self.tensor_connections = [sorted(list(a), key=lambda b: b.tensor_name) for a in tensor_connections]
         self.node_connections = node_connections
         assert sum([len(a) for a in dag_format]) == len(self.nodes), \
             (sum([len(a) for a in dag_format]), len(self.nodes), dag_format, self.nodes)

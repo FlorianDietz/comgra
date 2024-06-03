@@ -666,7 +666,7 @@ class ComgraRecorder:
                         ("Programming error. All references to the same tensor should belong to the same iteration. "
                          "Either multiple from this one, or one from a previous one. "
                          "If this assertion fails, then probably traverse_graph_backwards() has a bug")
-        nodes = list(set([a.node_name for a in tensor_references_to_use_for_this_iteration]))
+        nodes = sorted(list(set([a.node_name for a in tensor_references_to_use_for_this_iteration])))
         name_to_node = {}
         for ref in tensor_references_to_use_for_this_iteration:
             tr = self.tensor_reference_to_representation[ref.get_canonical_reference()]

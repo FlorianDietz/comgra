@@ -122,18 +122,6 @@ def recursive_equality_check(a, b, location_list, compare_instead_of_asserting=F
             raise ValueError((location_list, a, b))
         if len(a) != len(b):
             raise ValueError((location_list, a, b))
-
-        def key_extractor_for_arbitrary_but_consistent_sorting(o):
-            if isinstance(o, tuple):
-                return tuple(key_extractor_for_arbitrary_but_consistent_sorting(p) for p in o)
-            if dataclasses.is_dataclass(o):
-                o = dataclasses.asdict(o)
-            if isinstance(o, dict):
-                return key_extractor_for_arbitrary_but_consistent_sorting(sorted(list(o.keys()))[0])
-            return o
-
-        a = sorted(a, key=key_extractor_for_arbitrary_but_consistent_sorting)
-        b = sorted(b, key=key_extractor_for_arbitrary_but_consistent_sorting)
         for i, (v1, v2) in enumerate(zip(a, b)):
             recursive_equality_check(v1, v2, location_list + [i])
     elif a != b:
