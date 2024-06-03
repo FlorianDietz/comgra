@@ -179,7 +179,7 @@ class Visualization:
                     graph_container_dash_id = f'graph_container__{counter_for_container_id}'
                     counter_for_container_id += 1
                     node_to_dash_id = {}
-                    for node in sagi.nodes:
+                    for node in sagi.name_to_node.keys():
                         node_dash_id = node.replace('.', '__')
                         node_dash_id = f"confnode__{graph_container_dash_id}__{node_dash_id}__{counter_for_node_id}"
                         assert (node_dash_id not in self._sanity_check_cache_to_avoid_duplicates or

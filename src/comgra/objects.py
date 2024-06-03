@@ -77,14 +77,9 @@ class TensorRecordings:
 @dataclasses.dataclass
 class StatusAndGraphPerIteration:
     name_to_node: Dict[str, Node]
-    nodes: List[str]
     tensor_connections: List[List[TensorReference]] = dataclasses.field(default_factory=list)
     node_connections: List[List[str]] = dataclasses.field(default_factory=list)
     dag_format: List[List[str]] = dataclasses.field(default_factory=list)
-
-    def __post_init__(self):
-        for name, v in self.name_to_node.items():
-            assert name == v.full_unique_name, (name, v.full_unique_name,)
 
     def build_dag_format(
             self, recorder: 'ComgraRecorder',
@@ -266,8 +261,7 @@ class StatusAndGraphPerIteration:
         ]
         self.tensor_connections = [sorted(list(a), key=lambda b: b.tensor_name) for a in tensor_connections]
         self.node_connections = node_connections
-        assert sum([len(a) for a in dag_format]) == len(self.nodes), \
-            (sum([len(a) for a in dag_format]), len(self.nodes), dag_format, self.nodes)
+        assert len(self.name_to_node) == len({b for a in self.dag_format for b in a})
         inconsistency_found_but_not_identified = False
         for i, node_list_0 in enumerate(nodes_list_list):
             for node_list_1 in nodes_list_list[i+1:]:

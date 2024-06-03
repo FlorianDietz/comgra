@@ -613,7 +613,7 @@ class ComgraRecorder:
         )
         dag_was_equal = False
         if self.iteration != 0:
-            for attr in ['dag_format', 'nodes', 'tensor_connections', 'node_connections']:
+            for attr in ['dag_format', 'name_to_node', 'tensor_connections', 'node_connections']:
                 is_equal = utilities.recursive_equality_check(
                     getattr(self.current_status_and_graph.iteration_to_data[self.iteration], attr),
                     getattr(self.current_status_and_graph.iteration_to_data[self.iteration - 1], attr),
@@ -684,7 +684,6 @@ class ComgraRecorder:
                 f"\n{tr.type_of_tensor}\n{node.type_of_tensor}"
         sagi = StatusAndGraphPerIteration(
             name_to_node=name_to_node,
-            nodes=nodes,
         )
         assert self.iteration not in self.current_status_and_graph.iteration_to_data
         self.current_status_and_graph.iteration_to_data[self.iteration] = sagi
