@@ -259,7 +259,7 @@ class StatusAndGraphPerIteration:
                 for dependency, dependent in tensor_connections
             ]))
         ]
-        self.tensor_connections = [sorted(list(a), key=lambda b: b.tensor_name) for a in tensor_connections]
+        self.tensor_connections = sorted(tensor_connections, key=lambda b: tuple(c.tensor_name for c in b))
         self.node_connections = node_connections
         assert len(self.name_to_node) == len({b for a in self.dag_format for b in a})
         inconsistency_found_but_not_identified = False
