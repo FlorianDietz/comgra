@@ -86,19 +86,12 @@ class StatusAndGraphPerIteration:
         for name, v in self.name_to_node.items():
             assert name == v.full_unique_name, (name, v.full_unique_name,)
 
-@dataclasses.dataclass
-class StatusAndGraph:
-    configuration_type: str
-    modules_and_parameters: Dict[str, ModuleRepresentation]
-    iteration_to_data: Dict[int, StatusAndGraphPerIteration] = dataclasses.field(default_factory=dict)
-
     def build_dag_format(
             self, recorder: 'ComgraRecorder',
             tensor_references_to_use_for_this_iteration: Set[TensorReference],
             tensor_reference_to_list_of_dependents: Dict[TensorReference, List[TensorReference]],
             tensor_reference_to_representation: Dict[TensorReference, TensorRepresentation],
     ):
-        sagi = self.iteration_to_data[recorder.iteration]
         for dependency_ref, dependents in tensor_reference_to_list_of_dependents.items():
             for dependent_ref in dependents:
                 dependency_type = tensor_reference_to_representation[dependency_ref.get_canonical_reference()].type_of_tensor
@@ -254,7 +247,7 @@ class StatusAndGraph:
         dag_format = [
             sorted(a) for a in dag_format
         ]
-        sagi.dag_format = dag_format
+        self.dag_format = dag_format
         # Save the connections
         tensor_connections = [
             (dependency, dependent)
@@ -271,10 +264,10 @@ class StatusAndGraph:
                 for dependency, dependent in tensor_connections
             ]))
         ]
-        sagi.tensor_connections = tensor_connections
-        sagi.node_connections = node_connections
-        assert sum([len(a) for a in dag_format]) == len(sagi.nodes), \
-            (sum([len(a) for a in dag_format]), len(sagi.nodes), dag_format, sagi.nodes)
+        self.tensor_connections = tensor_connections
+        self.node_connections = node_connections
+        assert sum([len(a) for a in dag_format]) == len(self.nodes), \
+            (sum([len(a) for a in dag_format]), len(self.nodes), dag_format, self.nodes)
         inconsistency_found_but_not_identified = False
         for i, node_list_0 in enumerate(nodes_list_list):
             for node_list_1 in nodes_list_list[i+1:]:
@@ -321,6 +314,12 @@ class StatusAndGraph:
              f"node '{inconsistency_found_but_not_identified[0].node_name}' and were sorted in different locations "
              f"of the graph, but no connection between any pair of tensors between these locations could be "
              f"identified.")
+
+@dataclasses.dataclass
+class StatusAndGraph:
+    configuration_type: str
+    modules_and_parameters: Dict[str, ModuleRepresentation]
+    iteration_to_data: Dict[int, StatusAndGraphPerIteration] = dataclasses.field(default_factory=dict)
 
 
 class DecisionMakerForRecordings(abc.ABC):

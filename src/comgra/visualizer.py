@@ -129,34 +129,34 @@ class Visualization:
         self.app = CustomDash(__name__, assets_folder=str(assets_path),
                               external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP])
         self.configuration_type_to_status_and_graph: Dict[str, StatusAndGraph] = {}
+        self.configuration_type_and_iteration_to_unique_dash_suffix: Dict[Tuple[str, int], str] = {}
         self.configuration_type_and_iteration_to_node_to_corners: Dict[Tuple[str, int], Dict[str, Tuple[int, int, int, int]]] = {}
         self.configuration_type_and_iteration_to_grid_of_nodes: Dict[Tuple[str, int], List[List[str]]] = {}
-        self.configuration_type_and_iteration_and_node_to_list_of_connections: Dict[
-            Tuple[str, int, str], List[Tuple[int, int, int, int, str, str]]] = {}
+        self.configuration_type_and_iteration_to_node_to_list_of_connections: Dict[
+            Tuple[str, int], Dict[str, List[Tuple[int, int, int, int, str, str]]]] = {}
+        self.configuration_type_and_iteration_to_graph_container_dash_id: Dict[Tuple[str, int], str] = {}
+        self.graph_container_dash_id_to_representative_configuration_type_and_iteration: Dict[str, Tuple[str, int]] = {}
+        self.configuration_type_and_iteration_to_node_to_dash_id: Dict[Tuple[str, int], Dict[str, str]] = {}
+        self.list_of_unique_node_dash_ids: List[str] = []
         self._sanity_check_cache_to_avoid_duplicates = {}
         self.cache_for_tensor_recordings = {}
         self.attribute_selection_fallback_values = collections.defaultdict(list)
         self.last_navigation_click_event_time = -1
         self.trial_to_kpi_graph_excerpt = {}
 
-    def _node_name_to_dash_id(self, configuration_type, iteration, node_name):
-        conversion = node_name.replace('.', '__')
-        conversion = f"confnode__{configuration_type}__{iteration}__{conversion}"
-        assert (conversion not in self._sanity_check_cache_to_avoid_duplicates or
-                self._sanity_check_cache_to_avoid_duplicates[conversion] == node_name), \
-            f"Two nodes have the same representation: " \
-            f"{node_name}, {self._sanity_check_cache_to_avoid_duplicates[conversion]}, {conversion}"
-        self._sanity_check_cache_to_avoid_duplicates[conversion] = node_name
-        return conversion
-
     def _nodes_to_connection_dash_id(self, configuration_type, iteration, source, target):
-        return f"connection__{self._node_name_to_dash_id(configuration_type, iteration, source)}__" \
-               f"{self._node_name_to_dash_id(configuration_type, iteration, target)}"
+        return f"connection__{self.configuration_type_and_iteration_to_node_to_dash_id[(configuration_type, iteration)][source]}__" \
+               f"{self.configuration_type_and_iteration_to_node_to_dash_id[(configuration_type, iteration)][target]}"
 
     def run_server(self, port):
         #
         # Load data that can only be loaded once, because Divs depend on it.
         #
+        counter_for_container_id = 0
+        counter_for_node_id = 0
+        assert not self.configuration_type_and_iteration_to_graph_container_dash_id
+        assert not self.graph_container_dash_id_to_representative_configuration_type_and_iteration
+        assert not self.configuration_type_and_iteration_to_node_to_dash_id
         for config_folder in (self.path / 'configs').iterdir():
             configuration_type = config_folder.name
             with open(config_folder / 'status_and_graph.pkl', 'rb') as f:
@@ -164,6 +164,51 @@ class Visualization:
             self.configuration_type_to_status_and_graph[configuration_type] = status_and_graph
             assert configuration_type == status_and_graph.configuration_type, \
                 (configuration_type, status_and_graph.configuration_type)
+            # For each iteration in the graph, if the DAG is equal-by-reference to the previous one,
+            # give it the same dash ID.
+            # This prevents the GUI from creating too many nodes when many iterations display the same thing
+            previous_dag = None
+            previous_node_to_dash_id = None
+            previous_graph_container_dash_id = None
+            for iteration, sagi in status_and_graph.iteration_to_data.items():
+                is_equal = (sagi.dag_format is previous_dag)
+                if is_equal:
+                    print(0, configuration_type, iteration)
+                    node_to_dash_id = previous_node_to_dash_id
+                    graph_container_dash_id = previous_graph_container_dash_id
+                else:
+                    print(1, configuration_type, iteration)
+                    graph_container_dash_id = f'graph_container__{counter_for_container_id}'
+                    counter_for_container_id += 1
+                    node_to_dash_id = {}
+                    for node in sagi.nodes:
+                        node_dash_id = node.replace('.', '__')
+                        node_dash_id = f"confnode__{graph_container_dash_id}__{node_dash_id}__{counter_for_node_id}"
+                        assert (node_dash_id not in self._sanity_check_cache_to_avoid_duplicates or
+                                self._sanity_check_cache_to_avoid_duplicates[node_dash_id] == node), \
+                            f"Programming error: Two nodes have the same representation: " \
+                            f"{node}, {self._sanity_check_cache_to_avoid_duplicates[node_dash_id]}, {node_dash_id}"
+                        self._sanity_check_cache_to_avoid_duplicates[node_dash_id] = node
+                        counter_for_node_id += 1
+                        node_to_dash_id[node] = node_dash_id
+                    self.graph_container_dash_id_to_representative_configuration_type_and_iteration[graph_container_dash_id] = (configuration_type, iteration)
+                self.configuration_type_and_iteration_to_graph_container_dash_id[(configuration_type, iteration)] = graph_container_dash_id
+                self.configuration_type_and_iteration_to_node_to_dash_id[(configuration_type, iteration)] = node_to_dash_id
+                previous_dag = sagi.dag_format
+                previous_node_to_dash_id = node_to_dash_id
+                previous_graph_container_dash_id = graph_container_dash_id
+        assert not self.list_of_unique_node_dash_ids
+        for node_to_dash_id in self.configuration_type_and_iteration_to_node_to_dash_id.values():
+            for node_dash_id in node_to_dash_id.values():
+                if node_dash_id not in self.list_of_unique_node_dash_ids:
+                    self.list_of_unique_node_dash_ids.append(node_dash_id)
+        if len(self.list_of_unique_node_dash_ids) > 1000:
+            utilities.warn_once(
+                f"Warning: the number of generated nodes for the GUI is suspiciously high "
+                f"({len(self.list_of_unique_node_dash_ids)}). "
+                f"Possible cause: The network runs for many iterations and they all have "
+                f"(possibly slightly) different dependency graphs."
+            )
         #
         # Visualize
         #
@@ -257,11 +302,12 @@ class Visualization:
 
     @utilities.runtime_analysis_decorator
     def create_nodes_and_arrows(
-            self, configuration_type: str, iteration: int, sag: StatusAndGraph
+            self, configuration_type: str, iteration: int
     ) -> List:
         assert (configuration_type, iteration) not in self.configuration_type_and_iteration_to_node_to_corners, configuration_type
         node_to_corners = self.configuration_type_and_iteration_to_node_to_corners.setdefault((configuration_type, iteration), {})
         grid_of_nodes = self.configuration_type_and_iteration_to_grid_of_nodes.setdefault((configuration_type, iteration), [])
+        sag = self.configuration_type_to_status_and_graph[configuration_type]
         sagi = sag.iteration_to_data[iteration]
         highest_number_of_nodes = max(len(a) for a in sagi.dag_format)
         height_per_box = int((vp.total_display_height - vp.padding_top - vp.padding_bottom) / (
@@ -325,7 +371,7 @@ class Visualization:
                 if node not in nodes_that_have_dependents and node_type != 'parameter':
                     node_classes += ' node-without-dependent'
                 elements_of_the_graph.append(
-                    html.Div(id=self._node_name_to_dash_id(configuration_type, iteration, node), className=node_classes, style={
+                    html.Div(id=self.configuration_type_and_iteration_to_node_to_dash_id[(configuration_type, iteration)][node], className=node_classes, style={
                         'width': f'{width_per_box}px',
                         'height': f'{height_per_box}px',
                         'left': f'{left}px',
@@ -357,8 +403,8 @@ class Visualization:
                     ))
                 if HIGHLIGHT_SELECTED_CONNECTIONS:
                     for n1, n2 in [(source, target), (target, source)]:
-                        self.configuration_type_and_iteration_and_node_to_list_of_connections.setdefault(
-                            (configuration_type, iteration, n1), []).append((
+                        self.configuration_type_and_iteration_to_node_to_list_of_connections.setdefault(
+                            (configuration_type, iteration), {}).setdefault(n1, []).append((
                             source_x, source_y, target_x, target_y, n2,
                             (vp.highlighting_colors[
                                  'highlighted'] if DISPLAY_ALL_CONNECTIONS_GRAPHICALLY else stroke_color)
@@ -454,14 +500,13 @@ class Visualization:
                 'height': f'{vp.total_display_height}px',
                 'border': '1px solid black',
             }, children=[
-                            html.Div(id=f'graph_container__{configuration_type}__{iteration}', style={
+                            html.Div(id=graph_container_dash_id, style={
                                 'position': 'relative',
                                 'width': f'{vp.total_display_width}px',
                                 'height': f'{vp.total_display_height}px',
-                            }, children=self.create_nodes_and_arrows(configuration_type, iteration, sag)
+                            }, children=self.create_nodes_and_arrows(configuration_type, iteration)
                                      )
-                            for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
-                            for iteration in sag.iteration_to_data.keys()
+                            for graph_container_dash_id, (configuration_type, iteration) in self.graph_container_dash_id_to_representative_configuration_type_and_iteration.items()
                         ] + [
                             html.Div(id='graph-overlay-for-selections', style={
                                 'position': 'absolute',
@@ -477,6 +522,14 @@ class Visualization:
             html.Div(id='selected-item-details-container', children=[
             ]),
         ])
+        # For the (configuration_type, iteration) that didn't get their own graph_container_dash_id
+        # in create_nodes_and_arrows()
+        # create references in some dictionaries that need them.
+        for cai, graph_container_dash_id in self.configuration_type_and_iteration_to_graph_container_dash_id.items():
+            representative_cai = self.graph_container_dash_id_to_representative_configuration_type_and_iteration[graph_container_dash_id]
+            self.configuration_type_and_iteration_to_node_to_corners[cai] = self.configuration_type_and_iteration_to_node_to_corners[representative_cai]
+            self.configuration_type_and_iteration_to_grid_of_nodes[cai] = self.configuration_type_and_iteration_to_grid_of_nodes[representative_cai]
+            self.configuration_type_and_iteration_to_node_to_list_of_connections[cai] = self.configuration_type_and_iteration_to_node_to_list_of_connections[representative_cai]
 
         @app.callback([Output('trials-dropdown', 'options'),
                        Output('trials-dropdown', 'value')],
@@ -518,9 +571,10 @@ class Visualization:
                         Output('iteration-slider', 'value'),
                         Output('role-of-tensor-in-node-dropdown', 'options'),
                         Output('role-of-tensor-in-node-dropdown', 'value')] +
-                       [Output(f'graph_container__{configuration_type}__{iteration}', 'className')
-                        for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
-                        for iteration in sag.iteration_to_data.keys()]),
+                       [Output(graph_container_dash_id, 'className')
+                        for graph_container_dash_id
+                        in self.graph_container_dash_id_to_representative_configuration_type_and_iteration.keys()
+                        ]),
                       ([Input('trials-dropdown', 'value'),
                         Input('type-of-execution-for-diversity-of-recordings-dropdown', 'value'),
                         Input('decrement-training-step-button', 'n_clicks'),
@@ -539,10 +593,8 @@ class Visualization:
                         Input('navigate-right-button', 'n_clicks_timestamp'),
                         Input('navigate-up-button', 'n_clicks_timestamp'),
                         Input('navigate-down-button', 'n_clicks_timestamp')] +
-                       [Input(self._node_name_to_dash_id(configuration_type, iteration, node), 'n_clicks_timestamp')
-                        for configuration_type, sag in self.configuration_type_to_status_and_graph.items()
-                        for iteration, sagi in sag.iteration_to_data.items()
-                        for node in sagi.name_to_node.keys()]))
+                       [Input(node_dash_id, 'n_clicks_timestamp')
+                        for node_dash_id in self.list_of_unique_node_dash_ids]))
         @utilities.runtime_analysis_decorator
         def update_selectors(
                 trials_value, type_of_execution,
@@ -790,11 +842,12 @@ class Visualization:
             # Hide or show different graphs
             #
             configuration_type = recordings.training_step_to_configuration_type[training_step_value]
+            graph_container_dash_id = self.configuration_type_and_iteration_to_graph_container_dash_id[(configuration_type, iteration_value)]
             graph_container_visibilities = [
-                'active' if conf_type == configuration_type and iteration == iteration_value else 'inactive'
-                for conf_type, sag in self.configuration_type_to_status_and_graph.items()
-                for iteration in sag.iteration_to_data.keys()
+                'active' if k == graph_container_dash_id else 'inactive'
+                for k in self.graph_container_dash_id_to_representative_configuration_type_and_iteration.keys()
             ]
+            assert len(graph_container_visibilities) == len(self.graph_container_dash_id_to_representative_configuration_type_and_iteration)
             assert len([a for a in graph_container_visibilities if a == 'active']) == 1, \
                 (configuration_type, iteration_value)
             res = [
@@ -877,8 +930,8 @@ class Visualization:
                     ))
             if HIGHLIGHT_SELECTED_CONNECTIONS:
                 for source_x, source_y, target_x, target_y, other_node, stroke_color in \
-                        self.configuration_type_and_iteration_and_node_to_list_of_connections.get(
-                            (configuration_type, iteration_value, node_name), []):
+                        self.configuration_type_and_iteration_to_node_to_list_of_connections.get(
+                            (configuration_type, iteration_value), {}).get(node_name, []):
                     graph_overlay_elements.append(dash_svg.Line(
                         id=f'highlight_connection__{configuration_type}__{iteration_value}__{node}__{other_node}',
                         x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
@@ -1053,23 +1106,32 @@ class Visualization:
             navigation_button_clicks, clicks_per_node,
     ):
         recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution)
+        configuration_type = recordings.training_step_to_configuration_type[training_step_value]
         # Special case: If nothing was clicked, just return the previous_name_of_selected_node
         if max([-1 if a is None else a for a in
                 navigation_button_clicks + clicks_per_node]) <= self.last_navigation_click_event_time:
             return previous_name_of_selected_node, False
-        # Identify which Nodes exist in the selected configuration
+        # Identify which Nodes exist in the selected configuration and iteration
+        print(123, previous_name_of_selected_node)
+        node_to_dash_id = self.configuration_type_and_iteration_to_node_to_dash_id[(configuration_type, iteration_value)]
+        dash_id_to_node = {
+            dash_id: node for node, dash_id in node_to_dash_id.items()
+        }
+        assert len(dash_id_to_node) == len(node_to_dash_id)
         names = [
-            node
-            for _, sag in self.configuration_type_to_status_and_graph.items()
-            for _, sagi in sag.iteration_to_data.items()
-            for node in sagi.name_to_node.keys()
+            dash_id_to_node.get(dash_id, None) for dash_id in self.list_of_unique_node_dash_ids
+            # node
+            # for _, sag in self.configuration_type_to_status_and_graph.items()
+            # for _, sagi in sag.iteration_to_data.items()
+            # for node in sagi.name_to_node.keys()
         ]
         selected_configuration_type = recordings.training_step_to_configuration_type[training_step_value]
         names_that_exist_in_the_selected_configuration = {
             node for node in
             self.configuration_type_to_status_and_graph[selected_configuration_type].iteration_to_data[iteration_value].name_to_node.keys()
         }
-        assert len(clicks_per_node) == len(names), (len(clicks_per_node), len(names))
+        assert len(clicks_per_node) == len(self.list_of_unique_node_dash_ids), (len(clicks_per_node), len(self.list_of_unique_node_dash_ids))
+        assert len(names) == len(self.list_of_unique_node_dash_ids), (len(names), len(self.list_of_unique_node_dash_ids))
         # Identify the most recently clicked navigation button
         max_index_navigation = -1
         max_val_navigation = 0
@@ -1125,6 +1187,7 @@ class Visualization:
             name_of_selected_node = column[y]
         else:
             name_of_selected_node = previous_name_of_selected_node
+        print(246, name_of_selected_node)
         assert name_of_selected_node is not None
         return name_of_selected_node, True
 

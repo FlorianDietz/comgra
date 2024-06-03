@@ -601,10 +601,33 @@ class ComgraRecorder:
                     any([ref2 for ref2 in refs if ref1.get_canonical_reference() != ref2.get_canonical_reference()])]), \
             "No computational graph could be constructed. " \
             "The most common error that could cause this is that gradient computations are turned off."
-        self.current_status_and_graph.build_dag_format(
+        # Build the DAG format.
+        # Then, if it is equal to the previous one, use that one instead by replacing the reference.
+        # This saves some memory, and more importantly the visualizer can use it to avoid creating duplicates,
+        # which can blow up the GUI.
+        # (In the worst case, it creates one entire set of graphical nodes for each iteration,
+        # then makes all but one of them invisible.)
+        self.current_status_and_graph.iteration_to_data[self.iteration].build_dag_format(
             self, tensor_references_to_use_for_this_iteration, tensor_reference_to_list_of_dependents,
             self.tensor_reference_to_representation,
         )
+        dag_was_equal = False
+        if self.iteration != 0:
+            for attr in ['dag_format', 'nodes', 'tensor_connections', 'node_connections']:
+                is_equal = utilities.recursive_equality_check(
+                    getattr(self.current_status_and_graph.iteration_to_data[self.iteration], attr),
+                    getattr(self.current_status_and_graph.iteration_to_data[self.iteration - 1], attr),
+                    [], compare_instead_of_asserting=True,
+                )
+                if is_equal:
+                    setattr(self.current_status_and_graph.iteration_to_data[self.iteration], attr,
+                            getattr(self.current_status_and_graph.iteration_to_data[self.iteration - 1], attr))
+                    if attr == 'dag_format':
+                        dag_was_equal = True
+                if dag_was_equal:
+                    if attr in ['nodes', 'node_connections']:
+                        assert is_equal, \
+                            "If the dependency graph is the same, the simpler derived items should also be the same."
 
     @utilities.runtime_analysis_decorator
     def verify_graph_and_global_status_equal_existing_file(self):
