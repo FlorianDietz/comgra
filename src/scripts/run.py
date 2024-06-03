@@ -219,8 +219,8 @@ class Demonstration:
                 for i in range(0, num_iterations):
                     helper_partial_sums = input_tensor[:, :i+1, :].sum(dim=1).detach()
                     comgra.my_recorder.register_tensor(
-                        f"helper_partial_sums_up_to_iteration_{i}", helper_partial_sums, is_target=True,
-                        node_name=f"helper_partial_sums", role_within_node=f"up_to_iteration_{i}"
+                        f"helper_partial_sums_up_to_iteration_{i}", helper_partial_sums,
+                        node_name=f"helper_partial_sums", role_within_node=f"up_to_iteration_{i}",
                     )
                 # Calculate the loss and perform a backward pass as normal
                 loss = self.criterion(output, target_tensor)
