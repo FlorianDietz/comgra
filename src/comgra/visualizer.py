@@ -1265,7 +1265,9 @@ class Visualization:
     def display_kpi_graphs(self, trials_value, type_of_execution):
         if trials_value not in self.trial_to_kpi_graph_excerpt:
             self.load_kpi_graphs_for_trial(trials_value)
-        graph_excerpt = self.trial_to_kpi_graph_excerpt[trials_value]
+        graph_excerpt = self.trial_to_kpi_graph_excerpt.get(trials_value, None)
+        if graph_excerpt is None:
+            return html.Div(children=["No graphs have been created. Use record_kpi_in_graph() to create graphs."])
         #
         # Determine colors to use for the graphs
         #
@@ -1325,8 +1327,9 @@ class Visualization:
             return
         trial_path = self.path / 'trials' / trials_value
         files = [a for a in list(trial_path.iterdir()) if a.stem == 'kpi_graph']
-        assert len(files) == 1, files
-        self.trial_to_kpi_graph_excerpt[trials_value] = self.load_file(files[0])
+        if len(files) > 0:
+            assert len(files) == 1
+            self.trial_to_kpi_graph_excerpt[trials_value] = self.load_file(files[0])
 
     @utilities.runtime_analysis_decorator
     def create_external_visualization(self, *args):
