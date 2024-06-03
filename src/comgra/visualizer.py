@@ -1134,10 +1134,6 @@ class Visualization:
         assert len(dash_id_to_node) == len(node_to_dash_id)
         names = [
             dash_id_to_node.get(dash_id, None) for dash_id in self.list_of_unique_node_dash_ids
-            # node
-            # for _, sag in self.configuration_type_to_status_and_graph.items()
-            # for _, sagi in sag.iteration_to_data.items()
-            # for node in sagi.name_to_node.keys()
         ]
         selected_configuration_type = recordings.training_step_to_configuration_type[training_step_value]
         names_that_exist_in_the_selected_configuration = {
