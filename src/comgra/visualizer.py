@@ -173,11 +173,9 @@ class Visualization:
             for iteration, sagi in status_and_graph.iteration_to_data.items():
                 is_equal = (sagi.dag_format is previous_dag)
                 if is_equal:
-                    print(0, configuration_type, iteration)
                     node_to_dash_id = previous_node_to_dash_id
                     graph_container_dash_id = previous_graph_container_dash_id
                 else:
-                    print(1, configuration_type, iteration)
                     graph_container_dash_id = f'graph_container__{counter_for_container_id}'
                     counter_for_container_id += 1
                     node_to_dash_id = {}
@@ -1112,7 +1110,6 @@ class Visualization:
                 navigation_button_clicks + clicks_per_node]) <= self.last_navigation_click_event_time:
             return previous_name_of_selected_node, False
         # Identify which Nodes exist in the selected configuration and iteration
-        print(123, previous_name_of_selected_node)
         node_to_dash_id = self.configuration_type_and_iteration_to_node_to_dash_id[(configuration_type, iteration_value)]
         dash_id_to_node = {
             dash_id: node for node, dash_id in node_to_dash_id.items()
@@ -1187,7 +1184,6 @@ class Visualization:
             name_of_selected_node = column[y]
         else:
             name_of_selected_node = previous_name_of_selected_node
-        print(246, name_of_selected_node)
         assert name_of_selected_node is not None
         return name_of_selected_node, True
 
