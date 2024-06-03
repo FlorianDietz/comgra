@@ -264,7 +264,7 @@ class StatusAndGraphPerIteration:
                 for dependency, dependent in tensor_connections
             ]))
         ]
-        self.tensor_connections = tensor_connections
+        self.tensor_connections = [list(a) for a in tensor_connections]
         self.node_connections = node_connections
         assert sum([len(a) for a in dag_format]) == len(self.nodes), \
             (sum([len(a) for a in dag_format]), len(self.nodes), dag_format, self.nodes)

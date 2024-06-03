@@ -904,14 +904,28 @@ class Visualization:
                                    } | {
                                        a[1] for a in sagi.node_connections if a[0] == node_name
                                    }
+
+            def check_if_connection_is_active_for_this_role_within_node(node0, node1):
+                return any(
+                    (dependency_and_dependent[0].role_within_node == role_of_tensor_in_node_value) and
+                    (dependency_and_dependent[0].node_name == node0 and dependency_and_dependent[1].node_name == node1)
+                    for dependency_and_dependent in sagi.tensor_connections
+                ) or any(
+                    (dependency_and_dependent[1].role_within_node == role_of_tensor_in_node_value) and
+                    (dependency_and_dependent[1].node_name == node0 and dependency_and_dependent[0].node_name == node1)
+                    for dependency_and_dependent in sagi.tensor_connections
+                )
             # Create the elements
             graph_overlay_elements = []
             for node_name_, (left, top, right, bottom) in self.configuration_type_and_iteration_to_node_to_corners[
                 (configuration_type, iteration_value)].items():
                 if node_name_ == node_name:
                     color = vp.highlighting_colors['selected']
+                    stroke_width = 3
                 elif node_name_ in connected_node_names:
                     color = vp.highlighting_colors['highlighted']
+                    connection_is_active = check_if_connection_is_active_for_this_role_within_node(node_name, node_name_)
+                    stroke_width = 3 if connection_is_active else 1
                 else:
                     continue
                 corners = [
@@ -924,17 +938,21 @@ class Visualization:
                     graph_overlay_elements.append(dash_svg.Line(
                         x1=str(x1), x2=str(x2), y1=str(y1), y2=str(y2),
                         stroke=color,
-                        strokeWidth=3,
+                        strokeWidth=stroke_width,
                     ))
             if HIGHLIGHT_SELECTED_CONNECTIONS:
+                print(sagi.tensor_connections)
                 for source_x, source_y, target_x, target_y, other_node, stroke_color in \
                         self.configuration_type_and_iteration_to_node_to_list_of_connections.get(
                             (configuration_type, iteration_value), {}).get(node_name, []):
+                    connection_is_active = check_if_connection_is_active_for_this_role_within_node(node_name, other_node)
+                    connection_id = f'highlight_connection__{configuration_type}__{iteration_value}__{node_name}__{other_node}'
+                    connection_id = connection_id.replace('.', '_')
                     graph_overlay_elements.append(dash_svg.Line(
-                        id=f'highlight_connection__{configuration_type}__{iteration_value}__{node}__{other_node}',
+                        id=connection_id,
                         x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
                         stroke=stroke_color,
-                        strokeWidth=3,
+                        strokeWidth=3 if connection_is_active else 1,
                     ))
             graph_overlay_for_selections_children = [
                 dash_svg.Svg(
