@@ -286,7 +286,8 @@ class ComgraRecorder:
             type_of_tensor = 'loss'
         else:
             type_of_tensor = 'calculated'
-        self.computation_step_to_tensor[tensor.grad_fn] = tensor
+        if tensor.grad_fn is not None:
+            self.computation_step_to_tensor[tensor.grad_fn] = tensor
         if recording_type == 'kpis':
             items_to_record = ['mean', 'abs_mean', 'std', 'abs_max']
         elif recording_type == 'kpis_and_svd':
@@ -498,32 +499,41 @@ class ComgraRecorder:
         # Go backwards through the computation graph, starting from outputs, targets, and losses.
         # Go back until you encounter an input, or you can't go back anymore.
         #
+        assert None not in self.computation_step_to_tensor, self.computation_step_to_tensor[None]
         steps_that_have_been_processed = set()
         tensor_references_to_use_for_this_iteration = set()
         tensor_reference_to_list_of_dependents: Dict[TensorReference, List[TensorReference]] = collections.defaultdict(list)
 
         @utilities.runtime_analysis_decorator
-        def traverse_graph_backwards(step, last_encountered_reference):
+        def traverse_graph_backwards(last_encountered_reference, step_to_follow=None, direct_tensor=None):
             """
-            This function sets tensor_reference.is_a_dependency_of for each tensor.
+            This function sets dependencies between tensors.
             It also registers any parameters that haven't been registered yet upon encountering them for the first time.
+            The function is called in one of two ways:
+            step_to_follow is used on the computation step that produced a tensor.
+            The function registers the tensor and then follows the computation graph backwards.
+            Some tensors do not have an associated computation step because they are added directly,
+            or detach() was used on them. For these, direct_tensor is used instead.
             """
-            if step is None:
-                return
-            t = None
-            if step in self.computation_step_to_tensor:
-                assert not hasattr(step, 'variable'), \
-                    "This shouldn't be possible. hasattr(step, 'variable') is True if it's a leaf, " \
-                    "while computation_step_to_tensor is used for intermediate values."
-                t = self.computation_step_to_tensor[step]
-            if hasattr(step, 'variable'):
-                t = step.variable
-                # Register parameters in the graph the first time you encounter them.
-                if t in self.parameter_to_representation and t not in self.tensor_to_list_of_references:
-                    tensor_name = self.parameter_to_representation[t].full_unique_name
-                    node_name = next((a for a in self.prefixes_for_grouping_module_parameters_in_nodes if tensor_name.startswith(a)), None)
-                    self.register_tensor(tensor_name, t, is_parameter=True, node_name=node_name)
-            keep_recursing = True
+            assert (direct_tensor is None) != (step_to_follow is None), "Use one of the two"
+            if direct_tensor is None:
+                t = None
+                if step_to_follow in self.computation_step_to_tensor:
+                    assert not hasattr(step_to_follow, 'variable'), \
+                        "This shouldn't be possible. hasattr(step, 'variable') is True if it's a leaf, " \
+                        "while computation_step_to_tensor is used for intermediate values."
+                    t = self.computation_step_to_tensor[step_to_follow]
+                if hasattr(step_to_follow, 'variable'):
+                    t = step_to_follow.variable
+                    # Register parameters in the graph the first time you encounter them.
+                    if t in self.parameter_to_representation and t not in self.tensor_to_list_of_references:
+                        tensor_name = self.parameter_to_representation[t].full_unique_name
+                        node_name = next((a for a in self.prefixes_for_grouping_module_parameters_in_nodes if tensor_name.startswith(a)), None)
+                        self.register_tensor(tensor_name, t, is_parameter=True, node_name=node_name)
+                keep_recursing = True
+            else:
+                t = direct_tensor
+                keep_recursing = False
             if t is not None:
                 # Get the first and the last reference to this tensor on this iteration.
                 # Or if there is none on this iteration, create a new reference.
@@ -567,11 +577,11 @@ class ComgraRecorder:
                          "has some redundancy and could be optimized.")
                     tensor_reference_to_list_of_dependents[last_ref].append(last_encountered_reference)
                 # If this step is encountered for the first time, connect the references and recurse
-                step_has_been_processed = step in steps_that_have_been_processed
+                step_has_been_processed = step_to_follow in steps_that_have_been_processed
                 if step_has_been_processed:
                     keep_recursing = False
                 else:
-                    steps_that_have_been_processed.add(step)
+                    steps_that_have_been_processed.add(step_to_follow)
                     # Set dependencies between all references of this tensor that will be displayed at the same time
                     for ref1, ref2 in zip(tmp[:-1], tmp[1:]):
                         tensor_reference_to_list_of_dependents[ref1].append(ref2)
@@ -585,8 +595,9 @@ class ComgraRecorder:
                                       and (tensor_representation.type_of_tensor != 'input'))
                     last_encountered_reference = first_ref
             if keep_recursing:
-                for predecessor, other in step.next_functions:
-                    traverse_graph_backwards(predecessor, last_encountered_reference)
+                for predecessor, other in step_to_follow.next_functions:
+                    if predecessor is not None:
+                        traverse_graph_backwards(last_encountered_reference, step_to_follow=predecessor, direct_tensor=None)
         # Backpropagate from any tensor that was created or otherwise referenced in this iteration
         tensors_to_show = [
             tensor for tensor, refs in self.tensor_to_list_of_references.items()
@@ -594,7 +605,10 @@ class ComgraRecorder:
             if ref.iteration == self.iteration
         ]
         for tensor in tensors_to_show:
-            traverse_graph_backwards(tensor.grad_fn, None)
+            if tensor.grad_fn is None:
+                traverse_graph_backwards(None, step_to_follow=None, direct_tensor=tensor)
+            else:
+                traverse_graph_backwards(None, step_to_follow=tensor.grad_fn, direct_tensor=None)
         # Build the dependency graph based on the data extracted while recursing through the computation graph
         self.build_global_status_and_graph(tensor_references_to_use_for_this_iteration)
         assert any([ref1 for ref1, refs in tensor_reference_to_list_of_dependents.items() if
