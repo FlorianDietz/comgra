@@ -62,30 +62,44 @@ class Node:
     full_unique_name: str
     type_of_tensor: str
 
+@dataclasses.dataclass
+class DataOfTrainingStep:
+    type_of_execution: str
+    modules_and_parameters: Dict[str, ModuleRepresentation]
+    graph_configuration_per_iteration: List['GraphConfigurationOfOneIteration'] = dataclasses.field(default_factory=list)
 
 @dataclasses.dataclass
 class TensorRecordings:
-    training_step_to_type_of_execution: Dict[int, str] = dataclasses.field(default_factory=dict)
-    training_step_to_configuration_type: Dict[int, str] = dataclasses.field(default_factory=dict)
+    data_per_training_step: Dict[int, DataOfTrainingStep] = dataclasses.field(default_factory=dict)
     recordings: Optional[utilities.PseudoDb] = None
 
     @utilities.runtime_analysis_decorator
     def update_with_more_recordings(self, other: 'TensorRecordings'):
         self.recordings.merge(other.recordings)
 
+@dataclasses.dataclass
+class GraphConfigurationOfOneIteration:
+    hash_of_node_graph_structure: str
+    tensor_graph_structure: 'TensorGraphStructure'
 
 @dataclasses.dataclass
-class StatusAndGraphPerIteration:
+class TensorGraphStructure:
+    tensor_references: List[TensorReference]
+    tensor_connections: List[Tuple[TensorReference, TensorReference]]
+
+@dataclasses.dataclass
+class NodeGraphStructure:
     name_to_node: Dict[str, Node]
-    tensor_connections: List[List[TensorReference]] = dataclasses.field(default_factory=list)
-    node_connections: List[List[str]] = dataclasses.field(default_factory=list)
+    node_connections: List[Tuple[str, str]] = dataclasses.field(default_factory=list)
     dag_format: List[List[str]] = dataclasses.field(default_factory=list)
+    node_graph_hash: str = "TBD"
 
     def build_dag_format(
             self, recorder: 'ComgraRecorder',
             tensor_references_to_use_for_this_iteration: Set[TensorReference],
             tensor_reference_to_list_of_dependents: Dict[TensorReference, List[TensorReference]],
             tensor_reference_to_representation: Dict[TensorReference, TensorRepresentation],
+            tensor_connections: List[Tuple[TensorReference, TensorReference]],
     ):
         for dependency_ref, dependents in tensor_reference_to_list_of_dependents.items():
             for dependent_ref in dependents:
@@ -244,24 +258,13 @@ class StatusAndGraphPerIteration:
         ]
         self.dag_format = dag_format
         # Save the connections
-        tensor_connections = [
-            (dependency, dependent)
-            for (dependency, dependents) in tensor_reference_to_list_of_dependents.items()
-            for dependent in dependents
-        ]
-        assert len(tensor_connections) == len(set(tensor_connections)), \
-            ("Programming error. This should have no duplicates. "
-             "If it does, probably the graph traversal has redundant steps and could be optimized.")
-        node_connections = [
-            list(a)
-            for a in list(dict.fromkeys([
-                (dependency.node_name, dependent.node_name)
-                for dependency, dependent in tensor_connections
-            ]))
-        ]
-        self.tensor_connections = sorted(tensor_connections, key=lambda b: tuple(c.tensor_name for c in b))
+        node_connections = sorted(list(set(
+            (dependency.node_name, dependent.node_name)
+            for dependency, dependent in tensor_connections
+        )))
         self.node_connections = node_connections
         assert len(self.name_to_node) == len({b for a in self.dag_format for b in a})
+        # Sanity check
         inconsistency_found_but_not_identified = False
         for i, node_list_0 in enumerate(nodes_list_list):
             for node_list_1 in nodes_list_list[i+1:]:
@@ -308,12 +311,11 @@ class StatusAndGraphPerIteration:
              f"node '{inconsistency_found_but_not_identified[0].node_name}' and were sorted in different locations "
              f"of the graph, but no connection between any pair of tensors between these locations could be "
              f"identified.")
-
-@dataclasses.dataclass
-class StatusAndGraph:
-    configuration_type: str
-    modules_and_parameters: Dict[str, ModuleRepresentation]
-    iteration_to_data: Dict[int, StatusAndGraphPerIteration] = dataclasses.field(default_factory=dict)
+        #
+        # node_graph_hash
+        #
+        values_to_hash = (self.name_to_node, self.node_connections, self.dag_format)
+        self.node_graph_hash = f"node_graph_hash_{values_to_hash.__hash__()}"
 
 
 class DecisionMakerForRecordings(abc.ABC):

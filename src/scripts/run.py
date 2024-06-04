@@ -145,15 +145,6 @@ class Demonstration:
         comgra.my_recorder.start_recording(
             training_step,
             batch_size,
-            # This is a string that needs to uniquely identify the shapes
-            # of the dependency graphs used by each iteration.
-            # For example, if you run multiple trials with different numbers of iterations, the number of iterations
-            # should be reflected in this string.
-            # The recommended approach is to just concatenate a string here that is built from all the factors
-            # that influence what your dependency graph looks like.
-            # If you assign the same configuration_type to two calls with a different graph,
-            # you will receive an error message.
-            configuration_type=f"{num_iterations}_iterations",
             # This is the string that is used by DecisionMakerForRecordingsFrequencyPerType
             # to decide what type of thing is being recorded here.
             # The string depends on the number of iterations, which will ensure that recordings for each possible

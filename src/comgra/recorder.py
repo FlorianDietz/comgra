@@ -9,7 +9,7 @@ import re
 import shutil
 from pathlib import Path
 import pickle
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Set
 
 import msgpack
 
@@ -18,8 +18,9 @@ from torch import nn as torch_nn
 
 import comgra
 from comgra.objects import SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS, \
-    DecisionMakerForRecordings, StatusAndGraph, StatusAndGraphPerIteration, ModuleRepresentation, Node, \
-    ParameterRepresentation, TensorRecordings, TensorReference, TensorRepresentation
+    DecisionMakerForRecordings, DataOfTrainingStep, NodeGraphStructure, ModuleRepresentation, Node, \
+    ParameterRepresentation, TensorRecordings, TensorReference, TensorRepresentation, GraphConfigurationOfOneIteration, \
+    TensorGraphStructure
 from comgra import utilities
 
 
@@ -105,7 +106,7 @@ class ComgraRecorder:
         #
         # Things that are recorded once and then compared to
         #
-        self.configuration_type_to_status_and_graph: Dict[str, StatusAndGraph] = {}
+        self.cache_hash_to_node_graph_structure: Dict[str, NodeGraphStructure] = {}
         #
         # Per training_step
         #
@@ -120,7 +121,6 @@ class ComgraRecorder:
         self.tensor_reference_to_representation: Dict[TensorReference, TensorRepresentation] = {}
         self.current_batch_size = None
         self.override__recording_is_active = None
-        self.current_status_and_graph: Optional[StatusAndGraph] = None
 
     def recording_is_active(self):
         if self.override__recording_is_active is None:
@@ -144,6 +144,7 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def track_module(self, module_name, module: torch_nn.Module):
+        assert self.current_stage == 'inactive', "Modules should be tracked before starting any recordings."
         self._track_module_recursive(module_name, module, self.set_of_top_level_modules, [])
 
     @utilities.runtime_analysis_decorator
@@ -186,7 +187,6 @@ class ComgraRecorder:
     @utilities.runtime_analysis_decorator
     def start_recording(
             self, training_step, current_batch_size,
-            configuration_type='main_configuration',
             type_of_execution='main_execution_type',
             record_all_tensors_per_batch_index_by_default=False,
             override__recording_is_active=None,
@@ -210,11 +210,7 @@ class ComgraRecorder:
         self.tensor_recordings = TensorRecordings()
         self.mapping_of_tensors_for_extracting_kpis = {}
         self.override__recording_is_active = override__recording_is_active
-        assert isinstance(configuration_type, str) and re.match(r'^[a-zA-Z0-9-_,.]+$', configuration_type) \
-               and '__' not in configuration_type, configuration_type
-        self.configuration_type = configuration_type
-        self.configuration_path = self.group_path / 'configs' / configuration_type
-        self.tensor_recordings.training_step_to_configuration_type[self.training_step] = configuration_type
+        self.configuration_type = None  # To be determined later
 
     @utilities.runtime_analysis_decorator
     def register_tensor(
@@ -462,7 +458,12 @@ class ComgraRecorder:
         assert self.current_stage in ['started', 'after_iteration'], self.current_stage
         self.current_stage = 'forward'
         self.iteration = 0 if self.iteration is None else (self.iteration + 1)
-        self.tensor_recordings.training_step_to_type_of_execution[self.training_step] = self.type_of_execution
+        assert self.set_of_top_level_modules, \
+            "No modules have been defined yet. Use track_module() on your modules before starting a recording."
+        self.tensor_recordings.data_per_training_step[self.training_step] = DataOfTrainingStep(
+            type_of_execution=self.type_of_execution,
+            modules_and_parameters=self.set_of_top_level_modules,
+        )
         if not self.recording_is_active():
             return
 
@@ -609,39 +610,23 @@ class ComgraRecorder:
                 traverse_graph_backwards(None, step_to_follow=None, direct_tensor=tensor)
             else:
                 traverse_graph_backwards(None, step_to_follow=tensor.grad_fn, direct_tensor=None)
-        # Build the dependency graph based on the data extracted while recursing through the computation graph
-        self.build_global_status_and_graph(tensor_references_to_use_for_this_iteration)
+        # Sanity check
+        for ref1 in tensor_references_to_use_for_this_iteration:
+            for ref2 in tensor_references_to_use_for_this_iteration:
+                if ref1.get_canonical_reference() == ref2.get_canonical_reference():
+                    assert ((ref1.iteration < self.iteration) and (ref1 == ref2)) or \
+                           (ref1.iteration == self.iteration), \
+                        ("Programming error. All references to the same tensor should belong to the same iteration. "
+                         "Either multiple from this one, or one from a previous one. "
+                         "If this assertion fails, then probably traverse_graph_backwards() has a bug")
         assert any([ref1 for ref1, refs in tensor_reference_to_list_of_dependents.items() if
                     any([ref2 for ref2 in refs if ref1.get_canonical_reference() != ref2.get_canonical_reference()])]), \
             "No computational graph could be constructed. " \
             "The most common error that could cause this is that gradient computations are turned off."
-        # Build the DAG format.
-        # Then, if it is equal to the previous one, use that one instead by replacing the reference.
-        # This saves some memory, and more importantly the visualizer can use it to avoid creating duplicates,
-        # which can blow up the GUI.
-        # (In the worst case, it creates one entire set of graphical nodes for each iteration,
-        # then makes all but one of them invisible.)
-        self.current_status_and_graph.iteration_to_data[self.iteration].build_dag_format(
-            self, tensor_references_to_use_for_this_iteration, tensor_reference_to_list_of_dependents,
-            self.tensor_reference_to_representation,
+        # Build the dependency graph based on the data extracted while recursing through the computation graph
+        self.initialize_graph_structure_objects(
+            tensor_references_to_use_for_this_iteration
         )
-        dag_was_equal = False
-        if self.iteration != 0:
-            for attr in ['dag_format', 'name_to_node', 'tensor_connections', 'node_connections']:
-                is_equal = utilities.recursive_equality_check(
-                    getattr(self.current_status_and_graph.iteration_to_data[self.iteration], attr),
-                    getattr(self.current_status_and_graph.iteration_to_data[self.iteration - 1], attr),
-                    [], compare_instead_of_asserting=True,
-                )
-                if is_equal:
-                    setattr(self.current_status_and_graph.iteration_to_data[self.iteration], attr,
-                            getattr(self.current_status_and_graph.iteration_to_data[self.iteration - 1], attr))
-                    if attr == 'dag_format':
-                        dag_was_equal = True
-                if dag_was_equal:
-                    if attr in ['nodes', 'node_connections']:
-                        assert is_equal, \
-                            "If the dependency graph is the same, the simpler derived items should also be the same."
 
     @utilities.runtime_analysis_decorator
     def verify_graph_and_global_status_equal_existing_file(self):
@@ -665,22 +650,14 @@ class ComgraRecorder:
             ) from e
 
     @utilities.runtime_analysis_decorator
-    def build_global_status_and_graph(self, tensor_references_to_use_for_this_iteration):
-        if self.iteration == 0:
-            assert self.current_status_and_graph is None
-            self.current_status_and_graph = StatusAndGraph(
-                configuration_type=self.configuration_type,
-                modules_and_parameters=self.set_of_top_level_modules,
-            )
-        for ref1 in tensor_references_to_use_for_this_iteration:
-            for ref2 in tensor_references_to_use_for_this_iteration:
-                if ref1.get_canonical_reference() == ref2.get_canonical_reference():
-                    assert ((ref1.iteration < self.iteration) and (ref1 == ref2)) or \
-                           (ref1.iteration == self.iteration), \
-                        ("Programming error. All references to the same tensor should belong to the same iteration. "
-                         "Either multiple from this one, or one from a previous one. "
-                         "If this assertion fails, then probably traverse_graph_backwards() has a bug")
-        nodes = sorted(list(set([a.node_name for a in tensor_references_to_use_for_this_iteration])))
+    def initialize_graph_structure_objects(
+            self,
+            tensor_references_to_use_for_this_iteration: Set[TensorReference],
+            tensor_reference_to_list_of_dependents: Dict[TensorReference, List[TensorReference]],
+    ):
+        #
+        # Build the NodeGraphStructure
+        #
         name_to_node = {}
         for ref in tensor_references_to_use_for_this_iteration:
             tr = self.tensor_reference_to_representation[ref.get_canonical_reference()]
@@ -696,11 +673,61 @@ class ComgraRecorder:
             assert tr.type_of_tensor == node.type_of_tensor, \
                 f"Node {node_name} stores tensors with different type_of_tensor." \
                 f"\n{tr.type_of_tensor}\n{node.type_of_tensor}"
-        sagi = StatusAndGraphPerIteration(
+        #
+        # TensorGraphStructure
+        #
+        tensor_connections = [
+            (dependency, dependent)
+            for (dependency, dependents) in tensor_reference_to_list_of_dependents.items()
+            for dependent in dependents
+        ]
+        assert len(tensor_connections) == len(set(tensor_connections)), \
+            ("Programming error. This should have no duplicates. "
+             "If it does, probably the graph traversal has redundant steps and could be optimized.")
+        tensor_graph_structure = TensorGraphStructure(
+            tensor_references=sorted(list(tensor_references_to_use_for_this_iteration), key=lambda a: a.tensor_name),
+            tensor_connections=tensor_connections,
+        )
+        #
+        # NodeGraphStructure
+        #
+        node_graph_structure = NodeGraphStructure(
             name_to_node=name_to_node,
         )
-        assert self.iteration not in self.current_status_and_graph.iteration_to_data
-        self.current_status_and_graph.iteration_to_data[self.iteration] = sagi
+        node_graph_structure.build_dag_format(
+            self, tensor_references_to_use_for_this_iteration, tensor_reference_to_list_of_dependents,
+            self.tensor_reference_to_representation, tensor_connections,
+        )
+        # Compare the node_graph_structure with existing ones in the cache.
+        if node_graph_structure.node_graph_hash not in self.cache_hash_to_node_graph_structure:
+            # If it's new, save it.
+            self.cache_hash_to_node_graph_structure[node_graph_structure.node_graph_hash] = node_graph_structure
+            # Save it to file
+            # TODO
+            self.configuration_type = configuration_type
+            self.configuration_path = self.group_path / 'configs' / configuration_type
+            assert len(self.tensor_recordings.training_step_to_graph_configuration[self.training_step].data_per_iteration) == self.iteration
+            self.tensor_recordings.training_step_to_graph_configuration[self.training_step].append(configuration_type)
+        else:
+            # If it wasn't new, run a simple sanity check,
+            # asserting that it is in fact the same as the thing in the cache.
+            utilities.recursive_equality_check(
+                self.cache_hash_to_node_graph_structure[node_graph_structure.node_graph_hash],
+                node_graph_structure,
+                []
+            )
+            # Replace it by reference to save some memory
+            node_graph_structure = self.cache_hash_to_node_graph_structure[node_graph_structure.node_graph_hash]
+        #
+        # Update training step data
+        #
+        data_of_training_step = self.tensor_recordings.data_per_training_step[self.training_step]
+        assert len(data_of_training_step.graph_configuration_per_iteration) == self.iteration
+        assert node_graph_structure.node_graph_hash != 'TBD'
+        data_of_training_step.graph_configuration_per_iteration.append(GraphConfigurationOfOneIteration(
+            hash_of_node_graph_structure=node_graph_structure.node_graph_hash,
+            tensor_graph_structure=tensor_graph_structure,
+        ))
 
     @utilities.runtime_analysis_decorator
     def finish_recording(self):
@@ -711,6 +738,7 @@ class ComgraRecorder:
         #
         # Save the dependency graph
         #
+        assert self.configuration_type is not None
         if self.configuration_type in self.configuration_type_to_status_and_graph:
             self.verify_graph_and_global_status_equal_existing_file()
         else:
