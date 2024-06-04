@@ -699,19 +699,18 @@ class ComgraRecorder:
             node_graph_structure_folder.mkdir(parents=True, exist_ok=True)
             # If a file for it already exists even though it is not in the cache, load it and compare.
             # This can happen if comgra is run multiple times without deleting previous trials
-            assert False, "test this scenario"
             if node_graph_structure_file.exists():
                 try:
                     with open(node_graph_structure_file, 'rb') as f:
-                        existing_version: StatusAndGraph = pickle.load(f)
+                        existing_version: NodeGraphStructure = pickle.load(f)
                     utilities.recursive_equality_check(existing_version, node_graph_structure, [])
                 except AssertionError as e:
                     raise ValueError(
                         f"A file for the NodeGraphStructure with the same hash already exists "
-                        f"but it contains different content."
+                        f"but it contains different content: {node_graph_structure.node_graph_hash}"
                     ) from e
             else:
-                with open(path, 'wb') as f:
+                with open(node_graph_structure_file, 'wb') as f:
                     pickle.dump(node_graph_structure, f)
         #
         # Update training step data

@@ -95,6 +95,42 @@ def the(a):
     return list(a)[0]
 
 
+def recursive_pseudo_hash(a):
+    """
+    Return a pseudo-hash that should be unique for any element fed into it.
+    Works together with recursive_equality_check().
+    No guarantees of thoroughness are made.
+    Just needs to be "good enough" for hashing the datastructures used to determine if two graphs are the same,
+    to avoid duplicate effort in the GUI.
+    """
+    hash_max_value = int((2 ** sys.hash_info.width) / 2) - 1
+    res = 0
+    def add_sub_hash(e):
+        nonlocal res, hash_max_value
+        res = (res * 17 + recursive_pseudo_hash(e)) % hash_max_value
+    if dataclasses.is_dataclass(a):
+        a = dataclasses.asdict(a)
+        add_sub_hash(1)
+    if isinstance(a, dict):
+        add_sub_hash(123)
+        for k, v in a.items():
+            add_sub_hash(1)
+            add_sub_hash(k)
+            add_sub_hash(v)
+    elif isinstance(a, list):
+        add_sub_hash(234)
+        for b in a:
+            add_sub_hash(b)
+    elif isinstance(a, tuple):
+        add_sub_hash(345)
+        for b in a:
+            add_sub_hash(b)
+    elif a is None or isinstance(a, (int, float, str)):
+        res = hash(a)
+    else:
+        assert False, type(a)
+    return res
+
 def recursive_equality_check(a, b, location_list, compare_instead_of_asserting=False):
     if compare_instead_of_asserting:
         try:

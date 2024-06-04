@@ -21,7 +21,7 @@ import dash_svg
 import msgpack
 import plotly.graph_objs as go
 
-from comgra.objects import StatusAndGraph, ModuleRepresentation, TensorRecordings, TensorReference, SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS
+from comgra.objects import ModuleRepresentation, TensorRecordings, TensorReference, TrainingStepConfiguration, SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS
 from comgra import utilities
 
 DISPLAY_ALL_CONNECTIONS_GRAPHICALLY = False
@@ -1202,7 +1202,7 @@ class Visualization:
         return name_of_selected_node, True
 
     @utilities.runtime_analysis_decorator
-    def get_formatted_overview_of_module_parameters(self, sag: StatusAndGraph):
+    def get_formatted_overview_of_module_parameters(self, tsc: TrainingStepConfiguration):
 
         def rec(modules: Dict[str, ModuleRepresentation], indentation_level):
             total_parameters = 0
@@ -1224,7 +1224,7 @@ class Visualization:
                 lines.extend(sub_lines)
             return total_parameters, lines
 
-        total_parameters, lines = rec(sag.modules_and_parameters, 0)
+        total_parameters, lines = rec(tsc.modules_and_parameters, 0)
         res = f"Total parameters: {total_parameters:18,d}\n" + "\n".join(lines)
         return res
 

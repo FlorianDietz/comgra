@@ -319,7 +319,7 @@ class NodeGraphStructure:
         # node_graph_hash
         #
         values_to_hash = (self.name_to_node, self.node_connections, self.dag_format)
-        self.node_graph_hash = f"node_graph_hash_{values_to_hash.__hash__()}"
+        self.node_graph_hash = f"node_graph_hash_{utilities.recursive_pseudo_hash(values_to_hash)}"
 
 
 class DecisionMakerForRecordings(abc.ABC):
