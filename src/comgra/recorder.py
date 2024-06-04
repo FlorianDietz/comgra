@@ -592,6 +592,7 @@ class ComgraRecorder:
                                       and (tensor_representation.type_of_tensor != 'input'))
                     last_encountered_reference = first_ref
             if keep_recursing:
+                assert step_to_follow is not None
                 for predecessor, other in step_to_follow.next_functions:
                     if predecessor is not None:
                         traverse_graph_backwards(last_encountered_reference, step_to_follow=predecessor, direct_tensor=None)
@@ -728,6 +729,7 @@ class ComgraRecorder:
         self.current_stage = 'inactive'
         if not self.recording_is_active():
             return
+        # Save the TrainingStepConfiguration
         self.save_training_step_configuration()
         # Save the tensors
         self.save_tensor_recordings()
@@ -737,7 +739,6 @@ class ComgraRecorder:
     def save_training_step_configuration(self):
         self.configurations_path.mkdir(parents=True, exist_ok=True)
         training_step_configuration_path = self.configurations_path / f'{self.training_step}.pkl'
-        # TODO make sure it actually can't exist. What if there are multiple trials being run? run.py does this.
         assert not training_step_configuration_path.exists()
         with open(training_step_configuration_path, 'wb') as f:
             pickle.dump(self.training_step_configuration, f)
@@ -845,8 +846,9 @@ class ComgraRecorder:
                 assert len(list_of_floats) == len(all_keys_to_process), (len(list_of_floats), len(all_keys_to_process))
                 for (key_to_process, main_ref), float_value in zip(all_keys_to_process, list_of_floats):
                     assert isinstance(float_value, float), (float_value, key_to_process)
-                    self.add_tensor_recordings_for_key_and_register_alternate_references(key_to_process, float_value,
-                                                                                         main_ref)
+                    self.add_tensor_recordings_for_key_and_register_alternate_references(
+                        key_to_process, float_value, main_ref
+                    )
                     sanity_check_c += 1
                 all_tensors_to_combine = []
                 all_keys_to_process = []

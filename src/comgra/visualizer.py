@@ -21,7 +21,8 @@ import dash_svg
 import msgpack
 import plotly.graph_objs as go
 
-from comgra.objects import ModuleRepresentation, TensorRecordings, TensorReference, TrainingStepConfiguration, SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS
+from comgra.objects import ModuleRepresentation, TensorRecordings, TensorReference, TrainingStepConfiguration, \
+    SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS, NodeGraphStructure
 from comgra import utilities
 
 DISPLAY_ALL_CONNECTIONS_GRAPHICALLY = False
@@ -128,25 +129,23 @@ class Visualization:
         assert assets_path.exists(), "If this fails, files have been moved."
         self.app = CustomDash(__name__, assets_folder=str(assets_path),
                               external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP])
-        self.configuration_type_to_status_and_graph: Dict[str, StatusAndGraph] = {}
-        self.configuration_type_and_iteration_to_unique_dash_suffix: Dict[Tuple[str, int], str] = {}
-        self.configuration_type_and_iteration_to_node_to_corners: Dict[Tuple[str, int], Dict[str, Tuple[int, int, int, int]]] = {}
-        self.configuration_type_and_iteration_to_grid_of_nodes: Dict[Tuple[str, int], List[List[str]]] = {}
-        self.configuration_type_and_iteration_to_node_to_list_of_connections: Dict[
-            Tuple[str, int], Dict[str, List[Tuple[int, int, int, int, str, str]]]] = {}
-        self.configuration_type_and_iteration_to_graph_container_dash_id: Dict[Tuple[str, int], str] = {}
-        self.graph_container_dash_id_to_representative_configuration_type_and_iteration: Dict[str, Tuple[str, int]] = {}
-        self.configuration_type_and_iteration_to_node_to_dash_id: Dict[Tuple[str, int], Dict[str, str]] = {}
+        self.ngs_hash_to_ngs: Dict[str, NodeGraphStructure] = {}
+        self.ngs_hash_to_node_to_corners: Dict[str, Dict[str, Tuple[int, int, int, int]]] = {}
+        self.ngs_hash_to_grid_of_nodes: Dict[str, List[List[str]]] = {}
+        self.ngs_hash_to_node_to_list_of_connections: Dict[
+            str, Dict[str, List[Tuple[int, int, int, int, str, str]]]] = {}
+        self.ngs_hash_to_graph_container_dash_id: Dict[str, str] = {}
+        self.ngs_hash_to_node_to_dash_id: Dict[str, Dict[str, str]] = {}
         self.list_of_unique_node_dash_ids: List[str] = []
         self._sanity_check_cache_to_avoid_duplicates = {}
-        self.cache_for_tensor_recordings = {}
+        self.cache_for_training_step_configuration_and_recordings = {}
         self.attribute_selection_fallback_values = collections.defaultdict(list)
         self.last_navigation_click_event_time = -1
         self.trial_to_kpi_graph_excerpt = {}
 
-    def _nodes_to_connection_dash_id(self, configuration_type, iteration, source, target):
-        return f"connection__{self.configuration_type_and_iteration_to_node_to_dash_id[(configuration_type, iteration)][source]}__" \
-               f"{self.configuration_type_and_iteration_to_node_to_dash_id[(configuration_type, iteration)][target]}"
+    def _nodes_to_connection_dash_id(self, ngs_hash, source, target):
+        return f"connection__{self.ngs_hash_to_node_to_dash_id[ngs_hash][source]}__" \
+               f"{self.ngs_hash_to_node_to_dash_id[ngs_hash][target]}"
 
     def run_server(self, port):
         #
@@ -154,59 +153,40 @@ class Visualization:
         #
         counter_for_container_id = 0
         counter_for_node_id = 0
-        assert not self.configuration_type_and_iteration_to_graph_container_dash_id
-        assert not self.graph_container_dash_id_to_representative_configuration_type_and_iteration
-        assert not self.configuration_type_and_iteration_to_node_to_dash_id
-        for config_folder in (self.path / 'configs').iterdir():
-            configuration_type = config_folder.name
-            with open(config_folder / 'status_and_graph.pkl', 'rb') as f:
-                status_and_graph: StatusAndGraph = pickle.load(f)
-            self.configuration_type_to_status_and_graph[configuration_type] = status_and_graph
-            assert configuration_type == status_and_graph.configuration_type, \
-                (configuration_type, status_and_graph.configuration_type)
-            # For each iteration in the graph, if the DAG is equal-by-reference to the previous one,
-            # give it the same dash ID.
-            # This prevents the GUI from creating too many nodes when many iterations display the same thing
-            previous_dag = None
-            previous_node_to_dash_id = None
-            previous_graph_container_dash_id = None
-            for iteration, sagi in status_and_graph.iteration_to_data.items():
-                is_equal = (sagi.dag_format is previous_dag)
-                if is_equal:
-                    node_to_dash_id = previous_node_to_dash_id
-                    graph_container_dash_id = previous_graph_container_dash_id
-                else:
-                    graph_container_dash_id = f'graph_container__{counter_for_container_id}'
-                    counter_for_container_id += 1
-                    node_to_dash_id = {}
-                    for node in sagi.name_to_node.keys():
-                        node_dash_id = node.replace('.', '__')
-                        node_dash_id = f"confnode__{graph_container_dash_id}__{node_dash_id}__{counter_for_node_id}"
-                        assert (node_dash_id not in self._sanity_check_cache_to_avoid_duplicates or
-                                self._sanity_check_cache_to_avoid_duplicates[node_dash_id] == node), \
-                            f"Programming error: Two nodes have the same representation: " \
-                            f"{node}, {self._sanity_check_cache_to_avoid_duplicates[node_dash_id]}, {node_dash_id}"
-                        self._sanity_check_cache_to_avoid_duplicates[node_dash_id] = node
-                        counter_for_node_id += 1
-                        node_to_dash_id[node] = node_dash_id
-                    self.graph_container_dash_id_to_representative_configuration_type_and_iteration[graph_container_dash_id] = (configuration_type, iteration)
-                self.configuration_type_and_iteration_to_graph_container_dash_id[(configuration_type, iteration)] = graph_container_dash_id
-                self.configuration_type_and_iteration_to_node_to_dash_id[(configuration_type, iteration)] = node_to_dash_id
-                previous_dag = sagi.dag_format
-                previous_node_to_dash_id = node_to_dash_id
-                previous_graph_container_dash_id = graph_container_dash_id
+        assert not self.ngs_hash_to_graph_container_dash_id
+        assert not self.ngs_hash_to_node_to_dash_id
+        # For each unique graph structure...
+        for ngs_file in (self.path / 'node_graph_structure').iterdir():
+            with open(ngs_file, 'rb') as f:
+                ngs: NodeGraphStructure = pickle.load(f)
+            assert ngs.node_graph_hash == ngs_file.stem, (ngs.node_graph_hash, ngs_file.name)
+            self.ngs_hash_to_ngs[ngs.node_graph_hash] = ngs
+            # Create a dash ID for the graph container
+            graph_container_dash_id = f'graph_container__{counter_for_container_id}'
+            counter_for_container_id += 1
+            self.ngs_hash_to_graph_container_dash_id[ngs.node_graph_hash] = graph_container_dash_id
+            # Create a dash ID for each node of the graph
+            node_to_dash_id = {}
+            for node in ngs.name_to_node.keys():
+                node_dash_id = node.replace('.', '__')
+                node_dash_id = f"confnode__{graph_container_dash_id}__{node_dash_id}__{counter_for_node_id}"
+                assert (node_dash_id not in self._sanity_check_cache_to_avoid_duplicates or
+                        self._sanity_check_cache_to_avoid_duplicates[node_dash_id] == node), \
+                    f"Programming error: Two nodes have the same representation: " \
+                    f"{node}, {self._sanity_check_cache_to_avoid_duplicates[node_dash_id]}, {node_dash_id}"
+                self._sanity_check_cache_to_avoid_duplicates[node_dash_id] = node
+                counter_for_node_id += 1
+                node_to_dash_id[node] = node_dash_id
+            self.ngs_hash_to_node_to_dash_id[ngs.node_graph_hash] = node_to_dash_id
         assert not self.list_of_unique_node_dash_ids
-        for node_to_dash_id in self.configuration_type_and_iteration_to_node_to_dash_id.values():
+        for node_to_dash_id in self.ngs_hash_to_node_to_dash_id.values():
             for node_dash_id in node_to_dash_id.values():
                 if node_dash_id not in self.list_of_unique_node_dash_ids:
                     self.list_of_unique_node_dash_ids.append(node_dash_id)
-        if len(self.list_of_unique_node_dash_ids) > 1000:
-            utilities.warn_once(
-                f"Warning: the number of generated nodes for the GUI is suspiciously high "
-                f"({len(self.list_of_unique_node_dash_ids)}). "
-                f"Possible cause: The network runs for many iterations and they all have "
-                f"(possibly slightly) different dependency graphs."
-            )
+        print(
+            f"There are {len(self.ngs_hash_to_node_to_dash_id)} different graph layouts "
+            f"to visualize, with a total of {len(self.list_of_unique_node_dash_ids)} unique nodes."
+        )
         #
         # Visualize
         #
@@ -214,14 +194,24 @@ class Visualization:
         self.app.run_server(debug=self.debug_mode, port=port)
 
     @utilities.runtime_analysis_decorator
-    def get_recordings_with_caching(
+    def get_training_step_configuration_and_recordings(
             self, trials_value, training_step_value, type_of_execution
-    ) -> TensorRecordings:
-        # TODO load and store training_step_configuration alongside recordings, in a tuple
+    ) -> Tuple[TrainingStepConfiguration, TensorRecordings]:
         with LOCK_FOR_RECORDINGS:
             key = (trials_value, training_step_value,)
-            recordings = self.cache_for_tensor_recordings.get(key, None)
-            if recordings is None:
+            res = self.cache_for_training_step_configuration_and_recordings.get(key, None)
+            if res is None:
+                # Load the configuration for the training step
+                # TODO not sure if this is correct. Do I need to filter by type_of_execution?
+                #  or is the opposite true, and the recordings don't need to be filtered by type_of_execution either?
+                #  the assert here, as well as the one in recorder.save_training_step_configuration() should trigger if this is a problem
+                recordings_path_base = self.path / 'trials' / trials_value / 'configurations'
+                training_step_configuration_path = recordings_path_base / f'{training_step_value}.pkl'
+                with open(training_step_configuration_path, 'rb') as f:
+                    tsc: TrainingStepConfiguration = pickle.load(f)
+                assert type_of_execution == 'any_value' or tsc.type_of_execution == type_of_execution, \
+                    (tsc.type_of_execution, type_of_execution)
+                # Load the recordings of the training step
                 recordings_path_base = self.path / 'trials' / trials_value / 'recordings'
                 if type_of_execution == 'any_value':
                     for recordings_path in recordings_path_base.iterdir():
@@ -230,18 +220,11 @@ class Visualization:
                 else:
                     recordings_path = recordings_path_base / f'{training_step_value}__{type_of_execution}'
                 recording_files = sorted(list(recordings_path.iterdir()))
+                recordings = None
                 for recording_file in recording_files:
                     new_recordings_data = self.load_file(recording_file)
                     new_recordings: TensorRecordings = TensorRecordings(**new_recordings_data)
                     new_recordings.recordings = utilities.PseudoDb([]).deserialize(new_recordings.recordings)
-                    new_recordings.training_step_to_configuration_type = {
-                        int(k1): v1
-                        for k1, v1 in new_recordings.training_step_to_configuration_type.items()
-                    }
-                    new_recordings.training_step_to_type_of_execution = {
-                        int(k1): v1
-                        for k1, v1 in new_recordings.training_step_to_type_of_execution.items()
-                    }
                     if recordings is None:
                         recordings = new_recordings
                     else:
@@ -255,8 +238,10 @@ class Visualization:
                         'iteration': {-1},
                     }
                 )
-                self.cache_for_tensor_recordings[key] = recordings
-            return recordings
+                # Save both
+                res = (tsc, recordings)
+                self.cache_for_training_step_configuration_and_recordings[key] = res
+            return res
 
     @utilities.runtime_analysis_decorator
     def load_file(self, recording_file):
@@ -301,27 +286,26 @@ class Visualization:
 
     @utilities.runtime_analysis_decorator
     def create_nodes_and_arrows(
-            self, configuration_type: str, iteration: int
+            self, ngs_hash: str,
     ) -> List:
-        assert (configuration_type, iteration) not in self.configuration_type_and_iteration_to_node_to_corners, configuration_type
-        node_to_corners = self.configuration_type_and_iteration_to_node_to_corners.setdefault((configuration_type, iteration), {})
-        grid_of_nodes = self.configuration_type_and_iteration_to_grid_of_nodes.setdefault((configuration_type, iteration), [])
-        sag = self.configuration_type_to_status_and_graph[configuration_type]
-        sagi = sag.iteration_to_data[iteration]
-        highest_number_of_nodes = max(len(a) for a in sagi.dag_format)
+        assert ngs_hash not in self.ngs_hash_to_node_to_corners, ngs_hash
+        node_to_corners = self.ngs_hash_to_node_to_corners.setdefault(ngs_hash, {})
+        grid_of_nodes = self.ngs_hash_to_grid_of_nodes.setdefault(ngs_hash, [])
+        ngs = self.ngs_hash_to_ngs[ngs_hash]
+        highest_number_of_nodes = max(len(a) for a in ngs.dag_format)
         height_per_box = int((vp.total_display_height - vp.padding_top - vp.padding_bottom) / (
                 highest_number_of_nodes + (
                 highest_number_of_nodes - 1) * vp.ratio_of_space_between_nodes_to_node_size))
         width_per_box = int((vp.total_display_width - vp.padding_left - vp.padding_right) / (
-                len(sagi.dag_format) + (len(sagi.dag_format) - 1) * vp.ratio_of_space_between_nodes_to_node_size))
+                len(ngs.dag_format) + (len(ngs.dag_format) - 1) * vp.ratio_of_space_between_nodes_to_node_size))
         nodes_that_have_dependencies = {
-            source_and_target[1] for source_and_target in sagi.node_connections
+            source_and_target[1] for source_and_target in ngs.node_connections
         }
         nodes_that_have_dependents = {
-            source_and_target[0] for source_and_target in sagi.node_connections
+            source_and_target[0] for source_and_target in ngs.node_connections
         }
         elements_of_the_graph = []
-        for i, nodes in enumerate(sagi.dag_format):
+        for i, nodes in enumerate(ngs.dag_format):
             list_of_nodes_for_grid = []
             grid_of_nodes.append(list_of_nodes_for_grid)
             left = int(vp.padding_left + i * (1 + vp.ratio_of_space_between_nodes_to_node_size) * width_per_box)
@@ -359,7 +343,7 @@ class Visualization:
                 top = int(vp.padding_top + j * (1 + vp.ratio_of_space_between_nodes_to_node_size) * height_per_box)
                 bottom = int(top + height_per_box)
                 node_to_corners[node] = (left, top, right, bottom)
-                node_type = sagi.name_to_node[node].type_of_tensor
+                node_type = ngs.name_to_node[node].type_of_tensor
                 text_in_node = self.clean_name_of_tensor_or_node('tensor', node_type, node[len(common_prefix):])
                 text_on_mouseover = self.clean_name_of_tensor_or_node('node', node_type, node)
                 appropriate_font_size_for_text_in_node = get_appropriate_font_size_for_text_in_node(width_per_box,
@@ -370,7 +354,7 @@ class Visualization:
                 if node not in nodes_that_have_dependents and node_type != 'parameter':
                     node_classes += ' node-without-dependent'
                 elements_of_the_graph.append(
-                    html.Div(id=self.configuration_type_and_iteration_to_node_to_dash_id[(configuration_type, iteration)][node], className=node_classes, style={
+                    html.Div(id=self.ngs_hash_to_node_to_dash_id[ngs_hash][node], className=node_classes, style={
                         'width': f'{width_per_box}px',
                         'height': f'{height_per_box}px',
                         'left': f'{left}px',
@@ -383,7 +367,7 @@ class Visualization:
                              ))
         svg_connection_lines = []
         if DISPLAY_ALL_CONNECTIONS_GRAPHICALLY or HIGHLIGHT_SELECTED_CONNECTIONS:
-            for connection in sagi.node_connections:
+            for connection in ngs.node_connections:
                 source, target = tuple(connection)
                 source_left, source_top, _, _ = node_to_corners[source]
                 target_left, target_top, _, _ = node_to_corners[target]
@@ -391,8 +375,8 @@ class Visualization:
                 source_y = int(source_top + 0.5 * height_per_box)
                 target_x = int(target_left)
                 target_y = int(target_top + 0.5 * height_per_box)
-                connection_name = self._nodes_to_connection_dash_id(configuration_type, iteration, source, target)
-                stroke_color = vp.node_type_to_color[sagi.name_to_node[source].type_of_tensor]
+                connection_name = self._nodes_to_connection_dash_id(ngs_hash, source, target)
+                stroke_color = vp.node_type_to_color[ngs.name_to_node[source].type_of_tensor]
                 if DISPLAY_ALL_CONNECTIONS_GRAPHICALLY:
                     svg_connection_lines.append(dash_svg.Line(
                         id=connection_name,
@@ -402,8 +386,8 @@ class Visualization:
                     ))
                 if HIGHLIGHT_SELECTED_CONNECTIONS:
                     for n1, n2 in [(source, target), (target, source)]:
-                        self.configuration_type_and_iteration_to_node_to_list_of_connections.setdefault(
-                            (configuration_type, iteration), {}).setdefault(n1, []).append((
+                        self.ngs_hash_to_node_to_list_of_connections.setdefault(
+                            ngs_hash, {}).setdefault(n1, []).append((
                             source_x, source_y, target_x, target_y, n2,
                             (vp.highlighting_colors[
                                  'highlighted'] if DISPLAY_ALL_CONNECTIONS_GRAPHICALLY else stroke_color)
@@ -503,9 +487,9 @@ class Visualization:
                                 'position': 'relative',
                                 'width': f'{vp.total_display_width}px',
                                 'height': f'{vp.total_display_height}px',
-                            }, children=self.create_nodes_and_arrows(configuration_type, iteration)
+                            }, children=self.create_nodes_and_arrows(ngs_hash)
                                      )
-                            for graph_container_dash_id, (configuration_type, iteration) in self.graph_container_dash_id_to_representative_configuration_type_and_iteration.items()
+                            for ngs_hash, graph_container_dash_id in self.ngs_hash_to_graph_container_dash_id.items()
                         ] + [
                             html.Div(id='graph-overlay-for-selections', style={
                                 'position': 'absolute',
@@ -521,14 +505,6 @@ class Visualization:
             html.Div(id='selected-item-details-container', children=[
             ]),
         ])
-        # For the (configuration_type, iteration) that didn't get their own graph_container_dash_id
-        # in create_nodes_and_arrows()
-        # create references in some dictionaries that need them.
-        for cai, graph_container_dash_id in self.configuration_type_and_iteration_to_graph_container_dash_id.items():
-            representative_cai = self.graph_container_dash_id_to_representative_configuration_type_and_iteration[graph_container_dash_id]
-            self.configuration_type_and_iteration_to_node_to_corners[cai] = self.configuration_type_and_iteration_to_node_to_corners[representative_cai]
-            self.configuration_type_and_iteration_to_grid_of_nodes[cai] = self.configuration_type_and_iteration_to_grid_of_nodes[representative_cai]
-            self.configuration_type_and_iteration_to_node_to_list_of_connections[cai] = self.configuration_type_and_iteration_to_node_to_list_of_connections[representative_cai]
 
         @app.callback([Output('trials-dropdown', 'options'),
                        Output('trials-dropdown', 'value')],
@@ -536,7 +512,7 @@ class Visualization:
         @utilities.runtime_analysis_decorator
         def refresh_all(n_clicks):
             # Reset caches
-            self.cache_for_tensor_recordings = {}
+            self.cache_for_training_step_configuration_and_recordings = {}
             self.trial_to_kpi_graph_excerpt = {}
             # Load the list of trials
             trials_folder = self.path / 'trials'
@@ -572,7 +548,7 @@ class Visualization:
                         Output('role-of-tensor-in-node-dropdown', 'value')] +
                        [Output(graph_container_dash_id, 'className')
                         for graph_container_dash_id
-                        in self.graph_container_dash_id_to_representative_configuration_type_and_iteration.keys()
+                        in self.ngs_hash_to_graph_container_dash_id.values()
                         ]),
                       ([Input('trials-dropdown', 'value'),
                         Input('type-of-execution-for-diversity-of-recordings-dropdown', 'value'),
@@ -665,7 +641,7 @@ class Visualization:
                 idx = max(0, min(len(training_steps) - 1, idx - 1))
                 training_step_value = training_steps[idx]
             # Get the recordings
-            recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution)
+            tsc, recordings = self.get_training_step_configuration_and_recordings(trials_value, training_step_value, type_of_execution)
             db: utilities.PseudoDb = recordings.recordings
             if program_is_initializing:
                 # Initialize everything
@@ -810,11 +786,8 @@ class Visualization:
             if always_show_all_iterations:
                 # Note: These values are only retrieved here and not at the start of this function
                 # because some arguments may be unset during initialization
-                recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution)
-                configuration_type = recordings.training_step_to_configuration_type[training_step_value]
-                type_of_execution = recordings.training_step_to_type_of_execution[training_step_value]
-                sag = self.configuration_type_to_status_and_graph[configuration_type]
-                iteration_options = list(sag.iteration_to_data.keys())
+                tsc, recordings = self.get_training_step_configuration_and_recordings(trials_value, training_step_value, type_of_execution)
+                iteration_options = list(range(len(tsc.graph_configuration_per_iteration)))
                 iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
                     iteration_value,
                     iteration_options,
@@ -840,15 +813,13 @@ class Visualization:
             #
             # Hide or show different graphs
             #
-            configuration_type = recordings.training_step_to_configuration_type[training_step_value]
-            graph_container_dash_id = self.configuration_type_and_iteration_to_graph_container_dash_id[(configuration_type, iteration_value)]
+            ngs_hash = tsc.graph_configuration_per_iteration[iteration_value].hash_of_node_graph_structure
             graph_container_visibilities = [
-                'active' if k == graph_container_dash_id else 'inactive'
-                for k in self.graph_container_dash_id_to_representative_configuration_type_and_iteration.keys()
+                'active' if k == ngs_hash else 'inactive'
+                for k in self.ngs_hash_to_graph_container_dash_id.keys()
             ]
-            assert len(graph_container_visibilities) == len(self.graph_container_dash_id_to_representative_configuration_type_and_iteration)
-            assert len([a for a in graph_container_visibilities if a == 'active']) == 1, \
-                (configuration_type, iteration_value)
+            assert len(graph_container_visibilities) == len(self.ngs_hash_to_graph_container_dash_id)
+            assert len([a for a in graph_container_visibilities if a == 'active']) == 1, ngs_hash
             res = [
                       name_of_selected_node,
                       type_of_execution_options, type_of_execution,
@@ -881,11 +852,11 @@ class Visualization:
                 training_step_value, type_of_recording_value,
                 batch_index_value, iteration_value, role_of_tensor_in_node_value, _,
         ):
-            recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution)
-            configuration_type = recordings.training_step_to_configuration_type[training_step_value]
-            type_of_execution = recordings.training_step_to_type_of_execution[training_step_value]
-            sag = self.configuration_type_to_status_and_graph[configuration_type]
-            sagi = sag.iteration_to_data[iteration_value]
+            tsc, recordings = self.get_training_step_configuration_and_recordings(trials_value, training_step_value, type_of_execution)
+            graph_config = tsc.graph_configuration_per_iteration[iteration_value]
+            ngs_hash = graph_config.hash_of_node_graph_structure
+            ngs = self.ngs_hash_to_ngs[ngs_hash]
+            tgs = graph_config.tensor_graph_structure
             #
             # Select the node and visually highlight it.
             #
@@ -899,27 +870,26 @@ class Visualization:
             # which was proportional to the number of nodes.
             # This made this approach infeasible in practice.
             #
-            node = sagi.name_to_node[node_name]
+            node = ngs.name_to_node[node_name]
             connected_node_names = {
-                                       a[0] for a in sagi.node_connections if a[1] == node_name
+                                       a[0] for a in ngs.node_connections if a[1] == node_name
                                    } | {
-                                       a[1] for a in sagi.node_connections if a[0] == node_name
+                                       a[1] for a in ngs.node_connections if a[0] == node_name
                                    }
 
             def check_if_connection_is_active_for_this_role_within_node(node0, node1):
                 return any(
                     (dependency_and_dependent[0].role_within_node == role_of_tensor_in_node_value) and
                     (dependency_and_dependent[0].node_name == node0 and dependency_and_dependent[1].node_name == node1)
-                    for dependency_and_dependent in sagi.tensor_connections
+                    for dependency_and_dependent in tgs.tensor_connections
                 ) or any(
                     (dependency_and_dependent[1].role_within_node == role_of_tensor_in_node_value) and
                     (dependency_and_dependent[1].node_name == node0 and dependency_and_dependent[0].node_name == node1)
-                    for dependency_and_dependent in sagi.tensor_connections
+                    for dependency_and_dependent in tgs.tensor_connections
                 )
             # Create the elements
             graph_overlay_elements = []
-            for node_name_, (left, top, right, bottom) in self.configuration_type_and_iteration_to_node_to_corners[
-                (configuration_type, iteration_value)].items():
+            for node_name_, (left, top, right, bottom) in self.ngs_hash_to_node_to_corners[ngs_hash].items():
                 if node_name_ == node_name:
                     color = vp.highlighting_colors['selected']
                     stroke_width = 3
@@ -943,10 +913,9 @@ class Visualization:
                     ))
             if HIGHLIGHT_SELECTED_CONNECTIONS:
                 for source_x, source_y, target_x, target_y, other_node, stroke_color in \
-                        self.configuration_type_and_iteration_to_node_to_list_of_connections.get(
-                            (configuration_type, iteration_value), {}).get(node_name, []):
+                        self.ngs_hash_to_node_to_list_of_connections.get(ngs_hash, {}).get(node_name, []):
                     connection_is_active = check_if_connection_is_active_for_this_role_within_node(node_name, other_node)
-                    connection_id = f'highlight_connection__{configuration_type}__{iteration_value}__{node_name}__{other_node}'
+                    connection_id = f'highlight_connection__{ngs_hash}__{node_name}__{other_node}'
                     connection_id = connection_id.replace('.', '_')
                     graph_overlay_elements.append(dash_svg.Line(
                         id=connection_id,
@@ -1087,7 +1056,7 @@ class Visualization:
             elif display_type_radio_buttons == 'Network':
                 hide_containers_for_tensors = True
                 children = [
-                    html.Div(f"{self.get_formatted_overview_of_module_parameters(sag)}", className="metadata-div"),
+                    html.Div(f"{self.get_formatted_overview_of_module_parameters(tsc)}", className="metadata-div"),
                 ]
             elif display_type_radio_buttons == 'Notes':
                 hide_containers_for_tensors = True
@@ -1105,7 +1074,7 @@ class Visualization:
                 hide_containers_for_tensors = False
                 children = [
                     html.Div(self.create_external_visualization(
-                        recordings, configuration_type, type_of_execution, sag, db,
+                        recordings, type_of_execution, tsc, ngs, db,
                         training_step_value, type_of_recording_value, batch_index_value, iteration_value, node_name,
                         role_of_tensor_in_node_value,
                     ), className="external-visualization-div"),
@@ -1121,14 +1090,16 @@ class Visualization:
             training_step_value, iteration_value, previous_name_of_selected_node,
             navigation_button_clicks, clicks_per_node,
     ):
-        recordings = self.get_recordings_with_caching(trials_value, training_step_value, type_of_execution)
-        configuration_type = recordings.training_step_to_configuration_type[training_step_value]
+        tsc, recordings = self.get_training_step_configuration_and_recordings(trials_value, training_step_value, type_of_execution)
         # Special case: If nothing was clicked, just return the previous_name_of_selected_node
         if max([-1 if a is None else a for a in
                 navigation_button_clicks + clicks_per_node]) <= self.last_navigation_click_event_time:
             return previous_name_of_selected_node, False
-        # Identify which Nodes exist in the selected configuration and iteration
-        node_to_dash_id = self.configuration_type_and_iteration_to_node_to_dash_id[(configuration_type, iteration_value)]
+        # Identify which Nodes exist in the selected NodeGraphStructure
+        graph_configuration = tsc.graph_configuration_per_iteration[iteration_value]
+        ngs_hash = graph_configuration.hash_of_node_graph_structure
+        ngs = self.ngs_hash_to_ngs[ngs_hash]
+        node_to_dash_id = self.ngs_hash_to_node_to_dash_id[ngs_hash]
         dash_id_to_node = {
             dash_id: node for node, dash_id in node_to_dash_id.items()
         }
@@ -1136,10 +1107,8 @@ class Visualization:
         names = [
             dash_id_to_node.get(dash_id, None) for dash_id in self.list_of_unique_node_dash_ids
         ]
-        selected_configuration_type = recordings.training_step_to_configuration_type[training_step_value]
         names_that_exist_in_the_selected_configuration = {
-            node for node in
-            self.configuration_type_to_status_and_graph[selected_configuration_type].iteration_to_data[iteration_value].name_to_node.keys()
+            node for node in ngs.name_to_node.keys()
         }
         assert len(clicks_per_node) == len(self.list_of_unique_node_dash_ids), (len(clicks_per_node), len(self.list_of_unique_node_dash_ids))
         assert len(names) == len(self.list_of_unique_node_dash_ids), (len(names), len(self.list_of_unique_node_dash_ids))
@@ -1165,7 +1134,7 @@ class Visualization:
         elif max_val_navigation > self.last_navigation_click_event_time:
             self.last_navigation_click_event_time = max_val_navigation
             assert previous_name_of_selected_node is not None
-            grid_of_nodes = self.configuration_type_and_iteration_to_grid_of_nodes[(selected_configuration_type, iteration_value)]
+            grid_of_nodes = self.ngs_hash_to_grid_of_nodes[ngs_hash]
             x, y = None, None
             for x, column in enumerate(grid_of_nodes):
                 for y, nn in enumerate(column):

@@ -113,7 +113,7 @@ def recursive_pseudo_hash(a):
         add_sub_hash(1)
     if isinstance(a, dict):
         add_sub_hash(123)
-        for k, v in a.items():
+        for k, v in sorted(list(a.items()), key=lambda kv: kv[0]):
             add_sub_hash(1)
             add_sub_hash(k)
             add_sub_hash(v)
