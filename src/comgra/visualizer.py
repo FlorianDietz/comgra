@@ -217,6 +217,7 @@ class Visualization:
     def get_recordings_with_caching(
             self, trials_value, training_step_value, type_of_execution
     ) -> TensorRecordings:
+        # TODO load and store training_step_configuration alongside recordings, in a tuple
         with LOCK_FOR_RECORDINGS:
             key = (trials_value, training_step_value,)
             recordings = self.cache_for_tensor_recordings.get(key, None)

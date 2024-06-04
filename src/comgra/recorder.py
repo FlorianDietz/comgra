@@ -18,7 +18,7 @@ from torch import nn as torch_nn
 
 import comgra
 from comgra.objects import SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS, \
-    DecisionMakerForRecordings, DataOfTrainingStep, NodeGraphStructure, ModuleRepresentation, Node, \
+    DecisionMakerForRecordings, TrainingStepConfiguration, NodeGraphStructure, ModuleRepresentation, Node, \
     ParameterRepresentation, TensorRecordings, TensorReference, TensorRepresentation, GraphConfigurationOfOneIteration, \
     TensorGraphStructure
 from comgra import utilities
@@ -47,10 +47,9 @@ class ComgraRecorder:
         self.group_path = comgra_root_path / group
         self.trial_path = self.group_path / 'trials' / trial_id
         self.recordings_path = self.trial_path / 'recordings'
+        self.configurations_path = self.trial_path / 'configurations'
         if comgra_is_active:
             self.recordings_path.mkdir(parents=True, exist_ok=True)
-        self.configuration_type = None
-        self.configuration_path = None
         self.type_of_serialization = type_of_serialization
         self.calculate_svd_and_other_expensive_operations_of_parameters = calculate_svd_and_other_expensive_operations_of_parameters
         self.prefixes_for_grouping_module_parameters_visually = list(prefixes_for_grouping_module_parameters_visually)
@@ -110,6 +109,7 @@ class ComgraRecorder:
         #
         # Per training_step
         #
+        self.training_step_configuration: Optional[TrainingStepConfiguration] = None
         self.tensor_recordings: Optional[TensorRecordings] = None
         self.mapping_of_tensors_for_extracting_kpis: Dict[Tuple[int, str, Optional[int], Optional[int], str, str, str], Tuple[torch.Tensor, TensorRepresentation]] = {}
         self.training_step = None
@@ -207,10 +207,13 @@ class ComgraRecorder:
         self.tensor_to_list_of_references = {}
         self.tensor_reference_to_representation = {}
         self.current_batch_size = current_batch_size
+        self.training_step_configuration = TrainingStepConfiguration(
+            type_of_execution=self.type_of_execution,
+            modules_and_parameters=self.set_of_top_level_modules,
+        )
         self.tensor_recordings = TensorRecordings()
         self.mapping_of_tensors_for_extracting_kpis = {}
         self.override__recording_is_active = override__recording_is_active
-        self.configuration_type = None  # To be determined later
 
     @utilities.runtime_analysis_decorator
     def register_tensor(
@@ -271,7 +274,7 @@ class ComgraRecorder:
                 record_per_batch_index = self.record_all_tensors_per_batch_index_by_default
         if recording_type == 'single_value':
             assert index_of_batch_dimension is None
-        # Create a TensorRepresentation for the tensor and store various references for later.
+        # Create a TensorReference for the tensor and store various references for later.
         if is_input:
             type_of_tensor = 'input'
         elif is_parameter:
@@ -320,7 +323,6 @@ class ComgraRecorder:
             self.tensor_to_list_of_references[tensor] = [tensor_reference]
             tensor_representation = TensorRepresentation(
                 original_reference=tensor_reference,
-                configuration_type=self.configuration_type,
                 type_of_tensor=type_of_tensor,
                 shape=list(tensor.shape),
                 index_of_batch_dimension=index_of_batch_dimension,
@@ -460,12 +462,6 @@ class ComgraRecorder:
         self.iteration = 0 if self.iteration is None else (self.iteration + 1)
         assert self.set_of_top_level_modules, \
             "No modules have been defined yet. Use track_module() on your modules before starting a recording."
-        self.tensor_recordings.data_per_training_step[self.training_step] = DataOfTrainingStep(
-            type_of_execution=self.type_of_execution,
-            modules_and_parameters=self.set_of_top_level_modules,
-        )
-        if not self.recording_is_active():
-            return
 
     @utilities.runtime_analysis_decorator
     def start_backward_pass(self):
@@ -624,33 +620,13 @@ class ComgraRecorder:
             "No computational graph could be constructed. " \
             "The most common error that could cause this is that gradient computations are turned off."
         # Build the dependency graph based on the data extracted while recursing through the computation graph
-        self.initialize_graph_structure_objects(
-            tensor_references_to_use_for_this_iteration
+        self.initialize_graph_structure_objects_at_end_of_iteration(
+            tensor_references_to_use_for_this_iteration,
+            tensor_reference_to_list_of_dependents,
         )
 
     @utilities.runtime_analysis_decorator
-    def verify_graph_and_global_status_equal_existing_file(self):
-        """
-        Run a sanity check to make sure that configuration_type of start_iteration()
-        was specified correctly: It should result in the same graph every time.
-        """
-        try:
-            path = self.configuration_path / 'status_and_graph.pkl'
-            with open(path, 'rb') as f:
-                existing_version: StatusAndGraph = pickle.load(f)
-            utilities.recursive_equality_check(self.current_status_and_graph, existing_version, [])
-        except AssertionError as e:
-            raise ValueError(
-                f"Sanity check failed: Two different dependency graphs have been recorded under the same name. "
-                f"This is caused by the configuration_type parameter of start_recording(). "
-                f"To prevent this error, make configuration_type a string that depends on everything that might "
-                f"influence what the graph looks like. If you are uncertain, just make configuration_type depend on "
-                f"everything you can think of and then inspect the GUI after running comgra to find out what caused "
-                f"this."
-            ) from e
-
-    @utilities.runtime_analysis_decorator
-    def initialize_graph_structure_objects(
+    def initialize_graph_structure_objects_at_end_of_iteration(
             self,
             tensor_references_to_use_for_this_iteration: Set[TensorReference],
             tensor_reference_to_list_of_dependents: Dict[TensorReference, List[TensorReference]],
@@ -699,32 +675,50 @@ class ComgraRecorder:
             self.tensor_reference_to_representation, tensor_connections,
         )
         # Compare the node_graph_structure with existing ones in the cache.
-        if node_graph_structure.node_graph_hash not in self.cache_hash_to_node_graph_structure:
-            # If it's new, save it.
-            self.cache_hash_to_node_graph_structure[node_graph_structure.node_graph_hash] = node_graph_structure
-            # Save it to file
-            # TODO
-            self.configuration_type = configuration_type
-            self.configuration_path = self.group_path / 'configs' / configuration_type
-            assert len(self.tensor_recordings.training_step_to_graph_configuration[self.training_step].data_per_iteration) == self.iteration
-            self.tensor_recordings.training_step_to_graph_configuration[self.training_step].append(configuration_type)
-        else:
+        if node_graph_structure.node_graph_hash in self.cache_hash_to_node_graph_structure:
             # If it wasn't new, run a simple sanity check,
             # asserting that it is in fact the same as the thing in the cache.
-            utilities.recursive_equality_check(
-                self.cache_hash_to_node_graph_structure[node_graph_structure.node_graph_hash],
-                node_graph_structure,
-                []
-            )
+            try:
+                utilities.recursive_equality_check(
+                    self.cache_hash_to_node_graph_structure[node_graph_structure.node_graph_hash],
+                    node_graph_structure,
+                    []
+                )
+            except AssertionError as e:
+                raise ValueError(
+                    f"Two NodeGraphStructure objects received the same hash but they have different content."
+                ) from e
             # Replace it by reference to save some memory
             node_graph_structure = self.cache_hash_to_node_graph_structure[node_graph_structure.node_graph_hash]
+        else:
+            # If it's new, cache it
+            self.cache_hash_to_node_graph_structure[node_graph_structure.node_graph_hash] = node_graph_structure
+            # Save it to file
+            node_graph_structure_folder = self.group_path / 'node_graph_structure'
+            node_graph_structure_file = node_graph_structure_folder / f'{node_graph_structure.node_graph_hash}.pkl'
+            node_graph_structure_folder.mkdir(parents=True, exist_ok=True)
+            # If a file for it already exists even though it is not in the cache, load it and compare.
+            # This can happen if comgra is run multiple times without deleting previous trials
+            assert False, "test this scenario"
+            if node_graph_structure_file.exists():
+                try:
+                    with open(node_graph_structure_file, 'rb') as f:
+                        existing_version: StatusAndGraph = pickle.load(f)
+                    utilities.recursive_equality_check(existing_version, node_graph_structure, [])
+                except AssertionError as e:
+                    raise ValueError(
+                        f"A file for the NodeGraphStructure with the same hash already exists "
+                        f"but it contains different content."
+                    ) from e
+            else:
+                with open(path, 'wb') as f:
+                    pickle.dump(node_graph_structure, f)
         #
         # Update training step data
         #
-        data_of_training_step = self.tensor_recordings.data_per_training_step[self.training_step]
-        assert len(data_of_training_step.graph_configuration_per_iteration) == self.iteration
+        assert len(self.training_step_configuration.graph_configuration_per_iteration) == self.iteration
         assert node_graph_structure.node_graph_hash != 'TBD'
-        data_of_training_step.graph_configuration_per_iteration.append(GraphConfigurationOfOneIteration(
+        self.training_step_configuration.graph_configuration_per_iteration.append(GraphConfigurationOfOneIteration(
             hash_of_node_graph_structure=node_graph_structure.node_graph_hash,
             tensor_graph_structure=tensor_graph_structure,
         ))
@@ -735,23 +729,21 @@ class ComgraRecorder:
         self.current_stage = 'inactive'
         if not self.recording_is_active():
             return
-        #
-        # Save the dependency graph
-        #
-        assert self.configuration_type is not None
-        if self.configuration_type in self.configuration_type_to_status_and_graph:
-            self.verify_graph_and_global_status_equal_existing_file()
-        else:
-            self.configuration_type_to_status_and_graph[self.configuration_type] = self.current_status_and_graph
-            self.configuration_path.mkdir(parents=True, exist_ok=True)
-            path = self.configuration_path / 'status_and_graph.pkl'
-            if not path.exists():
-                with open(path, 'wb') as f:
-                    pickle.dump(self.current_status_and_graph, f)
-        self.current_status_and_graph = None
-        #
-        # Get the KPIs and serialize them.
-        #
+        self.save_training_step_configuration()
+        # Save the tensors
+        self.save_tensor_recordings()
+        # Save the graph of KPIs, which is independent of the rest of the recordings
+        self.save_recorded_kpi_graphs_if_needed()
+
+    def save_training_step_configuration(self):
+        self.configurations_path.mkdir(parents=True, exist_ok=True)
+        training_step_configuration_path = self.configurations_path / f'{self.training_step}.pkl'
+        # TODO make sure it actually can't exist. What if there are multiple trials being run? run.py does this.
+        assert not training_step_configuration_path.exists()
+        with open(training_step_configuration_path, 'wb') as f:
+            pickle.dump(self.training_step_configuration, f)
+
+    def save_tensor_recordings(self):
         # Notes on how this code works, and why:
         # Convert the TensorRecordings from tensor to float.
         # While doing so, minimize GPU-to-CPU transfers by batching the tensors,
@@ -775,6 +767,7 @@ class ComgraRecorder:
             self.save_file(dump_dict, recordings_path_folder, file_number)
             file_number += 1
             self.tensor_recordings.recordings = utilities.PseudoDb(attributes=attributes_for_tensor_recordings)
+
         batch_size_to_record = self.current_batch_size if self.max_num_batch_size_to_record is None else min(
             self.current_batch_size, self.max_num_batch_size_to_record)
         all_batch_indices = list(range(batch_size_to_record))
@@ -786,7 +779,9 @@ class ComgraRecorder:
         # Save a preliminary file with information about each tensor.
         # (This is saved in the database just in case the values differ between different iterations, etc.)
         # (For example, the shape of a tensor may in rare cases depend on the iteration.)
-        assert len(self.tensor_reference_to_representation) == len(set([(tr.original_reference.tensor_name, tr.original_reference.iteration) for tr in self.tensor_reference_to_representation.values()])), \
+        assert len(self.tensor_reference_to_representation) == len(
+            set([(tr.original_reference.tensor_name, tr.original_reference.iteration) for tr in
+                 self.tensor_reference_to_representation.values()])), \
             (f"Programming error. TensorRepresentations are saved in duplicates, which may clog the database.\n"
              f"{len(self.tensor_reference_to_representation), len(set([(tr.original_reference.tensor_name, tr.original_reference.iteration) for tr in self.tensor_reference_to_representation.values()]))}")
         for main_ref, tr in self.tensor_reference_to_representation.items():
@@ -809,7 +804,8 @@ class ComgraRecorder:
             assert len(tensor.shape) == 2, (tensor.shape, key)
             if batching_type == 'individual_batch_indices':
                 batch_values = all_batch_indices
-                assert tensor.shape[0] == batch_size_to_record, (tensor.shape, self.current_batch_size, batch_size_to_record)
+                assert tensor.shape[0] == batch_size_to_record, (
+                tensor.shape, self.current_batch_size, batch_size_to_record)
             else:
                 batch_values = [batching_type]
                 assert tensor.shape[0] == 1, (tensor.shape, self.current_batch_size, batch_size_to_record, key)
@@ -833,7 +829,8 @@ class ComgraRecorder:
                 neuron_values = [None]
                 assert tensor.shape[1] == 1
             all_tensors_to_combine.append(tensor.reshape(-1))
-            assert tensor.numel() == len(batch_values) * len(neuron_values), (tensor.shape, len(batch_values), len(neuron_values))
+            assert tensor.numel() == len(batch_values) * len(neuron_values), (
+            tensor.shape, len(batch_values), len(neuron_values))
             assert tensor.numel() == tensor.reshape(-1).numel()
             for batch_value in batch_values:
                 for neuron_value in neuron_values:
@@ -849,7 +846,8 @@ class ComgraRecorder:
                 assert len(list_of_floats) == len(all_keys_to_process), (len(list_of_floats), len(all_keys_to_process))
                 for (key_to_process, main_ref), float_value in zip(all_keys_to_process, list_of_floats):
                     assert isinstance(float_value, float), (float_value, key_to_process)
-                    self.add_tensor_recordings_for_key_and_register_alternate_references(key_to_process, float_value, main_ref)
+                    self.add_tensor_recordings_for_key_and_register_alternate_references(key_to_process, float_value,
+                                                                                         main_ref)
                     sanity_check_c += 1
                 all_tensors_to_combine = []
                 all_keys_to_process = []
@@ -857,10 +855,6 @@ class ComgraRecorder:
         assert len(all_tensors_to_combine) == 0
         total_number_of_tensor_values = sum(t.numel() for t, tr in self.mapping_of_tensors_for_extracting_kpis.values())
         assert sanity_check_c == total_number_of_tensor_values, (sanity_check_c, total_number_of_tensor_values)
-        #
-        # Save the graph of KPIs, which is independent of the rest of the recordings
-        #
-        self.save_recorded_kpi_graphs_if_needed()
 
     def add_tensor_recordings_for_key_and_register_alternate_references(self, key, float_value, ref: TensorReference):
         # Sanity check

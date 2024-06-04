@@ -43,7 +43,6 @@ class TensorReference:
 @dataclasses.dataclass(frozen=True)
 class TensorRepresentation:
     original_reference: TensorReference
-    configuration_type: str
     type_of_tensor: str
     shape: List[int]
     index_of_batch_dimension: Optional[int]
@@ -63,14 +62,13 @@ class Node:
     type_of_tensor: str
 
 @dataclasses.dataclass
-class DataOfTrainingStep:
+class TrainingStepConfiguration:
     type_of_execution: str
     modules_and_parameters: Dict[str, ModuleRepresentation]
     graph_configuration_per_iteration: List['GraphConfigurationOfOneIteration'] = dataclasses.field(default_factory=list)
 
 @dataclasses.dataclass
 class TensorRecordings:
-    data_per_training_step: Dict[int, DataOfTrainingStep] = dataclasses.field(default_factory=dict)
     recordings: Optional[utilities.PseudoDb] = None
 
     @utilities.runtime_analysis_decorator
