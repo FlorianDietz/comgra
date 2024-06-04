@@ -10,6 +10,7 @@ from comgra import utilities
 
 SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS = '*old'
 
+
 @dataclasses.dataclass(frozen=True)
 class ParameterRepresentation:
     name: str
@@ -61,11 +62,13 @@ class Node:
     full_unique_name: str
     type_of_tensor: str
 
+
 @dataclasses.dataclass
 class TrainingStepConfiguration:
     type_of_execution: str
     modules_and_parameters: Dict[str, ModuleRepresentation]
     graph_configuration_per_iteration: List['GraphConfigurationOfOneIteration'] = dataclasses.field(default_factory=list)
+
 
 @dataclasses.dataclass
 class TensorRecordings:
@@ -75,15 +78,18 @@ class TensorRecordings:
     def update_with_more_recordings(self, other: 'TensorRecordings'):
         self.recordings.merge(other.recordings)
 
+
 @dataclasses.dataclass
 class GraphConfigurationOfOneIteration:
     hash_of_node_graph_structure: str
     tensor_graph_structure: 'TensorGraphStructure'
 
+
 @dataclasses.dataclass
 class TensorGraphStructure:
     tensor_references: List[TensorReference]
     tensor_connections: List[Tuple[TensorReference, TensorReference]]
+
 
 @dataclasses.dataclass
 class NodeGraphStructure:
