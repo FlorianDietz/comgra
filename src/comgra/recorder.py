@@ -148,14 +148,6 @@ class ComgraRecorder:
         self._track_module_recursive(module_name, module, self.set_of_top_level_modules, [])
 
     @utilities.runtime_analysis_decorator
-    def add_note(self, note):
-        if not self.comgra_is_active:
-            return
-        self.notes.append(str(note))
-        with open(self.trial_path / 'notes.json', 'w') as f:
-            json.dump(self.notes, f)
-
-    @utilities.runtime_analysis_decorator
     def _track_module_recursive(self, module_name, module: torch_nn.Module, container, preceding_names: List[str]):
         assert module_name not in container
         assert '.' not in module_name
@@ -179,6 +171,14 @@ class ComgraRecorder:
             submodules=submodules,
             parameters=parameters,
         )
+
+    @utilities.runtime_analysis_decorator
+    def add_note(self, note):
+        if not self.comgra_is_active:
+            return
+        self.notes.append(str(note))
+        with open(self.trial_path / 'notes.json', 'w') as f:
+            json.dump(self.notes, f)
 
     @utilities.runtime_analysis_decorator
     def get_name_of_module(self, module):
