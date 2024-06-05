@@ -537,25 +537,32 @@ class ComgraRecorder:
                 refs = self.tensor_to_list_of_references[t]
                 tmp = [ref for ref in refs if ref.iteration == self.iteration]
                 if not tmp:
-                    original_ref = refs[0]
-                    if self.tensor_reference_to_representation[original_ref].type_of_tensor == 'parameter':
+                    # Create a new reference based on the last reference to this tensor that is not itself a duplicate.
+                    # I.e., if the same tensor gets registered in several nodes by the user, this will pick whichever
+                    # one of these was created last and use that as the canonical reference.
+                    reference_to_copy = [
+                        ref for ref in refs
+                        if not ref.tensor_name.endswith(SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS)
+                    ][-1]
+                    if self.tensor_reference_to_representation[reference_to_copy.get_canonical_reference()].type_of_tensor == 'parameter':
                         # Parameters are a special case since they are only registered once,
                         # and that is done automatically, not by the user.
                         # There can be only one older (node, iteration, role_within_node) tuple for each parameter,
                         # so creating a new one with the current iteration will be unique even if the role_within_node
                         # is not changed.
-                        assert original_ref.iteration == -1
+                        reference_to_copy = refs[0]
+                        assert reference_to_copy.iteration == -1
                         role_within_node_suffix = f''
-                    elif original_ref.iteration == -1:
+                    elif reference_to_copy.iteration == -1:
                         role_within_node_suffix = '__from_initialization'
                     else:
-                        role_within_node_suffix = f'__from_iteration_{original_ref.iteration}'
+                        role_within_node_suffix = f'__from_iteration_{reference_to_copy.iteration}'
                     self.tensor_to_list_of_references[t].append(TensorReference(
-                        tensor_name=original_ref.tensor_name + SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS,
+                        tensor_name=reference_to_copy.tensor_name + SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS,
                         iteration=self.iteration,
-                        node_name=original_ref.node_name + SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS,
+                        node_name=reference_to_copy.node_name + SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS,
                         # node_name=original_ref.node_name + f'__reuse_iteration_{original_ref.iteration}' + SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS,
-                        role_within_node=original_ref.role_within_node + role_within_node_suffix,
+                        role_within_node=reference_to_copy.role_within_node + role_within_node_suffix,
                         is_canonical_reference=False,
                         previous_reference=self.tensor_to_list_of_references[t][-1],
                     ))
@@ -580,9 +587,9 @@ class ComgraRecorder:
                 else:
                     steps_that_have_been_processed.add(step_to_follow)
                     # Set dependencies between all references of this tensor that will be displayed at the same time
-                    for ref1, ref2 in zip(tmp[:-1], tmp[1:]):
-                        tensor_reference_to_list_of_dependents[ref1].append(ref2)
-                        assert len(tensor_reference_to_list_of_dependents[ref1]) == 1, \
+                    for dependency_ref, dependent_ref in zip(tmp[:-1], tmp[1:]):
+                        tensor_reference_to_list_of_dependents[dependency_ref].append(dependent_ref)
+                        assert len(tensor_reference_to_list_of_dependents[dependency_ref]) == 1, \
                             ("This should only be done once and each additional reference to the same tensor should "
                              "just form part of an uninterrupted chain.")
                     # Set the last_encountered_reference and recurse
