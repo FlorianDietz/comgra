@@ -202,9 +202,11 @@ class Visualization:
             res = self.cache_for_training_step_configuration_and_recordings.get(key, None)
             if res is None:
                 # Load the configuration for the training step
-                # TODO not sure if this is correct. Do I need to filter by type_of_execution?
-                #  or is the opposite true, and the recordings don't need to be filtered by type_of_execution either?
-                #  the assert here, as well as the one in recorder.save_training_step_configuration() should trigger if this is a problem
+                # Note / reminder: Do I need to filter by type_of_execution?
+                # The training_step determines the type_of_execution so there should actually be no ambiguity here.
+                # However, other parts of the code use the type_of_execution in the names of these files
+                # to determine the list of valid training_steps for a given selected value of type_of_execution
+                # without having to load those training_steps first.
                 recordings_path_base = self.path / 'trials' / trials_value / 'configurations'
                 training_step_configuration_path = recordings_path_base / f'{training_step_value}.pkl'
                 with open(training_step_configuration_path, 'rb') as f:
