@@ -506,11 +506,23 @@ class ComgraRecorder:
             """
             This function sets dependencies between tensors.
             It also registers any parameters that haven't been registered yet upon encountering them for the first time.
+            It is called once for each tensor that definitely should show up in this iteration because the user
+            registered it, and it also backpropagates and includes other tensors along the way.
+            During backpropagation along the computation graph, a tensor may be encountered more than once
+            (since each tensor may have multiple dependents) but should only be processed once.
             The function is called in one of two ways:
             step_to_follow is used on the computation step that produced a tensor.
             The function registers the tensor and then follows the computation graph backwards.
             Some tensors do not have an associated computation step because they are added directly,
             or detach() was used on them. For these, direct_tensor is used instead.
+            ---
+            Design goals for special cases:
+            If a tensor is registered multiple times, the references of this iteration are ordered in a chain.
+            Dependencies of the tensor connect to the leftmost item of the chain,
+            dependents connect to the rightmost item.
+            If the tensor is registered multiple times, but for an older iteration only, then only the most recent
+            of the references to those iterations is used as a dependency and the others are ignored
+            (In terms of implementation, a new reference is created that copies the most recent older reference).
             """
             assert (direct_tensor is None) != (step_to_follow is None), "Use one of the two"
             if direct_tensor is None:
@@ -533,7 +545,7 @@ class ComgraRecorder:
                 keep_recursing = False
             if t is not None:
                 # Get the first and the last reference to this tensor on this iteration.
-                # Or if there is none on this iteration, create a new reference.
+                # Or if there is no reference on this iteration yet, create a new reference.
                 refs = self.tensor_to_list_of_references[t]
                 tmp = [ref for ref in refs if ref.iteration == self.iteration]
                 if not tmp:
@@ -571,10 +583,21 @@ class ComgraRecorder:
                     assert len(tmp) == 1
                 for ref in tmp:
                     tensor_references_to_use_for_this_iteration.add(ref)
+                # Set dependencies between all references of this tensor that will be displayed at the same time
+                for dependency_ref, dependent_ref in zip(tmp[:-1], tmp[1:]):
+                    # This list should be empty the first time this code block is reached,
+                    # and should be set to the same one-element list on all subsequent times.
+                    assert len(tensor_reference_to_list_of_dependents[dependency_ref]) == 0 or \
+                           tuple(tensor_reference_to_list_of_dependents[dependency_ref]) == (dependent_ref,), \
+                        ("Dependencies between references of the same tensor should form an uninterrupted chain. "
+                         "No part of the code except this one here should be able to add more references in between "
+                         "them. All dependents of the tensor should attach to the rightmost reference, "
+                         "all dependencies to the leftmost reference.")
+                    tensor_reference_to_list_of_dependents[dependency_ref] = [dependent_ref]
                 first_ref = tmp[0]
                 last_ref = tmp[-1]
                 tensor_representation = self.tensor_reference_to_representation[refs[0]]
-                # Set dependencies from last_encountered_named_tensor_and_iteration to last_ref
+                # Add last_encountered_named_tensor_and_iteration to the dependencies of last_ref
                 if last_encountered_reference is not None:
                     assert last_encountered_reference not in tensor_reference_to_list_of_dependents[last_ref], \
                         ("Programming error. If a dependency is registered twice, that means the graph traversal "
@@ -585,21 +608,18 @@ class ComgraRecorder:
                 if step_has_been_processed:
                     keep_recursing = False
                 else:
-                    steps_that_have_been_processed.add(step_to_follow)
-                    # Set dependencies between all references of this tensor that will be displayed at the same time
-                    for dependency_ref, dependent_ref in zip(tmp[:-1], tmp[1:]):
-                        tensor_reference_to_list_of_dependents[dependency_ref].append(dependent_ref)
-                        assert len(tensor_reference_to_list_of_dependents[dependency_ref]) == 1, \
-                            ("This should only be done once and each additional reference to the same tensor should "
-                             "just form part of an uninterrupted chain.")
+                    # When we get here, step_to_follow may be None depending on how this function was called.
+                    # We need to make sure that keep_recursing is True exactly one time this function is called,
+                    # when step_to_follow was used to get here, and not direct_tensor.
+                    if step_to_follow is not None:
+                        steps_that_have_been_processed.add(step_to_follow)
                     # Set the last_encountered_reference and recurse
-                    # unless the iteration is earlier than the current iteration or type_of_tensor == 'input'
+                    # unless this reference is an import of an earlier reference or type_of_tensor == 'input'
                     if first_ref.node_name.endswith(SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS) \
                             or tensor_representation.type_of_tensor == 'input':
                         keep_recursing = False
                     last_encountered_reference = first_ref
             if keep_recursing:
-                assert step_to_follow is not None, last_encountered_reference
                 for predecessor, other in step_to_follow.next_functions:
                     if predecessor is not None:
                         traverse_graph_backwards(last_encountered_reference, step_to_follow=predecessor, direct_tensor=None)
@@ -615,6 +635,7 @@ class ComgraRecorder:
             else:
                 traverse_graph_backwards(None, step_to_follow=tensor.grad_fn, direct_tensor=None)
         # Sanity check
+        assert None not in steps_that_have_been_processed
         for ref1 in tensor_references_to_use_for_this_iteration:
             for ref2 in tensor_references_to_use_for_this_iteration:
                 if ref1.get_canonical_reference() == ref2.get_canonical_reference():
