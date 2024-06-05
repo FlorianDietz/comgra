@@ -214,6 +214,14 @@ class ComgraRecorder:
         self.tensor_recordings = TensorRecordings()
         self.mapping_of_tensors_for_extracting_kpis = {}
         self.override__recording_is_active = override__recording_is_active
+        if not self.recording_is_active():
+            return
+        # Register the tensors on the parameters
+        for tensor, parameter in self.parameter_to_representation.items():
+            tensor_name = parameter.full_unique_name
+            node_name = next(
+                (a for a in self.prefixes_for_grouping_module_parameters_in_nodes if tensor_name.startswith(a)), None)
+            self.register_tensor(tensor_name, tensor, is_parameter=True, node_name=node_name)
 
     @utilities.runtime_analysis_decorator
     def register_tensor(
@@ -225,7 +233,7 @@ class ComgraRecorder:
     ):
         if not self.recording_is_active():
             return
-        assert self.iteration is not None or is_initial_value, \
+        assert self.iteration is not None or is_initial_value or is_parameter, \
             "You must call start_iteration() before registering any tensors, unless you use is_initial_value=True."
         assert not is_initial_value or self.iteration is None, \
             ("You can only use is_initial_value=True when registering a tensor "
@@ -506,7 +514,6 @@ class ComgraRecorder:
         def traverse_graph_backwards(last_encountered_reference, step_to_follow=None, direct_tensor=None):
             """
             This function sets dependencies between tensors.
-            It also registers any parameters that haven't been registered yet upon encountering them for the first time.
             It is called once for each tensor that definitely should show up in this iteration because the user
             registered it, and it also backpropagates and includes other tensors along the way.
             During backpropagation along the computation graph, a tensor may be encountered more than once
@@ -545,11 +552,9 @@ class ComgraRecorder:
                     t = self.computation_step_to_tensor[step_to_follow]
                 if hasattr(step_to_follow, 'variable'):
                     t = step_to_follow.variable
-                    # Register parameters in the graph the first time you encounter them.
-                    if t in self.parameter_to_representation and t not in self.tensor_to_list_of_references:
-                        tensor_name = self.parameter_to_representation[t].full_unique_name
-                        node_name = next((a for a in self.prefixes_for_grouping_module_parameters_in_nodes if tensor_name.startswith(a)), None)
-                        self.register_tensor(tensor_name, t, is_parameter=True, node_name=node_name)
+                    assert t in self.parameter_to_representation or t in self.tensor_to_list_of_references, \
+                        ("Backpropagation encountered a parameter that has not been registered. "
+                         "Use track_module() to recursively acquire all modules and their parameters.")
                 keep_recursing = True
             else:
                 t = direct_tensor
@@ -650,7 +655,6 @@ class ComgraRecorder:
             else:
                 traverse_graph_backwards(None, step_to_follow=tensor.grad_fn, direct_tensor=None)
         # Sanity check
-        assert None not in steps_that_have_been_processed
         for ref1 in tensor_references_to_use_for_this_iteration:
             for ref2 in tensor_references_to_use_for_this_iteration:
                 if ref1.get_canonical_reference() == ref2.get_canonical_reference():
