@@ -143,6 +143,39 @@ class NodeGraphStructure:
                 f"A node has two tensors with the same role_within_node in it: {ref}"
             assert ref.iteration == recorder.iteration, ref
             node_to_tensor_references[ref.node_name].append(ref)
+        # Consistency check for combining tensors into nodes.
+        # Make sure that there are no connections between two tensors that belong to the same node.
+        # For example, three tensors a->b->c, where a and c are both assigned to the same node.
+        for refs in node_to_tensor_references.values():
+            for i, ref0 in enumerate(refs):
+                for ref1 in refs[i+1:]:
+                    dependency_chains = {}  # Stores pairs of references that can be used to backtrack
+                    new_sources_to_process = {ref0}
+                    debug = 0
+                    while new_sources_to_process:
+                        debug += 1
+                        assert debug < 10000, "Programming error. Infinite loop."
+                        next_sources = set()
+                        for dependency_ref in new_sources_to_process:
+                            for dependent_ref in tensor_reference_to_list_of_dependents[dependency_ref]:
+                                if dependent_ref not in dependency_chains:
+                                    dependency_chains[dependent_ref] = dependency_ref
+                                    next_sources.add(dependent_ref)
+                        new_sources_to_process = next_sources
+                    if ref1 in dependency_chains:
+                        list_of_dependencies = []
+                        ref = ref1
+                        while ref in dependency_chains:
+                            list_of_dependencies.insert(0, ref.tensor_name)
+                            ref = dependency_chains[ref]
+                        list_of_dependencies.insert(0, ref.tensor_name)
+                        raise ValueError(
+                            f"Error while building the dependency graph. "
+                            f"The node '{ref0.node_name}' was assigned to two different locations. "
+                            f"The cause for this has been identified: This list of tensors "
+                            f"depend on each other, and both the first and last tensor in the list are "
+                            f"assigned to this node:\n{list_of_dependencies}"
+                        )
         #
         # Logic for grouping:
         # * One set for each group of parameters in the same module (None of these have dependencies)
@@ -174,8 +207,14 @@ class NodeGraphStructure:
             ref for ref in tensor_references_to_use_for_this_iteration
             if tensor_reference_to_representation[ref.get_canonical_reference()].type_of_tensor == 'target'
         ])
+        #
         # The complicated part:
-        # Construct the DAG of the dependency graph for all 'calculated' tensors
+        # Construct the DAG of the dependency graph for all 'input' and 'calculated' tensors
+        #
+        for ref in used_nodes:
+            assert all(other_ref in used_nodes for other_ref in node_to_tensor_references[ref.node_name]), \
+                ("Programming error. If a tensor has already been placed at this point, "
+                 "then so should all other tensors of the same node.")
         nodes_to_sort = [
             ref for ref in tensor_references_to_use_for_this_iteration
             if tensor_reference_to_representation[ref.get_canonical_reference()].type_of_tensor in ['input', 'calculated']
@@ -185,15 +224,26 @@ class NodeGraphStructure:
         while c < len(nodes_to_sort):
             next_set_of_nodes = []
             nodes_list_list.append(next_set_of_nodes)
+            # Only place a TensorReference if ALL TensorReferences of the same node no longer have dependents.
+            # This ensures that a node is placed in only one location in the graph.
+            # Note: If tensors of the same node have dependencies between them, we could get a deadlock here.
+            # However, we raise an exception in this case earlier in this function.
             for ref in nodes_to_sort:
-                if ref not in used_nodes:
-                    has_remaining_dependencies = any(
-                        a for a in tensor_reference_to_list_of_dependencies[ref]
-                        if a not in used_nodes
-                    )
-                    if not has_remaining_dependencies:
-                        next_set_of_nodes.append(ref)
-                        c += 1
+                if ref not in used_nodes and ref not in next_set_of_nodes:
+                    all_refs_of_that_node = node_to_tensor_references[ref.node_name]
+                    they_all_have_no_dependencies = True
+                    for r in all_refs_of_that_node:
+                        has_remaining_dependencies = any(
+                            a for a in tensor_reference_to_list_of_dependencies[r]
+                            if a not in used_nodes
+                        )
+                        if has_remaining_dependencies:
+                            they_all_have_no_dependencies = False
+                            break
+                    if they_all_have_no_dependencies:
+                        for r in all_refs_of_that_node:
+                            next_set_of_nodes.append(r)
+                            c += 1
             for ref in next_set_of_nodes:
                 used_nodes.add(ref)
             assert next_set_of_nodes, \
@@ -226,7 +276,9 @@ class NodeGraphStructure:
             ref for ref in tensor_references_to_use_for_this_iteration
             if tensor_reference_to_representation[ref.get_canonical_reference()].type_of_tensor == 'loss'
         ])
+        # Finalize
         nodes_list_list = [a for a in nodes_list_list if len(a) > 0]
+        # Sanity check
         assert sum([len(a) for a in nodes_list_list]) == len(set(b for a in nodes_list_list for b in a)), \
             (sum([len(a) for a in nodes_list_list]), len(set(b for a in nodes_list_list for b in a)))
         assert sum([len(a) for a in nodes_list_list]) == len(tensor_references_to_use_for_this_iteration), \
@@ -236,9 +288,8 @@ class NodeGraphStructure:
                 if i < j:
                     shared_dependencies_of_nodes = {b for a in nodes0 for b in tensor_reference_to_list_of_dependencies[a]}
                     assert not any(a in shared_dependencies_of_nodes for a in nodes1), \
-                        (f"Programming error. The construction of the DAG is faulty. "
-                         f"This error message should never be visible to end users. "
-                         f"If you are seeing this, please contact us. "
+                        (f"Programming error. This error message should never be visible to end users. "
+                         f"The construction of the DAG is faulty. "
                          f"Probably the easiest way to debug this is "
                          f"to deactivate this assert and check what the graph looks like. "
                          f"Some arrows for dependencies should be pointing in the wrong direction.\n"
@@ -269,52 +320,17 @@ class NodeGraphStructure:
         self.node_connections = node_connections
         assert len(self.name_to_node) == len({b for a in self.dag_format for b in a})
         # Sanity check
-        inconsistency_found_but_not_identified = False
         for i, node_list_0 in enumerate(nodes_list_list):
             for node_list_1 in nodes_list_list[i+1:]:
                 for ref0 in node_list_0:
                     for ref1 in node_list_1:
-                        if ref0.node_name == ref1.node_name:
-                            # The same node ended up in two different locations of the graph.
-                            # Find out if there is a dependency between them and report it to the user.
-                            # For example, three tensors a->b->c, where a and c are both assigned to the same node.
-                            dependency_chains = {}  # Stores pairs of references that can be used to backtrack
-                            new_sources_to_process = {ref0}
-                            debug = 0
-                            while new_sources_to_process:
-                                debug += 1
-                                assert debug < 10000, "Programming error. Infinite loop."
-                                next_sources = set()
-                                for dependency_ref in new_sources_to_process:
-                                    for dependent_ref in tensor_reference_to_list_of_dependents[dependency_ref]:
-                                        if dependent_ref not in dependency_chains:
-                                            dependency_chains[dependent_ref] = dependency_ref
-                                            next_sources.add(dependent_ref)
-                                new_sources_to_process = next_sources
-                            if ref1 in dependency_chains:
-                                list_of_dependencies = []
-                                ref = ref1
-                                while ref in dependency_chains:
-                                    list_of_dependencies.insert(0, ref.tensor_name)
-                                    ref = dependency_chains[ref]
-                                list_of_dependencies.insert(0, ref.tensor_name)
-                                raise ValueError(
-                                    f"Error while building the dependency graph. "
-                                    f"The node '{ref0.node_name}' was assigned to two different locations. "
-                                    f"The cause for this has been identified: This list of tensors "
-                                    f"depend on each other, and both the first and last tensor in the list are "
-                                    f"assigned to this node:\n{list_of_dependencies}"
-                                )
-                            # If the above error message does not trigger for at least one pair of references,
-                            # then we have an inconsistency that stems from a programming error,
-                            # and is not the fault of the user.
-                            inconsistency_found_but_not_identified = (ref0, ref1)
-        assert not inconsistency_found_but_not_identified, \
-            (f"Programming error. '{inconsistency_found_but_not_identified[0].tensor_name}' and "
-             f"'{inconsistency_found_but_not_identified[1].tensor_name}' both belong to the same "
-             f"node '{inconsistency_found_but_not_identified[0].node_name}' and were sorted in different locations "
-             f"of the graph, but no connection between any pair of tensors between these locations could be "
-             f"identified.")
+                        assert ref0.node_name != ref1.node_name, \
+                            (f"Programming error. This error message should never be visible to end users. "
+                             f"'{ref0.tensor_name}' and '{ref1.tensor_name}' both belong to the same "
+                             f"node '{ref0.node_name}' "
+                             f"and were sorted in different locations of the graph. If this was caused "
+                             f"by a connection between any two tensors of this node, that should have been "
+                             f"discovered earlier in this function.")
         #
         # node_graph_hash
         #
