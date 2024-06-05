@@ -497,6 +497,7 @@ class ComgraRecorder:
         # Go back until you encounter an input, or you can't go back anymore.
         #
         assert None not in self.computation_step_to_tensor, self.computation_step_to_tensor[None]
+        cache_to_avoid_duplicate_calls = set()
         steps_that_have_been_processed = set()
         tensor_references_to_use_for_this_iteration = set()
         tensor_reference_to_list_of_dependents: Dict[TensorReference, List[TensorReference]] = collections.defaultdict(list)
@@ -525,6 +526,16 @@ class ComgraRecorder:
             (In terms of implementation, a new reference is created that copies the most recent older reference).
             """
             assert (direct_tensor is None) != (step_to_follow is None), "Use one of the two"
+            # Skip duplicate calls.
+            # It's possible for this function to be called twice with the same arguments:
+            # There could be two or more paths through the computation graph that go from last_encountered_reference
+            # to the current tensor.
+            key = (last_encountered_reference, step_to_follow, direct_tensor)
+            if key in cache_to_avoid_duplicate_calls:
+                return
+            cache_to_avoid_duplicate_calls.add(key)
+            # Get the tensor, if there is one
+            # (we may be using a step_to_follow that is in between two registered tensors)
             if direct_tensor is None:
                 t = None
                 if step_to_follow in self.computation_step_to_tensor:
@@ -543,6 +554,7 @@ class ComgraRecorder:
             else:
                 t = direct_tensor
                 keep_recursing = False
+            # Process the tensor
             if t is not None:
                 # Get the first and the last reference to this tensor on this iteration.
                 # Or if there is no reference on this iteration yet, create a new reference.
@@ -601,7 +613,8 @@ class ComgraRecorder:
                 if last_encountered_reference is not None:
                     assert last_encountered_reference not in tensor_reference_to_list_of_dependents[last_ref], \
                         ("Programming error. If a dependency is registered twice, that means the graph traversal "
-                         "has some redundancy and could be optimized.")
+                         "has some redundancy and could be optimized. "
+                         "This should be prevented by cache_to_avoid_duplicate_calls.")
                     tensor_reference_to_list_of_dependents[last_ref].append(last_encountered_reference)
                 # If this step is encountered for the first time, connect the references and recurse
                 step_has_been_processed = step_to_follow in steps_that_have_been_processed
@@ -619,7 +632,9 @@ class ComgraRecorder:
                             or tensor_representation.type_of_tensor == 'input':
                         keep_recursing = False
                     last_encountered_reference = first_ref
+            # Recurse / backpropagate
             if keep_recursing:
+                assert step_to_follow is not None
                 for predecessor, other in step_to_follow.next_functions:
                     if predecessor is not None:
                         traverse_graph_backwards(last_encountered_reference, step_to_follow=predecessor, direct_tensor=None)
