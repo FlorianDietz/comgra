@@ -594,12 +594,12 @@ class ComgraRecorder:
                              "just form part of an uninterrupted chain.")
                     # Set the last_encountered_reference and recurse
                     # unless the iteration is earlier than the current iteration or type_of_tensor == 'input'
-                    keep_recursing = ((not first_ref.node_name.endswith(
-                        SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS))
-                                      and (tensor_representation.type_of_tensor != 'input'))
+                    if first_ref.node_name.endswith(SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS) \
+                            or tensor_representation.type_of_tensor == 'input':
+                        keep_recursing = False
                     last_encountered_reference = first_ref
             if keep_recursing:
-                assert step_to_follow is not None
+                assert step_to_follow is not None, last_encountered_reference
                 for predecessor, other in step_to_follow.next_functions:
                     if predecessor is not None:
                         traverse_graph_backwards(last_encountered_reference, step_to_follow=predecessor, direct_tensor=None)
