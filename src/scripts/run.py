@@ -193,14 +193,12 @@ class Demonstration:
             output, memory = self.model(x)
             output = torch.sigmoid(output)
             comgra.my_recorder.register_tensor(f"output", output)
+            # memory = memory * 1
             comgra.my_recorder.register_tensor(f"memory_out", memory, node_name='memory')
             assert output.shape == (batch_size, self.output_size)
             assert memory.shape == (batch_size, self.memory_size)
             # Apply the loss on the last iteration only
-            if iteration == num_iterations - 1:
-                # Tell comgra that we are now performing a backward pass and register some more tensors
-                comgra.my_recorder.start_backward_pass()
-                comgra.my_recorder.register_tensor(f"target", target_tensor, is_target=True)
+            if iteration == 2:
                 # We calculate and register some helper tensors:
                 # The partial sums of the inputs up to some iteration.
                 # The Node 'helper_partial_sums' in the visualization will have several different values,
@@ -213,6 +211,51 @@ class Demonstration:
                         f"helper_partial_sums_up_to_iteration_{i}", helper_partial_sums,
                         node_name=f"helper_partial_sums", role_within_node=f"up_to_iteration_{i}",
                     )
+                    comgra.my_recorder.register_tensor(
+                        f"ref_1_{i}", helper_partial_sums,
+                        node_name=f"ref_1", role_within_node=f"up_to_iteration_{i}",
+                    )
+                    comgra.my_recorder.register_tensor(
+                        f"ref_2_{i}", helper_partial_sums,
+                        node_name=f"ref_2", role_within_node=f"up_to_iteration_{i}",
+                    )
+                    comgra.my_recorder.register_tensor(
+                        f"helper_copy_{i}", helper_partial_sums*1,
+                        node_name=f"helper_copy", role_within_node=f"copy_{i}",
+                    )
+                helper_copy2 = helper_partial_sums * 1
+                comgra.my_recorder.register_tensor(
+                    f"helper_copy2", helper_copy2
+                )
+            if iteration == 3:
+                pass
+                # Try commenting out some of these. Make sure they show up on the correct iterations.
+                comgra.my_recorder.register_tensor(
+                    f"re_registered_chain", helper_partial_sums
+                )
+                comgra.my_recorder.register_tensor(
+                    # This should refer to re_registered_chain if it exists, and otherwise (if commented out)
+                    # to an automatically imported reference to helper_partial_sums from the previous iteration
+                    f"reused_chain", helper_partial_sums * 1
+                )
+                comgra.my_recorder.register_tensor(
+                    f"reused_copy", helper_copy2
+                )
+                # Test graph construction: split_test_in will be reached multiple times during backpropagation,
+                # from the same reference last_encountered_reference, split_test_out
+                split_test_in = helper_copy2 * 1
+                combined = split_test_in + split_test_in * 2 + split_test_in * 3
+                comgra.my_recorder.register_tensor(
+                    f"split_test_in", split_test_in
+                )
+                split_test_out = combined * 1
+                comgra.my_recorder.register_tensor(
+                    f"split_test_out", split_test_out
+                )
+            if iteration == num_iterations - 1:
+                # Tell comgra that we are now performing a backward pass and register some more tensors
+                comgra.my_recorder.start_backward_pass()
+                comgra.my_recorder.register_tensor(f"target", target_tensor, is_target=True)
                 # Calculate the loss and perform a backward pass as normal
                 loss = self.criterion(output, target_tensor)
                 self.optimizer.zero_grad()
@@ -275,7 +318,8 @@ class Demonstration:
                 batch_size=self.batch_size,
                 shuffle=True,
             ))
-            for number_of_iterations in list(range(1, 11)) + [15, 20]
+            # for number_of_iterations in list(range(1, 11)) + [15, 20]
+            for number_of_iterations in list(range(1, 3)) + [5]
         ]
         return task_data
 
@@ -358,6 +402,8 @@ def main():
     assert path.exists(), path
     DEMONSTRATION = Demonstration(path, args.group)
     DEMONSTRATION.run_all_configurations()
+    # TODO inspect runtimes
+    comgra.utilities.print_total_runtimes()
 
 
 if __name__ == '__main__':
