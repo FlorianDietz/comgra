@@ -435,10 +435,6 @@ class Visualization:
                     dbc.Col(dcc.Dropdown(id='trials-dropdown', options=[], value=None), width=9),
                 ], className="display-even-when-kpi-graphs-are-selected"),
                 dbc.Row([
-                    dbc.Col(html.Label("Role of tensor"), width=2),
-                    dbc.Col(dcc.Dropdown(id='role-of-tensor-in-node-dropdown', options=[], value=None), width=9),
-                ]),
-                dbc.Row([
                     dbc.Col(html.Label("Type of recording"), width=2),
                     dbc.Col(dcc.RadioItems(id='type-of-recording-radio-buttons', options=[], value=None, inline=True),
                             width=9),
@@ -477,6 +473,10 @@ class Visualization:
                                     className='btn btn-outline-secondary btn-xs', n_clicks=0),
                     ], className='buttons-for-selecting-filters'), width=1),
                     dbc.Col(dcc.Dropdown(id='batch-index-dropdown', options=[], value=None), width=9),
+                ]),
+                dbc.Row([
+                    dbc.Col(html.Label("Role of tensor"), width=2),
+                    dbc.Col(dcc.Dropdown(id='role-of-tensor-in-node-dropdown', options=[], value=None), width=9),
                 ]),
             ]),
             html.Div(id='graph-container', style={
