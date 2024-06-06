@@ -11,7 +11,7 @@ from pathlib import Path
 import pickle
 import re
 import threading
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import dash
 from dash import ctx, dcc, html
@@ -142,6 +142,7 @@ class Visualization:
         self.attribute_selection_fallback_values = collections.defaultdict(list)
         self.last_navigation_click_event_time = -1
         self.trial_to_kpi_graph_excerpt = {}
+        self.last_selected_record_values: Optional[Tuple] = None
 
     def _nodes_to_connection_dash_id(self, ngs_hash, source, target):
         return f"connection__{self.ngs_hash_to_node_to_dash_id[ngs_hash][source]}__" \
@@ -598,12 +599,26 @@ class Visualization:
                 options = [{'label': label_maker(a), 'value': a} for a in options_list]
                 return options, value
 
-            def query_database_using_current_values(attributes_to_ignore, current_params_dict_for_querying_database):
+            def query_database_using_current_values(
+                    attributes_to_ignore, current_params_dict_for_querying_database,
+                    get_first_match_only_and_recalculate_possible_attribute_values=False
+            ):
                 filters = {}
                 for name, val in current_params_dict_for_querying_database.items():
                     if val is not None and name not in attributes_to_ignore:
                         filters[name] = val
                 list_of_matches, possible_attribute_values = db.get_matches(filters)
+                if get_first_match_only_and_recalculate_possible_attribute_values and list_of_matches:
+                    selected_record_values = list_of_matches[0][0]
+                    for attr_, val_ in zip(db.attributes, selected_record_values):
+                        assert attr_ in current_params_dict_for_querying_database, attr_
+                        current_params_dict_for_querying_database[attr_] = val_
+                    # Rerun this, because possible_attribute_values is now a subset of before,
+                    # since we are limiting the search to selected_record_values
+                    list_of_matches, possible_attribute_values = query_database_using_current_values(
+                        [], current_params_dict_for_querying_database
+                    )
+                    assert selected_record_values == tuple(list_of_matches[0][0]), "This shouldn't have changed."
                 return list_of_matches, possible_attribute_values
 
             #
@@ -653,8 +668,9 @@ class Visualization:
                     # which is a useful dummy but invalid to display
                     'iteration': 0,
                 }
-                list_of_matches, possible_attribute_values = query_database_using_current_values(
+                list_of_matches, _ = query_database_using_current_values(
                     [], current_params_dict_for_querying_database,
+                    get_first_match_only_and_recalculate_possible_attribute_values=False,
                 )
                 assert list_of_matches
                 selected_record_values = tuple(list_of_matches[0][0])
@@ -679,23 +695,95 @@ class Visualization:
                     'item': None,
                     'metadata': None,
                 }
+                # TODO reminder
+                #  * this function is called on initialization, with basically random values
+                #  * it is called whenever a value changes, which may make any other set of values invalid
+                #  * it is called whenever a button is clicked that indirectly changes a value
+                #  ---
+                #  instead of just loosening the conditions more and more, it might help to re-activate conditions
+                #  e.g. when iteration is relaxed all the other filters are also gone. This leads to random selection
+                #  if you change training_step and switch to an invalid iteration.
+                #  then again, fixing this is (may be?) what fallback values are for?
+                #  I wish I had documented my intent better...
+                # problem: two attributes, such as node/role_within_node need to change at the same time.
+                # possible_attributes is only designed to cover single attributes.
+                # could it be necessary to use dependencies? the last change was attribute X, so now check Y.
+                # that would work for changing training step, but not for switching back to an old node
+                # attributes_to_ignore_in_order should not require moving node_name
+                # dependencies:
+                # type_of_recording_value -> [] - all items should have all recording types: forward, gradients, etc.
+                # training_step -> iteration
+                # iteration -> node
+                # node -> role
+                # other fields should not need to be relaxed, but may be included because why not
+                # usecases:
+                # * type_of_tensor_recording changed --> ignore training_step IFF necessary (it might still be valid)
+                #     this is already ensured earlier in this function. training_step_value is valid.
+                # * training step changed --> invalid stuff --> keep node EVEN IF iteration needs to change
+                # * iteration changed --> invalid stuff --> keep node
+                # * when keeping node --> keep role
+                # * explore nodes, then switch back to node after a while --> reset role
+                # * treat batch_aggregation same as role
+                # * training step changed, num_iterations changes --> IFF a node is selected that only exists in some iterations, such as the loss, then change the iteration to match.
+                # -->
+                # TODO implement get_first_match_only_and_recalculate_possible_attribute_values
+                # training_step_value, type_of_recording_value, batch_index_value, iteration_value, name_of_selected_node, role_of_tensor_in_node_value, record_type, item, metadata
+                # keep track of the last selection to determine what attribute changed
+                #   can I use fallback values instead, or is this separate?
+                #   fallback is needed for roles after switching nodes
+                # always relax the role_in_node first, and use fallback to reset it
+                #   only use fallback if the attribute was not explicitly changed
+                #   to test this, add self.previously_selected_item (tuple) and compare it at the start of the function
+                # always relax the node last
+                # never ignore or relax: ???
+                # always ignore in order: [role, iteration, node]
+                # use fallback for [role]
+                # fallback may be tricky: sometimes it should reset to the last item, sometimes not?
+                # should I combine the backing-off and the fallback into one loop?
+                # fallback is similar to remembering the last value
+                # ---
+                # no fallback. Instead, if previous_name_of_selected_node differs from the current one, then update the role.
+                # --> no. batch_aggregation needs a fallback.
+                #
+                # Try to find a perfect match first,
+                # but if it is not possible to find a match, set the filters to None one by one until a match is found.
+                # This can happen e.g. if you select a different node
+                # and there is no role_within_node for which that is valid
                 list_of_matches = []
                 possible_attribute_values = {}
+                # TODO it should use this order UNLESS the iteration was changed explicitly
+                #  -->
+                #  * determine which attribute was changed explicitly, based on current_params_dict_for_querying_database
+                #  and self.last_selected_record_values
+                #  * adjust attributes_to_ignore_in_order by removing that attribute
+                #  * for all attributes that were ignored, use the fallback list.
+                #    do use the last item in each fallback list as well, but not if the attribute was the one that was changed
+                #    update all fallback lists, including for the attribute that was changed
+                # Thoughts:
+                # The only way the iteration can change automatically is if (1) it wasn't manually changed
+                # and (2) it is impossible to find a match with the iteration.
+                # The only way it can be impossible for the iteration to match is if if the training step changed
+                # because now that iteration might have a different graph and the combination iteration/node is invalid
+                # TODO add an assert for that
+                # In that scenario, we would prefer to keep the node selected and change the iteration.
+                # This happens by relaxing the requirement on the iteration, so that the node can be selected,
+                # followed by an attempt to restore the iteration using the fallback lists, just in case.
+                # Meanwhile, the role_within_node and batch_aggregation both depend only on the node and are
+                # of secondary importance.
+                # We relax the requirements on them first, but try to restore them with fallback lists.
+                # End result:
+                # When you change the training_step, it will try to adjust the iteration to keep the node selected.
+                # This is useful if you e.g. have the loss selected,
+                # which is on the final iteration of each training_step.
+                # When you switch between nodes, switching back to a previously visited one will restore the role
+                # you had selected on that node.
                 attributes_to_ignore_in_order = [
-                    'role_within_node', 'batch_aggregation', 'type_of_tensor_recording',
-                    'node_name', 'training_step', 'iteration'
+                    'role_within_node', 'batch_aggregation', 'iteration', 'node_name',
                 ]
-                if node_was_explicitly_selected:
-                    # Move the item to the end of the list if it was explicitly selected
-                    # which causes other filters to be relaxed first
-                    attributes_to_ignore_in_order.remove('node_name')
-                    attributes_to_ignore_in_order.append('node_name')
                 for i in range(len(attributes_to_ignore_in_order) + 1):
-                    # If it is not possible to find a match, set the filters to None one by one until a match is found.
-                    # This can happen e.g. if you select a different node
-                    # and there is no role_within_node for which that is valid
                     list_of_matches, possible_attribute_values = query_database_using_current_values(
-                        attributes_to_ignore_in_order[:i], current_params_dict_for_querying_database
+                        attributes_to_ignore_in_order[:i], current_params_dict_for_querying_database,
+                        get_first_match_only_and_recalculate_possible_attribute_values=True,
                     )
                     if list_of_matches:
                         break
@@ -704,43 +792,46 @@ class Visualization:
                 for attr, val in zip(db.attributes, selected_record_values):
                     assert attr in current_params_dict_for_querying_database, attr
                     current_params_dict_for_querying_database[attr] = val
+                print(current_params_dict_for_querying_database)
+                node_changed = previous_name_of_selected_node != selected_record_values[db.attributes.index('node_name')]
+                print(node_changed, previous_name_of_selected_node, selected_record_values[db.attributes.index('node_name')])
                 # Use fallback values if possible.
                 # This is useful if you e.g. switch between nodes in such a way that some selections are temporarily invalid,
                 # but you would like to return to your previous selection when you select a previously selected node again.
-                # Logic: Switch to the last possible value in the fallback list, unless that is the very last element.
+                # Logic: Switch to the last possible value in the fallback list, unless that attribute was explicitly changed by the user.
                 # Then update the fallback list by removing all alternative values, and add the new selected value to the end of it.
-                attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid = [
-                    'iteration', 'batch_aggregation', 'role_within_node']
-                for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
-                    fallback_list = self.attribute_selection_fallback_values[attr]
-                    val = current_params_dict_for_querying_database[attr]
-                    value_to_switch_to = next(
-                        (a for a in fallback_list[::-1] if a in possible_attribute_values[attr]), None
-                    )
-                    if value_to_switch_to is not None and val != value_to_switch_to and value_to_switch_to != \
-                            fallback_list[-1]:
-                        current_params_dict_for_querying_database[attr] = value_to_switch_to
-                        list_of_matches, _ = query_database_using_current_values(
-                            [], current_params_dict_for_querying_database
-                        )
-                        assert list_of_matches
-                        selected_record_values = tuple(list_of_matches[0][0])
-                        for attr_, val_ in zip(db.attributes, selected_record_values):
-                            assert attr_ in current_params_dict_for_querying_database, attr_
-                            current_params_dict_for_querying_database[attr_] = val_
-                        # Rerun this, because possible_attribute_values is now a subset of before,
-                        # since we are limiting the search to selected_record_values
-                        list_of_matches, possible_attribute_values = query_database_using_current_values(
-                            [], current_params_dict_for_querying_database
-                        )
-                        assert selected_record_values == tuple(list_of_matches[0][0]), "This shouldn't have changed."
-                    for a in possible_attribute_values[attr]:
-                        while a in fallback_list:
-                            fallback_list.remove(a)
-                for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
-                    fallback_list = self.attribute_selection_fallback_values[attr]
-                    val = current_params_dict_for_querying_database[attr]
-                    fallback_list.append(val)
+                # attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid = [
+                #     'role_within_node', 'batch_aggregation']
+                # for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
+                #     fallback_list = self.attribute_selection_fallback_values[attr]
+                #     val = current_params_dict_for_querying_database[attr]
+                #     value_to_switch_to = next(
+                #         (a for a in fallback_list[::-1] if a in possible_attribute_values[attr]), None
+                #     )
+                #     if value_to_switch_to is not None and val != value_to_switch_to and not fallback_attribute_was_explicitly_changed:
+                #         current_params_dict_for_querying_database[attr] = value_to_switch_to
+                #         list_of_matches, _ = query_database_using_current_values(
+                #             [], current_params_dict_for_querying_database,
+                #             get_first_match_only_and_recalculate_possible_attribute_values=True,
+                #         )
+                #         assert len(list_of_matches) == 1
+                #         selected_record_values = tuple(list_of_matches[0][0])
+                #         for attr_, val_ in zip(db.attributes, selected_record_values):
+                #             assert attr_ in current_params_dict_for_querying_database, attr_
+                #             current_params_dict_for_querying_database[attr_] = val_
+                #         # # Rerun this, because possible_attribute_values is now a subset of before,
+                #         # # since we are limiting the search to selected_record_values
+                #         # list_of_matches, possible_attribute_values = query_database_using_current_values(
+                #         #     [], current_params_dict_for_querying_database
+                #         # )
+                #         assert selected_record_values == tuple(list_of_matches[0][0]), "This shouldn't have changed."
+                #     for a in possible_attribute_values[attr]:
+                #         while a in fallback_list:
+                #             fallback_list.remove(a)
+                # for attr in attributes_to_consider_for_falling_back_to_previous_selections_that_were_temporarily_invalid:
+                #     fallback_list = self.attribute_selection_fallback_values[attr]
+                #     val = current_params_dict_for_querying_database[attr]
+                #     fallback_list.append(val)
             #
             # Get the values of the selected record.
             # These overwrite any previously used values and are used from now on.
@@ -750,6 +841,8 @@ class Visualization:
             current_params_dict_for_querying_database = {
                 k: v for k, v in zip(db.attributes, selected_record_values)
             }
+            # Save the selected_record_values
+            self.last_selected_record_values = selected_record_values
             #
             # Query again, using that record as the filter,
             # to determine which alternative values are legal for each attribute.
