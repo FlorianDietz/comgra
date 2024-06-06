@@ -253,6 +253,12 @@ class PseudoDb:
             self,
             filters: Dict[str, Any],
     ) -> Tuple[List[Tuple[Tuple[Any, ...], Any]], Dict[str, Set]]:
+        """
+        Returns a list of items that match the filters, as well as a helper:
+        It stores for each attribute a list of valid values that the attribute could be changed to
+        while keeping the remaining filters unchanged, so that there would still be
+        at least one match.
+        """
         filters_with_indices = {self.attributes.index(k): v for k, v in filters.items()}
         index_attribute_indices = [self.attributes.index(a) for a in self.index_attributes]
         # Filter using an index.
