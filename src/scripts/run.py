@@ -242,8 +242,8 @@ class Demonstration:
                 # because the computation graph needs to be calculated for comgra to work.)
                 if update_the_model_parameters:
                     self.optimizer.step()
-                # This command causes comgra to record all losses that are currently on the module parameters,
-                # for each module parameter registered through comgra.my_recorder.track_module()
+                # This command causes comgra to record all losses that are currently on any registered tensors,
+                # or on any module parameter registered through comgra.my_recorder.track_module()
                 comgra.my_recorder.record_current_gradients(f"gradients")
                 # We can make use of comgra's smart decision-making which training steps to record for our own logging
                 if comgra.my_recorder.recording_is_active():
