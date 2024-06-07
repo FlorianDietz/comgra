@@ -110,7 +110,7 @@ class Demonstration:
             max_num_batch_size_to_record=5,
             # Use this to turn comgra off, for when you are done with analysis and want to train your model faster.
             comgra_is_active=True,
-            # An optional feature to skip the recording of statistics that are particularly expensive to calculate.
+            # An optional feature to record statistics that are more expensive to calculate than others.
             calculate_svd_and_other_expensive_operations_of_parameters=True,
         )
         # Register the modules you are using.
@@ -229,13 +229,14 @@ class Demonstration:
                 # It saves with a high frequency early on, then waits longer and longer.
                 # If an outlier is encountered, it ignores this rule and records the outlier anyway.
                 comgra.my_recorder.record_kpi_in_graph(
-                    "loss", f"", loss, training_step,
+                    "loss", f"", loss,
+                    timepoint=training_step,  # The timepoint uses the training_step by default
                 )
                 comgra.my_recorder.record_kpi_in_graph(
-                    "accuracy", f"all", accuracy, training_step,
+                    "accuracy", f"all", accuracy,
                 )
                 comgra.my_recorder.record_kpi_in_graph(
-                    "accuracy", f"first_ten", accuracy_first_ten, training_step,
+                    "accuracy", f"first_ten", accuracy_first_ten,
                 )
                 # We skip the update step for some data, because we want to see how that affects network values.
                 # (We unfortunately can not use torch.no_grad() if we want to record data in comgra,

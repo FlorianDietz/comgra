@@ -32,10 +32,6 @@ class ComgraRecorder:
             prefixes_for_grouping_module_parameters_in_nodes,
             decision_maker_for_recordings,
             comgra_is_active=True, max_num_batch_size_to_record=None,
-            # An optional parameter you can experiment with if comgra is too slow.
-            # If this is too low, comgra becomes slow.
-            # If this is too high, the program may crash due to memory problems.
-            # (This problem is caused by a serialization bug in a backend library.)
             max_num_mappings_to_save_at_once_during_serialization=10000,
             type_of_serialization='msgpack',
             calculate_svd_and_other_expensive_operations_of_parameters=True,
@@ -43,21 +39,17 @@ class ComgraRecorder:
         """
         The main entry point for recording data with comgra.
 
-        :param comgra_root_path: The path where comgra will store all of the data it extracts.
-        :param group: The name of a folder that will be created within comgra_root_path
-        and combines several trials. When you start the comgra server, the path you give to the server
-        should include this folder. All trials written to the same folder will be visualized in parallel in the GUI.
-        :param trial_id: The name for this trial run.
-        If you want to compare multiple independent trials in the comgra GUI, give them unique names here
-        and save them with the same 'group' parameter.
-        :param prefixes_for_grouping_module_parameters_visually:
-        :param prefixes_for_grouping_module_parameters_in_nodes:
-        :param decision_maker_for_recordings:
-        :param comgra_is_active:
-        :param max_num_batch_size_to_record:
-        :param max_num_mappings_to_save_at_once_during_serialization:
-        :param type_of_serialization:
-        :param calculate_svd_and_other_expensive_operations_of_parameters:
+        :param comgra_root_path: The path where comgra will store all the data it extracts.
+        :param group: The name of a folder that will be created within comgra_root_path and combines several trials. When you start the comgra server, the path you give to the server should include this folder. All trials written to the same folder will be visualized in parallel in the GUI.
+        :param trial_id: The name for this trial run. If you want to compare multiple independent trials in the comgra GUI, give them unique names here and save them with the same 'group' parameter.
+        :param prefixes_for_grouping_module_parameters_visually: Use this to group similar module parameters visually into the same column in the dependency graph. All module parameters whose complete name (including the list of names of modules they are contained in) match one of these prefixes are grouped together.
+        :param prefixes_for_grouping_module_parameters_in_nodes: Building on prefixes_for_grouping_module_parameters_visually, group the parameters together into a single node.
+        :param decision_maker_for_recordings: An object that determines how often comgra makes a recording.
+        :param comgra_is_active: Set this to False if you want to turn this library off.
+        :param max_num_batch_size_to_record: The number of indices of each batch that get recorded in detail. If you set this too high, it may take up a lot of memory and space on the hard drive.
+        :param max_num_mappings_to_save_at_once_during_serialization: An optional parameter you can experiment with if comgra is too slow. If this is too low, comgra becomes slow. If this is too high, the program may crash due to memory problems. (This problem is caused by a serialization bug in a backend library.)
+        :param type_of_serialization: Several options for serialization exist. It is recommended to keep the default.
+        :param calculate_svd_and_other_expensive_operations_of_parameters: An optional feature to record statistics that are more expensive to calculate than others.
         """
         comgra_root_path = Path(comgra_root_path)
         assert comgra_root_path.exists()
@@ -142,6 +134,9 @@ class ComgraRecorder:
         self.override__recording_is_active = None
 
     def recording_is_active(self):
+        """
+        :return: True if comgra is currently recording, False otherwise.
+        """
         if self.override__recording_is_active is None:
             return self.comgra_is_active and self.decision_maker_for_recordings.is_record_on_this_iteration(
                 self.training_step, self.type_of_execution,
@@ -163,6 +158,11 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def track_module(self, module_name, module: torch_nn.Module):
+        """
+        Register a module (and all of its submodules recursively) so that comgra keeps track of its parameters.
+        :param module_name: The name with which the module will show up in the GUI
+        :param module: A pytorch module
+        """
         assert self.current_stage == 'inactive', "Modules should be tracked before starting any recordings."
         self._track_module_recursive(module_name, module, self.set_of_top_level_modules, [])
 
@@ -193,6 +193,11 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def add_note(self, note):
+        """
+        This function acts as a simple logger, in case you want to view text messages.
+        The notes can be viewed in their own tab in the GUI.
+        :param note: A string you want to log.
+        """
         if not self.comgra_is_active:
             return
         self.notes.append(str(note))
@@ -201,6 +206,11 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def get_name_of_module(self, module):
+        """
+        Get the name of a module that you registered with :py:func:`~comgra.recorder.ComgraRecorder.track_module`. This works recursively. The names of contained modules are constructed by adding the field name to the name of the parent.
+        :param module: A pytorch module.
+        :return: The name of the module, as specified by :py:func:`~comgra.recorder.ComgraRecorder.track_module`.
+        """
         return self.module_to_name[module]
 
     @utilities.runtime_analysis_decorator
@@ -210,6 +220,23 @@ class ComgraRecorder:
             record_all_tensors_per_batch_index_by_default=False,
             override__recording_is_active=None,
     ):
+        """
+        Start a new recording for a new training step. Each recording can consist of multiple iterations.
+        :param training_step: An integer that represents the current training step.
+        :param current_batch_size: An integer that represents the current batch size.
+        :param type_of_execution: An optional string that assigns this recording to a category.
+        The GUI allows you to filter by this category.
+        :param record_all_tensors_per_batch_index_by_default: If True,
+        :py:func:`~comgra.recorder.ComgraRecorder.register_tensor` will act as if record_per_batch_index was True by default.
+        :param override__recording_is_active: Override decision_maker_for_recordings of :py:obj:`~comgra.recorder.ComgraRecorder`.
+        None = use decision_maker_for_recordings to decide whether to record (default)
+        True = record
+        False = don't record
+        Important: Set this to False when you are running the network in evaluation mode, as torch will not generate any computation graphs in this case, so comgra can't work.
+        :return:
+        """
+        assert self.training_step is None or training_step > self.training_step, \
+            f"The training_step should increase monotonically."
         self.training_step = training_step
         assert type_of_execution is not None, type_of_execution
         assert type_of_execution != 'any_value', type_of_execution
@@ -250,6 +277,22 @@ class ComgraRecorder:
             recording_type=None, record_per_batch_index=None,
             node_name=None, role_within_node=None, is_initial_value=False,
     ):
+        """
+        Register a tensor. Each tensor registered in this way will either become its own node in the GUI, or is assigned to part of a node.
+        :param tensor_name: The name with which the tensor should be registered. The name should be unique per iteration.
+        :param tensor: A pytorch tensor.
+        :param index_of_batch_dimension: The index of the batch dimension of the tensor.
+        :param is_input: Specify that the tensor should be considered an input of the network.
+        :param is_parameter: Specify that the tensor should be considered an input of the network. Endusers should not need this option: Use :py:func:`~comgra.recorder.ComgraRecorder.track_module` instead.
+        :param is_target: Specify that the tensor should be considered a target of the network.
+        :param is_loss: Specify that the tensor should be considered a loss value of the network.
+        :param recording_type: A categorical value that indicates what kind of data of the tensor should be extracted and recorded.
+        :param record_per_batch_index: If True, a record is made for each sample of the batch instead of just summary statistics. Only uses as many samples as specified with :py:obj:`~comgra.recorder.ComgraRecorder.max_num_batch_size_to_record`
+        :param node_name: An optional string that assigns this tensor to a node. All tensors with the same node_name will share a node in the GUI.
+        :param role_within_node: If a node_name is specified, give this tensor a role within the node to differentiate it from the other tensors in the node.
+        :param is_initial_value: Use is_initial_value=True to register the initial value of a hidden state after calling :py:func:`~comgra.recorder.ComgraRecorder.start_recording` but before :py:func:`~comgra.recorder.ComgraRecorder.start_iteration`.
+        :return:
+        """
         if not self.recording_is_active():
             return
         assert self.iteration is not None or is_initial_value or is_parameter, \
@@ -360,7 +403,7 @@ class ComgraRecorder:
             )
             self.tensor_reference_to_representation[tensor_reference] = tensor_representation
             # Store the current value of the tensor
-            self.store_value_of_tensor(tensor, tensor_representation)
+            self._store_value_of_tensor(tensor, tensor_representation)
         else:
             # Every subsequent time the same tensor is recorded, just save the reference to the earlier recording
             # (by storing the name in the same list)
@@ -395,13 +438,13 @@ class ComgraRecorder:
 
 
     @utilities.runtime_analysis_decorator
-    def store_value_of_tensor(self, tensor: torch.Tensor, tensor_representation: TensorRepresentation):
+    def _store_value_of_tensor(self, tensor: torch.Tensor, tensor_representation: TensorRepresentation):
         tensor_name = tensor_representation.original_reference.tensor_name
         value_dimensions = tensor_representation.value_dimensions
         batch_size_to_record = self.current_batch_size if self.max_num_batch_size_to_record is None else min(
             self.current_batch_size, self.max_num_batch_size_to_record)
         if tensor_representation.recording_type == 'single_value':
-            self.store_value_of_tensor_helper(
+            self._store_value_of_tensor_helper(
                 'has_no_batch_dimension', tensor_representation.original_reference.iteration,
                 tensor_representation, 'single_value', tensor.unsqueeze(dim=0).unsqueeze(dim=1),
             )
@@ -427,7 +470,7 @@ class ComgraRecorder:
                 elif item == 'abs_max':
                     val = torch.amax(tensor.abs(), dim=value_dimensions).unsqueeze(dim=expansion_dim)
                 elif item == 'svd':
-                    val = self.get_highest_svd(tensor)
+                    val = self._get_highest_svd(tensor)
                 elif item == 'neurons':
                     val = torch.movedim(tensor, tensor_representation.index_of_batch_dimension, 0)
                     val = val.reshape((val.shape[0], -1))
@@ -457,13 +500,13 @@ class ComgraRecorder:
                         val1 = val[0:batch_size_to_record, :]
                     else:
                         assert False, batching_type
-                    self.store_value_of_tensor_helper(
+                    self._store_value_of_tensor_helper(
                         batching_type, tensor_representation.original_reference.iteration,
                         tensor_representation, item, val1,
                     )
 
     @utilities.runtime_analysis_decorator
-    def get_highest_svd(self, tensor):
+    def _get_highest_svd(self, tensor):
         try:
             res = torch.linalg.svdvals(tensor)[:1]
         except:
@@ -471,7 +514,7 @@ class ComgraRecorder:
         return res
 
     @utilities.runtime_analysis_decorator
-    def store_value_of_tensor_helper(self, batching_type, iteration, tensor_representation: TensorRepresentation, item, tensor):
+    def _store_value_of_tensor_helper(self, batching_type, iteration, tensor_representation: TensorRepresentation, item, tensor):
         key = (
             self.training_step, self.current_type_of_tensor_recording, batching_type, iteration,
             tensor_representation.original_reference.node_name,
@@ -484,6 +527,9 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def start_iteration(self):
+        """
+        Tell comgra that a new iteration has started. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.start_recording`.
+        """
         assert self.current_stage in ['started', 'after_iteration'], self.current_stage
         self.current_stage = 'forward'
         self.iteration = 0 if self.iteration is None else (self.iteration + 1)
@@ -492,6 +538,9 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def start_backward_pass(self):
+        """
+        Tell comgra that the forward pass has ended and you are now backpropagating. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.start_iteration` but before :py:func:`~comgra.recorder.ComgraRecorder.record_current_gradients` and :py:func:`~comgra.recorder.ComgraRecorder.finish_iteration`.
+        """
         assert self.current_stage == 'forward', self.current_stage
         self.current_stage = 'backward'
         if not self.recording_is_active():
@@ -499,6 +548,10 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def record_current_gradients(self, name_of_loss_group, set_gradients_to_zero_if_not_a_parameter=False):
+        """
+        Tell comgra to save all gradients that are currently on all registered tensors and parameters. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.start_backward_pass` but before :py:func:`~comgra.recorder.ComgraRecorder.finish_iteration`.
+        @param name_of_loss_group: The gradients are stored under this name. It is possible to call this function multiple times with different names in order to save multiple different sets of gradients.
+        """
         if not self.recording_is_active():
             return
         assert name_of_loss_group not in self.types_of_tensor_recordings, \
@@ -508,12 +561,15 @@ class ComgraRecorder:
         for tensor, refs in self.tensor_to_list_of_references.items():
             tr = self.tensor_reference_to_representation[refs[0]]
             gradient = torch.zeros(tensor.shape, device=tensor.device) if tensor.grad is None else tensor.grad
-            self.store_value_of_tensor(gradient, tr)
+            self._store_value_of_tensor(gradient, tr)
             if set_gradients_to_zero_if_not_a_parameter and tr.type_of_tensor != 'parameter':
                 tensor.grad = None
 
     @utilities.runtime_analysis_decorator
     def finish_iteration(self):
+        """
+        Tell comgra that the iteration has ended. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.start_iteration` but before :py:func:`~comgra.recorder.ComgraRecorder.finish_recording`.
+        """
         assert self.current_stage in ['forward', 'backward'], self.current_stage
         self.current_stage = 'after_iteration'
         self.current_type_of_tensor_recording = 'forward'  # This will be used when the parameters get recorded in traverse_graph_backwards
@@ -687,13 +743,13 @@ class ComgraRecorder:
             "No computational graph could be constructed. " \
             "The most common error that could cause this is that gradient computations are turned off."
         # Build the dependency graph based on the data extracted while recursing through the computation graph
-        self.initialize_graph_structure_objects_at_end_of_iteration(
+        self._initialize_graph_structure_objects_at_end_of_iteration(
             tensor_references_to_use_for_this_iteration,
             tensor_reference_to_list_of_dependents,
         )
 
     @utilities.runtime_analysis_decorator
-    def initialize_graph_structure_objects_at_end_of_iteration(
+    def _initialize_graph_structure_objects_at_end_of_iteration(
             self,
             tensor_references_to_use_for_this_iteration: Set[TensorReference],
             tensor_reference_to_list_of_dependents: Dict[TensorReference, List[TensorReference]],
@@ -791,25 +847,28 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def finish_recording(self):
+        """
+        Tell comgra that the recording has ended. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.finish_iteration`.
+        """
         assert self.current_stage == 'after_iteration' or not self.recording_is_active(), self.current_stage
         self.current_stage = 'inactive'
         if not self.recording_is_active():
             return
         # Save the TrainingStepConfiguration
-        self.save_training_step_configuration()
+        self._save_training_step_configuration()
         # Save the tensors
-        self.save_tensor_recordings()
+        self._save_tensor_recordings()
         # Save the graph of KPIs, which is independent of the rest of the recordings
-        self.save_recorded_kpi_graphs_if_needed()
+        self._save_recorded_kpi_graphs_if_needed()
 
-    def save_training_step_configuration(self):
+    def _save_training_step_configuration(self):
         self.configurations_path.mkdir(parents=True, exist_ok=True)
         training_step_configuration_path = self.configurations_path / f'{self.training_step}.pkl'
         assert not training_step_configuration_path.exists()
         with open(training_step_configuration_path, 'wb') as f:
             pickle.dump(self.training_step_configuration, f)
 
-    def save_tensor_recordings(self):
+    def _save_tensor_recordings(self):
         # Notes on how this code works, and why:
         # Convert the TensorRecordings from tensor to float.
         # While doing so, minimize GPU-to-CPU transfers by batching the tensors,
@@ -830,7 +889,7 @@ class ComgraRecorder:
             recordings_path_folder.mkdir(exist_ok=True)
             dump_dict = dataclasses.asdict(self.tensor_recordings)
             dump_dict['recordings'] = dump_dict['recordings'].serialize()
-            self.save_file(dump_dict, recordings_path_folder, file_number)
+            self._save_file(dump_dict, recordings_path_folder, file_number)
             file_number += 1
             self.tensor_recordings.recordings = utilities.PseudoDb(attributes=attributes_for_tensor_recordings)
 
@@ -856,7 +915,7 @@ class ComgraRecorder:
                 ('index_of_batch_dimension', None, tr.index_of_batch_dimension),
             ]:
                 final_key = self.training_step, 'not_applicable', 'not_applicable', main_ref.iteration, main_ref.node_name, main_ref.role_within_node, 'meta_information', item, metadata
-                self.add_tensor_recordings_for_key_and_register_alternate_references(final_key, val, main_ref)
+                self._add_tensor_recordings_for_key_and_register_alternate_references(final_key, val, main_ref)
         save_recordings_so_far()
         # Get the KPIs from tensors
         total_num_mappings = len(self.mapping_of_tensors_for_extracting_kpis)
@@ -912,7 +971,7 @@ class ComgraRecorder:
                 assert len(list_of_floats) == len(all_keys_to_process), (len(list_of_floats), len(all_keys_to_process))
                 for (key_to_process, main_ref), float_value in zip(all_keys_to_process, list_of_floats):
                     assert isinstance(float_value, float), (float_value, key_to_process)
-                    self.add_tensor_recordings_for_key_and_register_alternate_references(
+                    self._add_tensor_recordings_for_key_and_register_alternate_references(
                         key_to_process, float_value, main_ref
                     )
                     sanity_check_c += 1
@@ -923,7 +982,7 @@ class ComgraRecorder:
         total_number_of_tensor_values = sum(t.numel() for t, tr in self.mapping_of_tensors_for_extracting_kpis.values())
         assert sanity_check_c == total_number_of_tensor_values, (sanity_check_c, total_number_of_tensor_values)
 
-    def add_tensor_recordings_for_key_and_register_alternate_references(self, key, float_value, ref: TensorReference):
+    def _add_tensor_recordings_for_key_and_register_alternate_references(self, key, float_value, ref: TensorReference):
         # Sanity check
         assert sum([
             1 if attr in (tmp:={
@@ -953,29 +1012,29 @@ class ComgraRecorder:
             self.tensor_recordings.recordings.add_record_redirection(alt_key, key)
 
     @utilities.runtime_analysis_decorator
-    def save_file(self, dump_dict, recordings_path_folder, file_number):
+    def _save_file(self, dump_dict, recordings_path_folder, file_number):
         if self.type_of_serialization == 'json':
-            return self.save_json(dump_dict, recordings_path_folder, file_number)
+            return self._save_json(dump_dict, recordings_path_folder, file_number)
         elif self.type_of_serialization == 'zip_json':
-            return self.save_zip_json(dump_dict, recordings_path_folder, file_number)
+            return self._save_zip_json(dump_dict, recordings_path_folder, file_number)
         elif self.type_of_serialization == 'pkl':
-            return self.save_pickle(dump_dict, recordings_path_folder, file_number)
+            return self._save_pickle(dump_dict, recordings_path_folder, file_number)
         elif self.type_of_serialization == 'msgpack':
-            return self.save_msgpack(dump_dict, recordings_path_folder, file_number)
+            return self._save_msgpack(dump_dict, recordings_path_folder, file_number)
         elif self.type_of_serialization == 'zip_msgpack':
-            return self.save_zip_msgpack(dump_dict, recordings_path_folder, file_number)
+            return self._save_zip_msgpack(dump_dict, recordings_path_folder, file_number)
         else:
             raise ValueError(self.type_of_serialization)
 
     @utilities.runtime_analysis_decorator
-    def save_json(self, dump_dict, recordings_path_folder, file_number):
+    def _save_json(self, dump_dict, recordings_path_folder, file_number):
         path = recordings_path_folder / f'{file_number}.json'
         with open(path, 'w') as f:
             json.dump(dump_dict, f)
         return path
 
     @utilities.runtime_analysis_decorator
-    def save_zip_json(self, dump_dict, recordings_path_folder, file_number):
+    def _save_zip_json(self, dump_dict, recordings_path_folder, file_number):
         path = recordings_path_folder / f'{file_number}.zip_json'
         with gzip.open(path, 'w') as fout:
             json_bytes = (json.dumps(dump_dict) + "\n").encode('utf-8')
@@ -983,28 +1042,40 @@ class ComgraRecorder:
         return path
 
     @utilities.runtime_analysis_decorator
-    def save_pickle(self, dump_dict, recordings_path_folder, file_number):
+    def _save_pickle(self, dump_dict, recordings_path_folder, file_number):
         path = recordings_path_folder / f'{file_number}.pkl'
         with open(path, 'wb') as f:
             pickle.dump(dump_dict, f)
         return path
 
     @utilities.runtime_analysis_decorator
-    def save_msgpack(self, dump_dict, recordings_path_folder, file_number):
+    def _save_msgpack(self, dump_dict, recordings_path_folder, file_number):
         path = recordings_path_folder / f'{file_number}.msgpack'
         with open(path, 'wb') as f:
             msgpack.dump(dump_dict, f)
         return path
 
     @utilities.runtime_analysis_decorator
-    def save_zip_msgpack(self, dump_dict, recordings_path_folder, file_number):
+    def _save_zip_msgpack(self, dump_dict, recordings_path_folder, file_number):
         path = recordings_path_folder / f'{file_number}.zip_msgpack'
         with gzip.open(path, 'wb') as fout:
             fout.write(msgpack.dumps(dump_dict))
         return path
 
     @utilities.runtime_analysis_decorator
-    def record_kpi_in_graph(self, kpi_group, kpi_name, val, timepoint):
+    def record_kpi_in_graph(self, kpi_group, kpi_name, val, timepoint=None):
+        """
+        Create graphs, similar to tensorboard. These can be inspected in their own tab in the GUI. A separate graph is automatically created for each separate type_of_execution. You can also use the parameters of this function to create subgroups.
+
+        The recording of graphs saves memory by using exponential falloff to determine when to save: It saves with a high frequency early on, then waits longer and longer. If an outlier is encountered, it ignores this rule and records the outlier anyway.
+
+        :param kpi_group: The name of the graph that this value will be written to.
+        :param kpi_name: The name of the line in the graph that this value will be written to.
+        :param val: The value to store. Either a one-element tensor or a number.
+        :param timepoint: The timepoint to use for the x-axis. Defaults to the training_step.
+        """
+        if timepoint is None:
+            timepoint = self.training_step
         stats = self.kpi_graph_excerpt.setdefault(kpi_group, {}).setdefault(self.type_of_execution, {}).setdefault(kpi_name, {
             'vals': [],
             'next_timepoint': 0,
@@ -1031,7 +1102,7 @@ class ComgraRecorder:
             self.kpi_graph_changed = True
 
     @utilities.runtime_analysis_decorator
-    def save_recorded_kpi_graphs_if_needed(self):
+    def _save_recorded_kpi_graphs_if_needed(self):
         if not self.kpi_graph_changed:
             return
         if self.training_step < self.kpi_graph_next_training_step_to_update_file:
@@ -1040,6 +1111,6 @@ class ComgraRecorder:
         self.kpi_graph_next_training_step_to_update_file *= self.kpi_graph_exponential_backoff_factor
         # Save the file with a tmp suffix first, then overwrite the real one.
         # This prevents issues in case the visualizer is accessing the file while it is being overwritten.
-        tmp_path = self.save_file(self.kpi_graph_excerpt, self.trial_path, 'kpi_graph_tmp')
+        tmp_path = self._save_file(self.kpi_graph_excerpt, self.trial_path, 'kpi_graph_tmp')
         real_path = tmp_path.parent / f'kpi_graph{tmp_path.suffix}'
         os.replace(tmp_path, real_path)
