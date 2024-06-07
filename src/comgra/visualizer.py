@@ -747,7 +747,6 @@ class Visualization:
                     idx = db.attributes.index(attr)
                     if current_params_dict_for_querying_database[attr] != self.last_selected_record_values[idx]:
                         relevant_attributes_that_were_changed_since_the_last_call_of_this_function.add(attr)
-                print(relevant_attributes_that_were_changed_since_the_last_call_of_this_function)
                 # Iteratively relax filters until we have a match
                 list_of_matches = []
                 possible_attribute_values = {}
