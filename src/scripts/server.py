@@ -16,6 +16,7 @@ def main():
         "Either provide --path or set --use-path-for-test-run."
     if args.use_path_for_test_run:
         args.path = (Path(__file__).parent.parent.parent / 'testing_data' / 'testcase_for_demonstration').absolute()
+        args.external_visualization_file = (Path(__file__).parent / 'example_custom_visualization.py').absolute()
     path = Path(args.path).absolute()
     assert path.exists(), path
     vis = visualizer.Visualization(path=path, debug_mode=args.debug_mode, external_visualization_file=args.external_visualization_file)

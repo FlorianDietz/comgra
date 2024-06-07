@@ -19,14 +19,11 @@
 Comgra helps you analyze and debug neural networks in pytorch.  
 It records your network internals, visualizes the computation graph, and provides a GUI to investigate any part of your network from a variety of viewpoints.  
 Move along the computation graph, check for outliers, investigate both individual data points and summary statistics, compare gradients, automatically record special cases, and more.
-
-Comgra is complementary to tensorboard:  
-Use Tensorboard to get an overview of what is happening at a high level.  
-Use Comgra to deep dive into your neural network: Comgra records everything that could be relevant to you, and allows you to inspect your network's behavior from many different angles.
+Comgra records everything that could be relevant to you, and allows you to inspect your network's behavior from many different angles.
 
 Suitable both for novices and for professional neural architecture designers: Create a simple visualization of your network to understand what is happening under the hood, or perform advanced analyses and trace anomalies through the computation graph.
 
-| <img src="src/assets/screenshots_for_tutorial/main_overview_version_1.png" width="100%"/>
+| <img src="src/assets/screenshots_for_tutorial/main_overview_version_3.png" width="100%"/>
 | -
 
 Comgra's GUI has three parts:
@@ -38,9 +35,11 @@ Comgra's GUI has three parts:
 
   Each rectangle in the dependency graph is a node that represents a named tensor. The colors indicate the roles of the tensor in the network, such as input, intermediate result, parameter, etc.
 
-  When you select a node it becomes highlighted, along with all nodes / tensors that it depends on (to the left) and that depend on it (to the right). Only the links for the selected node are shown by default to avoid visual clutter, but by clicking through the nodes you can explore the entire dependency graph.
+  When you select a node it becomes highlighted, along with all nodes that it depends on (to the left) and that depend on it (to the right). Only the links for the selected node are shown by default to avoid visual clutter, but by clicking through the nodes you can explore the entire dependency graph.
+  
+  If a node has a dotted border on one side, it indicates that it does not have any dependency (left) or dependent (right) on that iteration. If a connection is drawn with a thinner line, it indicates that some of the tensors in the node have this connection, but the currently selected one does not. This is the case for the node 'subnet_pre', which summarizes all four parameters of the module with that name. You can use the "Role of Tensor" selector to switch to another parameter in that module, which will change the connections.
 
-  The dependency graph is generated automatically based on the computation graph used by pytorch and the names you assign to tensors through comgra. It is a subgraph of the computation graph, but it is much easier to understand because it is smaller and skips all of the distracting details.
+  The dependency graph is generated automatically based on the computation graph used by pytorch and the names you assign to tensors through comgra. It is a subgraph of the computation graph, but it is much easier to understand because it is smaller and skips all the distracting details.
 
   This cutting away of details also makes it easier to compare different variants of architectures: Their computation graphs may look different, but the simplified dependency graphs are the same.
 </details>
@@ -55,7 +54,7 @@ pip install comgra
 
 ## Usage
 
-To use comgra, modify your python code with the following commands in the appropriate places. Most of it really just tells comgra what you are currently doing so that it knows how to associate the tensors you register. The file `src/scripts/run.py` contains a documented example that you can copy and will be explained in detail below.
+To use comgra, modify your python code with the following commands in the appropriate places. Most of it just tells comgra what you are currently doing so that it knows how to associate the tensors you register. The file `src/scripts/run.py` contains a documented example that you can copy and will be explained in detail below.
 
 ```python
 import comgra
@@ -66,10 +65,10 @@ comgra.my_recorder = ComgraRecorder(...)
 comgra.my_recorder.track_module(...)
 # Optionally, add some notes for debugging
 comgra.my_recorder.add_note(...)
-# Call this whenever you start a new training step you want to record:
-comgra.my_recorder.start_next_recording(...)
-# Call this whenever you start the forward pass of an iteration.
-# In multi-iteration experiments, call it once per iteration:
+# Call this whenever you start a new training step you want to record.
+# Each training step may be composed of multiple iterations.
+comgra.my_recorder.start_recording(...)
+# Call this whenever you start the forward pass of an iteration:
 comgra.my_recorder.start_iteration(...)
 # Register any tensors you may want to investigate:
 comgra.my_recorder.register_tensor(...)
@@ -95,7 +94,7 @@ Note that --path should include both the "comgra_root_path" and the "group" para
 
 ## Tutorial - Debugging an example network
 
-The file `src/scripts/run.py` trains a neural network on an example task. This network contains a subtle bug, and in this tutorial we will show how you can use comgra to find that bug.
+The file `src/scripts/run.py` trains a neural network on an example task. This network contains a subtle bug, and in this tutorial we will show you how you can use comgra to find that bug.
 
 For convenience, you can run the file from the commandline using
 ```bash
@@ -109,24 +108,26 @@ comgra --use-path-for-test-run
 
 ### The task and the architecture
 
-We use a synthetic task that is designed to test a neural network's ability to generalize to longer sequences while being very simple and human-interpretable. The input is a sequence of N tuples of 5 numbers between 0.0 and 1.0. The network should treat these as 5 separate sequences. Its objective is to determine which of these 5 sequences has the largest sum.
+We use a synthetic task that is designed to test a neural network's ability to generalize to longer sequences, while being very simple and human-interpretable. The input is a sequence of N tuples of 5 numbers between 0.0 and 1.0. The network should treat these as 5 separate sequences. Its objective is to determine which of these 5 sequences has the largest sum.
 
-Our architecture is a simple recurrent neural network that is composed of some submodules. It's nothing fancy, but illustrates how comgra can be integrated into an architecture.
+Our architecture is a simple recurrent neural network that is composed of three submodules. It's nothing fancy, but illustrates how comgra can be integrated into an architecture.
 
-We run two variants of the architecture. The original variant contains a bug, which we will discover later in this section of the Readme. For convenience we run both trials in one script, but in a real use case the second variant would have been implemented and run later, after finding the bug. In the GUI, you can switch between the two variants with the 'Trial' selector.
+We run two variants of the architecture. The original variant contains a bug, which we will discover later in this section of the Readme. For convenience, we run both trials in one script, but in a real use case the second variant would have been implemented and run later, after finding the bug. In the GUI, you can switch between the two variants with the 'Trial' selector.
 
 ### Initial exploration
 
-As a first step, let's look at network summary information and the notes created by the script. To do so, select "Network" and "Notes" respectively at the main radio button at the top left of the screen.
+As a first step, let's look at network summary information, graphs, and the notes created by the script. To do so, select "Network" and "Notes" respectively at the main radio button at the top left of the screen.
 
 | <img src="src/assets/screenshots_for_tutorial/notes_info.png" width="100%"/>
 | -
 
-The Notes tab shows anything that we decided to log in our script, such as the loss and accuracy values. If we scroll down, we see that performance improves, but it does not look very good. Let's use comgra to investigate our architecture and see if we can find a reason for our poor performance.
+The Notes tab shows anything that we logged with `add_note()`. If we scroll down, we see that performance improves, but it does not look very good.
 
-(In practice, information about loss and performance over time can be better visualized with other tools, such as Tensorboard, but since this tutorial should run standalone we put the information in the logs instead.)
 
-Let's see if we can already find a problem at a high level, by clicking the "Network" button.
+| <img src="src/assets/screenshots_for_tutorial/graphs_info.png" width="100%"/>
+| -
+
+The Graphs tab shows KPIs we logged with `record_kpi_in_graph()`.
 
 | <img src="src/assets/screenshots_for_tutorial/network_info.png" width="100%"/>
 | -
@@ -144,9 +145,10 @@ Let's start by setting some selectors to some arbitrary but sensible values to g
 
 * Set the "Type of training Step" to "05_iterations" so that we are only shown training steps that ran for exactly 5 iterations.
 * Select the last iteration: Note that the Node for the Loss only appears in the computational graph if the last iteration is selected, because a loss is only applied on the last iteration.
+* Select the "input" node.
 * Set "Batch or sample" to "batch index 0": The values at the bottom of the screen now show the values for only the first element of the batch. This makes it possible to investigate how the network reacts to specific examples, while "Mean over the batch" is more useful for investigating how statistics change over time. Note that the values "mean", "abs_mean", "std", and "abs_max" at the bottom of the screen are statistics over the value dimension of the tensor. Setting "Batch or sample" to "Mean over the batch" means that it additionally calculates the mean over the batch dimension after calculating the statistic over the value dimension. This combination gives you a lot of flexibility in how you look at the data.
 
-| <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/01_selectors_set.png" width="100%"/>
+| <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/01.png" width="100%"/>
 | -
 
 We have currently selected the "input" node in the dependency graph (the green node in the top left). The lines that go from the selected node to other nodes indicate dependencies. In the following we move along the dependency graph by clicking on subsequent nodes until we get to the "Loss" node. (Note that a different node is highlighted in each image).
@@ -190,15 +192,6 @@ Next, we investigate if the network parameters show any suspicious behavior. To 
   | -
 
   | <img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/03.png" width="100%"/>
-  | -
-
-  | <img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/04.png" width="100%"/>
-  | -
-
-  | <img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/05.png" width="100%"/>
-  | -
-
-  | <img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/06.png" width="100%"/>
   | -
 </details>
 
@@ -249,6 +242,24 @@ Comgra gives you a lot of different ways to look at your data. Here are some sug
 * Check a tensor's variance over the batch dimension. If this decreases, we may have mode collapse. If it increases unboundedly, it suggests that a tensor is receiving consistently one-directional gradients that makes the tensor more and more extreme over time, instead of approximating a target value more accurately.
 * Challenge your intuition. Sometimes the network acts differently than you would intuitively expect. In one concrete case that happened to me, I was interpolating a tensor as y=a*w+b*(1-w) and was surprised to see that the value for "a" received a gradient pushing it away from the target value of y. This actually made mathematical sense for the values I had (a=1.1, b=0.1, w=0.5, target of y = 1), but it was not intuitive to me. Comgra enabled me to notice this discrepancy between my intuition and the network's actual behavior, and that allowed me to improve the network. I have encountered several cases like these, where my intuition about the optimal learned attention weights was different from what was actually learned on a toy task, which taught me a lot about the network dynamics.
 * Check if any neurons end up with interpretable values. For example, the weights in attention mechanisms tell you what the network pays attention to. But there are also more subtle interpretable values that would be difficult to inspect without comgra, unless you already know what to look for before you run the experiment. For example, you can compare the mean absolute values of the two branches in a residual connection to find out if the network ignores a calculation and relies on residuals.
+
+
+## Customization
+
+
+You can integrate your own custom visualization into comgra to take advantage of comgra's recording and filtering features.
+
+To do so, use the `--visualization-file` parameter when you start the comgra GUI and provide the path to a python file with your custom visualization code. The GUI will now display an additional tab for your custom visualization.
+
+This visualization can depend on all the same filters and selectors that the rest of comgra uses, allowing you to apply comgra's flexibility to the specific visualization requirements of your task. For example, if you work on transformer models in LLMs, you could supply a script that can color-code the text fed into the transformer based on its attention weights so that you can look for correlations between the text and network weights.
+
+The file should define a function called `create_visualization()`. Check the file `scripts/example_custom_visualization.py` for an example. This file is used automatically when you run `comgra --use-path-for-test-run`.  We recommend running the server with the `--debug-mode` flag while developing external visualizations.
+
+
+## Known Issues
+
+
+In order to record gradients, comgra needs to put Comgra needs to set the 'requires_grad' attribute to True on all tensors you register with it. This does not affect training and should have no negative consequences for most users. However, it can lead to side effects if you make direct use of this attribute in your own code.
 
 
 ## Future Development
