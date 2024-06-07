@@ -40,6 +40,25 @@ class ComgraRecorder:
             type_of_serialization='msgpack',
             calculate_svd_and_other_expensive_operations_of_parameters=True,
     ):
+        """
+        The main entry point for recording data with comgra.
+
+        :param comgra_root_path: The path where comgra will store all of the data it extracts.
+        :param group: The name of a folder that will be created within comgra_root_path
+        and combines several trials. When you start the comgra server, the path you give to the server
+        should include this folder. All trials written to the same folder will be visualized in parallel in the GUI.
+        :param trial_id: The name for this trial run.
+        If you want to compare multiple independent trials in the comgra GUI, give them unique names here
+        and save them with the same 'group' parameter.
+        :param prefixes_for_grouping_module_parameters_visually:
+        :param prefixes_for_grouping_module_parameters_in_nodes:
+        :param decision_maker_for_recordings:
+        :param comgra_is_active:
+        :param max_num_batch_size_to_record:
+        :param max_num_mappings_to_save_at_once_during_serialization:
+        :param type_of_serialization:
+        :param calculate_svd_and_other_expensive_operations_of_parameters:
+        """
         comgra_root_path = Path(comgra_root_path)
         assert comgra_root_path.exists()
         self.comgra_is_active = comgra_is_active
