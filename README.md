@@ -67,6 +67,8 @@ comgra.my_recorder = ComgraRecorder(...)
 comgra.my_recorder.track_module(...)
 # Optionally, add some notes for debugging
 comgra.my_recorder.add_note(...)
+# Optionally, record KPIs (like Tensorboard)
+comgra.my_recorder.record_kpi_in_graph()
 # Call this whenever you start a new training step you want to record.
 # Each training step may be composed of multiple iterations.
 comgra.my_recorder.start_recording(...)
