@@ -265,6 +265,8 @@ The file should define a function called `create_visualization()`. Check the fil
 
 In order to record gradients, comgra needs to put Comgra needs to set the 'requires_grad' attribute to True on all tensors you register with it. This does not affect training and should have no negative consequences for most users. However, it can lead to side effects if you make direct use of this attribute in your own code.
 
+It also means that it can matter where in your code you call `register_tensor()`. If you call it on a tensor that does not have requires_grad set to true already, you should call it immediately after creating the tensor, before using it in any other computation. Else the computation graph will not be constructed correctly.
+
 
 ## Future Development
 
