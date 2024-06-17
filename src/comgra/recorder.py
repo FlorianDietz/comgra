@@ -1074,13 +1074,19 @@ class ComgraRecorder:
         :param val: The value to store. Either a one-element tensor or a number.
         :param timepoint: The timepoint to use for the x-axis. Defaults to the training_step.
         """
+        if not self.recording_is_active():
+            return
         if timepoint is None:
             timepoint = self.training_step
         stats = self.kpi_graph_excerpt.setdefault(kpi_group, {}).setdefault(self.type_of_execution, {}).setdefault(kpi_name, {
             'vals': [],
             'next_timepoint': 0,
         })
-        if len(stats['vals']) == self.kpi_graph_history_to_check_for_outliers:
+        if isinstance(val, torch.Tensor):
+            # This is an expensive operation, so only do it if self.recording_is_active()
+            # We don't want to move results from the GPU only to throw them away later in the function
+            val = val.item()
+        if len(stats['vals']) >= self.kpi_graph_history_to_check_for_outliers:
             history_to_check = [a['val'] for a in stats['vals'][-self.kpi_graph_history_to_check_for_outliers:]]
             max_ = max(history_to_check)
             min_ = min(history_to_check)
@@ -1090,8 +1096,6 @@ class ComgraRecorder:
         else:
             is_outlier = False
         if timepoint >= stats['next_timepoint'] or is_outlier:
-            if isinstance(val, torch.Tensor):
-                val = val.item()
             assert isinstance(val, numbers.Number)
             stats['vals'].append({
                 'timepoint': timepoint,
