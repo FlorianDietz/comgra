@@ -81,7 +81,6 @@ class CustomDash(dash.Dash):
                     event.preventDefault();
                 }
             });
-            console.log(document.getElementById("restart-button"))
         </script>
         """
         return '''
@@ -119,13 +118,13 @@ class Visualization:
     Keeps track of KPIs over the course of the Experiment and creates visualizations from them.
     """
 
-    def __init__(self, path, debug_mode, external_visualization_file):
+    def __init__(self, path, debug_mode, external_visualization_file, restart_signal_queue):
         super().__init__()
-        self.SIGNAL_TO_RESTART_SERVER = False
         utilities.DEBUG_MODE = debug_mode
         self.debug_mode = debug_mode
         self.path: Path = path
         self.external_visualization_file = external_visualization_file
+        self.restart_signal_queue = restart_signal_queue
         assert path.exists(), path
         assets_path = Path(__file__).absolute().parent.parent / 'assets'
         assert assets_path.exists(), "If this fails, files have been moved."
@@ -150,7 +149,7 @@ class Visualization:
         return f"connection__{self.ngs_hash_to_node_to_dash_id[ngs_hash][source]}__" \
                f"{self.ngs_hash_to_node_to_dash_id[ngs_hash][target]}"
 
-    def run_server(self, port):
+    def run_server(self, port, use_reloader):
         #
         # Load data that can only be loaded once, because Divs depend on it.
         #
@@ -194,7 +193,7 @@ class Visualization:
         # Visualize
         #
         self.create_visualization()
-        self.app.run_server(debug=self.debug_mode, port=port)
+        self.app.run_server(debug=self.debug_mode, port=port, use_reloader=use_reloader)
 
     @utilities.runtime_analysis_decorator
     def get_training_step_configuration_and_recordings(
@@ -432,7 +431,8 @@ class Visualization:
             ]),
             html.Div(id='dummy-placeholder-output-for-updating-graphs'),  # This dummy stores some data
             html.Div(id='dummy-for-selecting-a-node'),  # This dummy stores some data
-            html.Div(id='dummy-placeholder-output-for-restarting'),  # This dummy is necessary for Dash not to complain
+            html.Div(id='dummy-placeholder-output-for-restarting-1'),  # This dummy is necessary for Dash not to complain
+            html.Div(id='dummy-placeholder-output-for-restarting-2'),  # This dummy is necessary for Dash not to complain
             html.Div(id='controls-selectors-container', children=[
                 dbc.Row([
                     dbc.Col(html.Label("Trial"), width=2),
@@ -516,7 +516,7 @@ class Visualization:
                        Output('trials-dropdown', 'value')],
                       [Input('refresh-button', 'n_clicks')])
         @utilities.runtime_analysis_decorator
-        def refresh_all(n_clicks):
+        def refresh_all_data(n_clicks):
             # Reset caches
             self.cache_for_training_step_configuration_and_recordings = {}
             self.trial_to_kpi_graph_excerpt = {}
@@ -527,12 +527,29 @@ class Visualization:
             options.sort(key=lambda a: a['label'])
             return options, options[0]['value']
 
-        @app.callback([Output('dummy-placeholder-output-for-restarting', 'className')],
+        app.clientside_callback(
+            """
+            function(n_clicks) {
+                if (n_clicks > 0) {
+                    window.location.reload();
+                }
+                return 'ignore_this';
+            }
+            """,
+            Output('dummy-placeholder-output-for-restarting-2', 'className'),
+            Input('restart-button', 'n_clicks')
+        )
+
+        @app.callback([Output('dummy-placeholder-output-for-restarting-1', 'className')],
                       [Input('restart-button', 'n_clicks')])
         @utilities.runtime_analysis_decorator
-        def refresh_all(n_clicks):
-            self.SIGNAL_TO_RESTART_SERVER = True
-            return ["IGNORE"]
+        def reload_server(n_clicks):
+            if n_clicks == 0:
+                return ['ignore_this']
+            assert not self.debug_mode, ("If debug_mode is enabled, use_reloader is also enabled "
+                                         "(as of the time of this writing), which breaks multiprocessing.")
+            self.restart_signal_queue.put('restart')
+            return ['ignore_this']
 
         @app.callback([Output('dummy-placeholder-output-for-updating-graphs', 'className')],
                       [Input('refresh-kpi-graphs-button', 'n_clicks')],

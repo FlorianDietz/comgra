@@ -13,7 +13,11 @@ def main():
     parser.add_argument('--port', dest='port', default=8055)
     parser.add_argument('--visualization-file', dest='external_visualization_file', default=None)
     parser.add_argument('--use-path-for-test-run', dest='use_path_for_test_run', default=False, action='store_true')
-    parser.add_argument('--debug-mode', dest='debug_mode', default=False, action='store_true')
+    parser.add_argument(
+        '--debug-mode', dest='debug_mode', default=False, action='store_true',
+        help="Run Dash in debug mode. Note that this also enables automatic reloading on code change (use_reloader),"
+             "which interferes with multiprocessing and breaks the button for reloading the server."
+    )
     args = parser.parse_args()
     assert (args.path is None) is args.use_path_for_test_run, \
         "Either provide --path or set --use-path-for-test-run."
@@ -22,42 +26,39 @@ def main():
         args.external_visualization_file = (Path(__file__).parent / 'example_custom_visualization.py').absolute()
     path = Path(args.path).absolute()
     assert path.exists(), path
-    the_visualization: Optional[visualizer.Visualization] = multiprocessing.shared_memory
+    restart_signal_queue = multiprocessing.Queue()
     the_server_process: Optional[multiprocessing.Process] = None
 
     def run_visualization():
-        nonlocal the_visualization
-        the_visualization = visualizer.Visualization(path=path, debug_mode=args.debug_mode, external_visualization_file=args.external_visualization_file)
-        the_visualization.run_server(args.port)
+        vis = visualizer.Visualization(
+            path=path,
+            debug_mode=args.debug_mode,
+            external_visualization_file=args.external_visualization_file,
+            restart_signal_queue=restart_signal_queue,
+        )
+        vis.run_server(args.port, use_reloader=args.debug_mode)
 
-    def start_or_restart_server():
-        nonlocal the_server_process
-        if the_server_process is not None:
-            print(1)
-            print(2)
-            the_server_process.terminate()
-            the_server_process.join()
-            print(3)
-        the_server_process = multiprocessing.Process(target=run_visualization)
-        print(4, the_server_process)
-        the_server_process.start()
+    # Either run in a loop that allows the user to manually restart the server,
+    # or use debug_mode and Dash's built-in use_reloader.
+    if args.debug_mode:
+        run_visualization()
+    else:
 
-    start_or_restart_server()
-    time.sleep(5)
-    start_or_restart_server()
-    # Infinite loop to keep the main thread alive,
-    # while listening for a signal to restart the server
-    # TODO enable restarts
-    #  to do so, use multiprocessing.shared_memory
-    # TODO make the button trigger a page refresh
-    # TODO Add an error message when reloading all data while graphs changed
-    while True:
-        time.sleep(1)
-        print(the_visualization)
-        if the_visualization is not None and the_visualization.SIGNAL_TO_RESTART_SERVER:
-            print("RESTARt")
-            start_or_restart_server()
-            the_visualization = None
+        def start_or_restart_server():
+            nonlocal the_server_process
+            if the_server_process is not None:
+                the_server_process.terminate()
+                the_server_process.join()
+            the_server_process = multiprocessing.Process(target=run_visualization)
+            the_server_process.start()
+
+        start_or_restart_server()
+        # Infinite loop to keep the main thread alive,
+        # while listening for a signal to restart the server
+        while True:
+            msg = restart_signal_queue.get()
+            if msg == 'restart':
+                start_or_restart_server()
 
 if __name__ == '__main__':
     main()
