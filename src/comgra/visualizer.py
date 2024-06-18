@@ -81,6 +81,7 @@ class CustomDash(dash.Dash):
                     event.preventDefault();
                 }
             });
+            console.log(document.getElementById("restart-button"))
         </script>
         """
         return '''
@@ -120,6 +121,7 @@ class Visualization:
 
     def __init__(self, path, debug_mode, external_visualization_file):
         super().__init__()
+        self.SIGNAL_TO_RESTART_SERVER = False
         utilities.DEBUG_MODE = debug_mode
         self.debug_mode = debug_mode
         self.path: Path = path
@@ -423,13 +425,14 @@ class Visualization:
                              html.Button(html.I(className="bi bi-arrow-down"), id='navigate-down-button',
                                          className='btn btn-outline-secondary btn-xs', n_clicks=0)
                              ], id='navigation-buttons', width=4),
-                    dbc.Col("", width=1),
-                    dbc.Col(html.Button('Refresh graphs', id='refresh-kpi-graphs-button', n_clicks=0), width=2),
-                    dbc.Col(html.Button('Reload all', id='refresh-button', n_clicks=0), width=1),
+                    dbc.Col(html.Button('Refresh graphs', id='refresh-kpi-graphs-button', n_clicks=0), width=1),
+                    dbc.Col(html.Button('Reload data', id='refresh-button', n_clicks=0), width=1),
+                    dbc.Col(html.Button('Restart server', id='restart-button', n_clicks=0), width=1),
                 ]),
             ]),
             html.Div(id='dummy-placeholder-output-for-updating-graphs'),  # This dummy stores some data
             html.Div(id='dummy-for-selecting-a-node'),  # This dummy stores some data
+            html.Div(id='dummy-placeholder-output-for-restarting'),  # This dummy is necessary for Dash not to complain
             html.Div(id='controls-selectors-container', children=[
                 dbc.Row([
                     dbc.Col(html.Label("Trial"), width=2),
@@ -523,6 +526,13 @@ class Visualization:
             options = [{'label': a.name, 'value': a.name} for a in subfolders]
             options.sort(key=lambda a: a['label'])
             return options, options[0]['value']
+
+        @app.callback([Output('dummy-placeholder-output-for-restarting', 'className')],
+                      [Input('restart-button', 'n_clicks')])
+        @utilities.runtime_analysis_decorator
+        def refresh_all(n_clicks):
+            self.SIGNAL_TO_RESTART_SERVER = True
+            return ["IGNORE"]
 
         @app.callback([Output('dummy-placeholder-output-for-updating-graphs', 'className')],
                       [Input('refresh-kpi-graphs-button', 'n_clicks')],
