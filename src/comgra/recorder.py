@@ -440,9 +440,12 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def add_tensor_connection(self, src: torch.Tensor, sink: torch.Tensor):
+        if not self.recording_is_active():
+            return
         assert isinstance(src, torch.Tensor)
         assert isinstance(sink, torch.Tensor)
-        if src not in self.manual_tensor_connections_sink_to_sources[sink]:
+        assert src is not sink
+        if src not in self.manual_tensor_connections_sink_to_sources:
             self.manual_tensor_connections_sink_to_sources[sink].append(src)
 
     @utilities.runtime_analysis_decorator
@@ -588,24 +591,32 @@ class ComgraRecorder:
         # Go back until you encounter an input, or you can't go back anymore.
         #
         assert None not in self.computation_step_to_tensor, self.computation_step_to_tensor[None]
-        cache_to_avoid_duplicate_calls = set()
-        steps_that_have_been_processed = set()
+        cache_to_avoid_duplicate_calls__tensor_references = set()
+        cache_to_avoid_duplicate_calls__computation = set()
         tensor_references_to_use_for_this_iteration = set()
         tensor_reference_to_list_of_dependents: Dict[TensorReference, List[TensorReference]] = collections.defaultdict(list)
 
         @utilities.runtime_analysis_decorator
-        def traverse_graph_backwards(last_encountered_reference, step_to_follow=None, direct_tensor=None):
+        def traverse_graph_backwards__tensor(
+                tensor: torch.Tensor,
+                previously_encountered_tensor_references: List[Optional[TensorReference]],
+                previously_followed_manual_connections: List[Tuple[torch.Tensor, torch.Tensor]],
+                this_was_called_because_of_a_manual_connection=False,
+        ):
             """
             This function sets dependencies between tensors.
             It is called once for each tensor that definitely should show up in this iteration because the user
             registered it, and it also backpropagates and includes other tensors along the way.
             During backpropagation along the computation graph, a tensor may be encountered more than once
             (since each tensor may have multiple dependents) but should only be processed once.
-            The function is called in one of two ways:
-            step_to_follow is used on the computation step that produced a tensor.
-            The function registers the tensor and then follows the computation graph backwards.
-            Some tensors do not have an associated computation step because they are added directly,
-            or detach() was used on them. For these, direct_tensor is used instead.
+            ---
+            Note the following problem with backpropagation:
+            You can't go from the computation graph (steps_to_follow) to the tensors directly,
+            unless you manually registered the connection beforehand, as is done here with computation_step_to_tensor.
+            You can only go the other way around, from the tensor to the graph, using .grad_fn,
+            but unfortunately not all tensors actually have a grad_fn attribute.
+            This is why it is necessary to use two separate helper functions here:
+            traverse_graph_backwards__tensor() and traverse_graph_backwards__computation_graph()
             ---
             Design goals for special cases:
             If a tensor is registered multiple times,
@@ -616,40 +627,24 @@ class ComgraRecorder:
             of the references to those iterations is used as a dependency and the others are ignored
             (In terms of implementation, a new reference is created that copies the most recent older reference).
             """
-            assert (direct_tensor is None) != (step_to_follow is None), "Use one of the two"
-            # TODO reread this function
-            #  make sure manual_tensor_connections_sink_to_sources can work whether step_to_follow is None or not
+            last_encountered_reference = previously_encountered_tensor_references[-1]
             # Skip duplicate calls.
-            # It's possible for this function to be called twice with the same arguments:
-            # There could be two or more paths through the computation graph that go from last_encountered_reference
-            # to the current tensor.
-            key = (last_encountered_reference, step_to_follow, direct_tensor)
-            if key in cache_to_avoid_duplicate_calls:
+            # Each tensor should be registered only once, and its sources should be visited only once.
+            key = (tensor, last_encountered_reference)
+            if key in cache_to_avoid_duplicate_calls__tensor_references:
                 return
-            cache_to_avoid_duplicate_calls.add(key)
-            # Get the tensor, if there is one
-            # (we may be at a step_to_follow that is in between two registered tensors)
-            if direct_tensor is None:
-                t = None
-                if step_to_follow in self.computation_step_to_tensor:
-                    assert not hasattr(step_to_follow, 'variable'), \
-                        "This shouldn't be possible. hasattr(step, 'variable') is True if it's a leaf, " \
-                        "while computation_step_to_tensor is used for intermediate values."
-                    t = self.computation_step_to_tensor[step_to_follow]
-                if hasattr(step_to_follow, 'variable'):
-                    t = step_to_follow.variable
-                    assert t in self.parameter_to_representation or t in self.tensor_to_list_of_references, \
-                        ("Backpropagation encountered a parameter that has not been registered. "
-                         "Use track_module() to recursively acquire all modules and their parameters.")
-                keep_recursing = True
-            else:
-                t = direct_tensor
-                keep_recursing = False
-            # Process the tensor
-            if t is not None:
+            cache_to_avoid_duplicate_calls__tensor_references.add(key)
+            #
+            # The following code registers items based on the tensor.
+            # It may be called multiple times, once per last_encountered_reference,
+            # and this should not cause issues.
+            #
+            keep_recursing = True
+            assert (tensor in self.tensor_to_list_of_references) or this_was_called_because_of_a_manual_connection
+            if tensor in self.tensor_to_list_of_references:
                 # Get the first and the last reference to this tensor on this iteration.
                 # Or if there is no reference on this iteration yet, create a new reference.
-                refs = self.tensor_to_list_of_references[t]
+                refs = self.tensor_to_list_of_references[tensor]
                 tmp = [ref for ref in refs if ref.iteration == self.iteration]
                 if not tmp:
                     # Create a new reference based on the last reference to this tensor that is not itself a duplicate.
@@ -672,16 +667,16 @@ class ComgraRecorder:
                         role_within_node_suffix = '__from_initialization'
                     else:
                         role_within_node_suffix = f'__from_iteration_{reference_to_copy.iteration}'
-                    self.tensor_to_list_of_references[t].append(TensorReference(
+                    self.tensor_to_list_of_references[tensor].append(TensorReference(
                         tensor_name=reference_to_copy.tensor_name + SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS,
                         iteration=self.iteration,
                         node_name=reference_to_copy.node_name + SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS,
                         # node_name=original_ref.node_name + f'__reuse_iteration_{original_ref.iteration}' + SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS,
                         role_within_node=reference_to_copy.role_within_node + role_within_node_suffix,
                         is_canonical_reference=False,
-                        previous_reference=self.tensor_to_list_of_references[t][-1],
+                        previous_reference=self.tensor_to_list_of_references[tensor][-1],
                     ))
-                    refs = self.tensor_to_list_of_references[t]
+                    refs = self.tensor_to_list_of_references[tensor]
                     tmp = [ref for ref in refs if ref.iteration == self.iteration]
                     assert len(tmp) == 1
                 for ref in tmp:
@@ -692,7 +687,8 @@ class ComgraRecorder:
                     # and should be set to the same one-element list on all subsequent times.
                     assert len(tensor_reference_to_list_of_dependents[dependency_ref]) == 0 or \
                            tuple(tensor_reference_to_list_of_dependents[dependency_ref]) == (dependent_ref,), \
-                        ("Dependencies between references of the same tensor should form an uninterrupted chain. "
+                        ("Programming error. "
+                         "Dependencies between references of the same tensor should form an uninterrupted chain. "
                          "No part of the code except this one here should be able to add more references in between "
                          "them. All dependents of the tensor should attach to the rightmost reference, "
                          "all dependencies to the leftmost reference.")
@@ -700,48 +696,108 @@ class ComgraRecorder:
                 first_ref = tmp[0]
                 last_ref = tmp[-1]
                 tensor_representation = self.tensor_reference_to_representation[refs[0]]
-                # Add last_encountered_named_tensor_and_iteration to the dependencies of last_ref
+                # Add last_encountered_reference to the dependencies of last_ref
                 if last_encountered_reference is not None:
                     assert last_encountered_reference not in tensor_reference_to_list_of_dependents[last_ref], \
                         ("Programming error. If a dependency is registered twice, that means the graph traversal "
                          "has some redundancy and could be optimized. "
                          "This should be prevented by cache_to_avoid_duplicate_calls.")
                     tensor_reference_to_list_of_dependents[last_ref].append(last_encountered_reference)
-                # If this step is encountered for the first time, connect the references and recurse
-                step_has_been_processed = step_to_follow in steps_that_have_been_processed
-                if step_has_been_processed:
+                # If this reference is an import of an earlier reference or type_of_tensor == 'input',
+                # do not recurse
+                if first_ref.node_name.endswith(SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS) \
+                        or tensor_representation.type_of_tensor == 'input':
                     keep_recursing = False
-                else:
-                    # When we get here, step_to_follow may be None depending on how this function was called.
-                    # We need to make sure that keep_recursing is True exactly one time this function is called,
-                    # when step_to_follow was used to get here, and not direct_tensor.
-                    if step_to_follow is not None:
-                        steps_that_have_been_processed.add(step_to_follow)
-                    # Set the last_encountered_reference
-                    last_encountered_reference = first_ref
-                    # If this reference is an import of an earlier reference or type_of_tensor == 'input',
-                    # do not recurse
-                    if first_ref.node_name.endswith(SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS) \
-                            or tensor_representation.type_of_tensor == 'input':
-                        keep_recursing = False
-                    last_encountered_reference = first_ref
-            # Recurse / backpropagate
+                # Set the previously_encountered_tensor_references
+                previously_encountered_tensor_references = previously_encountered_tensor_references + list(reversed(tmp))
+            #
+            # Recurse
+            #
             if keep_recursing:
-                assert step_to_follow is not None
-                for predecessor, other in step_to_follow.next_functions:
+                # Recurse through the computation graph, accessed via .grad_fn
+                if tensor.grad_fn is not None:
+                    for predecessor, _ in tensor.grad_fn.next_functions:
+                        if predecessor is not None:
+                            traverse_graph_backwards__computation_graph(
+                                predecessor, previously_encountered_tensor_references,
+                                previously_followed_manual_connections,
+                            )
+                # Recurse through self.manual_tensor_connections_sink_to_sources
+                for source_tensor in self.manual_tensor_connections_sink_to_sources.get(tensor, []):
+                    # Sanity check
+                    connection = (id(source_tensor), id(tensor))
+                    if connection in previously_followed_manual_connections:
+                        raise ValueError(
+                            f"A loop was encountered while constructing the dependency graph in comgra. "
+                            f"This was caused by add_tensor_connection(). "
+                            f"Please make sure you did not accidentally use that function to create a loop. "
+                            f"The following tensor references were involved in the loop (named tensors only!):\n"
+                            f"{', '.join([a.tensor_name for a in previously_encountered_tensor_references if a is not None])}"
+                        )
+                    traverse_graph_backwards__tensor(
+                        source_tensor, previously_encountered_tensor_references,
+                        previously_followed_manual_connections + [connection],
+                        this_was_called_because_of_a_manual_connection=True,
+                    )
+        @utilities.runtime_analysis_decorator
+        def traverse_graph_backwards__computation_graph(
+                step_to_follow,
+                previously_encountered_tensor_references: List[Optional[TensorReference]],
+                previously_followed_manual_connections: List[Tuple[torch.Tensor, torch.Tensor]],
+        ):
+            """
+            See documentation of traverse_graph_backwards__tensor().
+            """
+            assert step_to_follow is not None
+            last_encountered_reference = previously_encountered_tensor_references[-1]
+            # Skip duplicate calls.
+            # It's possible for this function to be called twice with the same arguments:
+            # There could be two or more paths through the computation graph that go from last_encountered_reference
+            # to the current tensor.
+            key = (step_to_follow, last_encountered_reference)
+            if key in cache_to_avoid_duplicate_calls__computation:
+                return
+            cache_to_avoid_duplicate_calls__computation.add(key)
+            # Get the tensor, if there is one
+            # (we may be at a computation step that lies in between two registered tensors)
+            t = None
+            if step_to_follow in self.computation_step_to_tensor:
+                assert not hasattr(step_to_follow, 'variable'), \
+                    "This shouldn't be possible. hasattr(step, 'variable') is True if it's a leaf, " \
+                    "while computation_step_to_tensor is used for intermediate values."
+                t = self.computation_step_to_tensor[step_to_follow]
+            if hasattr(step_to_follow, 'variable'):
+                t = step_to_follow.variable
+                assert t in self.parameter_to_representation or t in self.tensor_to_list_of_references, \
+                    ("Backpropagation encountered a parameter that has not been registered. "
+                     "Use track_module() to recursively acquire all modules and their parameters.")
+            #
+            # If this step created a tensor that is registered,
+            # stop recursing and switch to traverse_graph_backwards__tensor.
+            # Else continue recursing along the computation graph.
+            #
+            if t is not None:
+                traverse_graph_backwards__tensor(
+                    t, previously_encountered_tensor_references,
+                    previously_followed_manual_connections,
+                )
+            else:
+                for predecessor, _ in step_to_follow.next_functions:
                     if predecessor is not None:
-                        traverse_graph_backwards(last_encountered_reference, step_to_follow=predecessor, direct_tensor=None)
+                        traverse_graph_backwards__computation_graph(
+                            predecessor, previously_encountered_tensor_references,
+                            previously_followed_manual_connections,
+                        )
+        #
         # Backpropagate from any tensor that was created or otherwise referenced in this iteration
+        #
         tensors_to_show = [
             tensor for tensor, refs in self.tensor_to_list_of_references.items()
             for ref in refs
             if ref.iteration == self.iteration
         ]
         for tensor in tensors_to_show:
-            if tensor.grad_fn is None:
-                traverse_graph_backwards(None, step_to_follow=None, direct_tensor=tensor)
-            else:
-                traverse_graph_backwards(None, step_to_follow=tensor.grad_fn, direct_tensor=None)
+            traverse_graph_backwards__tensor(tensor,[None], [])
         # Sanity check
         for ref1 in tensor_references_to_use_for_this_iteration:
             for ref2 in tensor_references_to_use_for_this_iteration:
