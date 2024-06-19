@@ -522,11 +522,14 @@ class Visualization:
             self.cache_for_training_step_configuration_and_recordings = {}
             self.trial_to_kpi_graph_excerpt = {}
             # If any graphs changed, a complete refresh is required, so trigger the restart-button
+            # Do NOT do this in debug mode, because that interferes with the restart ability of Dash
+            # because it also enables use_reloader.
             server_restart_required = False
             for ngs_file in (self.path / 'node_graph_structure').iterdir():
                 node_graph_hash = ngs_file.stem
                 if node_graph_hash not in self.ngs_hash_to_ngs:
-                    server_restart_required = True
+                    if not self.debug_mode:
+                        server_restart_required = True
             # Load the list of trials
             trials_folder = self.path / 'trials'
             subfolders = [a for a in trials_folder.iterdir() if a.is_dir()]
