@@ -9,10 +9,12 @@ import sys
 import traceback
 from typing import List, Any, Tuple, Dict, Set, Optional
 
+from comgra import utilities_initialization_config
+
 from plotly import express as px
 
-DEBUG_MODE = False
-PRINT_EACH_TIME = False
+DEBUG_MODE = utilities_initialization_config.DEBUG_MODE
+PRINT_EACH_TIME = utilities_initialization_config.PRINT_EACH_TIME
 
 _WARNINGS_ISSUED = {}
 

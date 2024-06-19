@@ -2,6 +2,9 @@ import argparse
 from pathlib import Path
 import shutil
 
+# Activate debug mode
+from comgra import utilities_initialization_config
+utilities_initialization_config.DEBUG_MODE = True
 import comgra
 from comgra.recorder import ComgraRecorder
 from comgra.objects import DecisionMakerForRecordingsFrequencyPerType
@@ -124,7 +127,7 @@ class Demonstration:
         for i, (num_iterations, use_for_training, dataloader) in enumerate(self.task_data):
             comgra.my_recorder.add_note(f"Dataset {i}: {num_iterations} iterations, used for training: {use_for_training}, {len(dataloader.dataset):,.0f}")
         # Train the model
-        num_training_steps = 20_000
+        num_training_steps = 3_100
         for training_step in range(num_training_steps):
             # Pick a random dataloader and run a batch of it.
             idx = training_step % len(self.task_data)
@@ -390,8 +393,6 @@ class CompleteModule(nn.Module):
 DEMONSTRATION: Demonstration
 
 def main():
-    # Activate debug mode
-    comgra.utilities.DEBUG_MODE = True
     global DEMONSTRATION
     parser = argparse.ArgumentParser(description="Run an experiment.")
     parser.add_argument('--path', dest='path', default=None)
