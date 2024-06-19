@@ -608,7 +608,8 @@ class ComgraRecorder:
             or detach() was used on them. For these, direct_tensor is used instead.
             ---
             Design goals for special cases:
-            If a tensor is registered multiple times, the references of this iteration are ordered in a chain.
+            If a tensor is registered multiple times,
+            the references that belong to this iteration are ordered in a chain.
             Dependencies of the tensor connect to the leftmost item of the chain,
             dependents connect to the rightmost item.
             If the tensor is registered multiple times, but for an older iteration only, then only the most recent
@@ -627,7 +628,7 @@ class ComgraRecorder:
                 return
             cache_to_avoid_duplicate_calls.add(key)
             # Get the tensor, if there is one
-            # (we may be using a step_to_follow that is in between two registered tensors)
+            # (we may be at a step_to_follow that is in between two registered tensors)
             if direct_tensor is None:
                 t = None
                 if step_to_follow in self.computation_step_to_tensor:
@@ -716,8 +717,10 @@ class ComgraRecorder:
                     # when step_to_follow was used to get here, and not direct_tensor.
                     if step_to_follow is not None:
                         steps_that_have_been_processed.add(step_to_follow)
-                    # Set the last_encountered_reference and recurse
-                    # unless this reference is an import of an earlier reference or type_of_tensor == 'input'
+                    # Set the last_encountered_reference
+                    last_encountered_reference = first_ref
+                    # If this reference is an import of an earlier reference or type_of_tensor == 'input',
+                    # do not recurse
                     if first_ref.node_name.endswith(SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS) \
                             or tensor_representation.type_of_tensor == 'input':
                         keep_recursing = False
