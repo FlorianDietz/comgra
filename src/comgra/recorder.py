@@ -693,6 +693,7 @@ class ComgraRecorder:
                          "them. All dependents of the tensor should attach to the rightmost reference, "
                          "all dependencies to the leftmost reference.")
                     tensor_reference_to_list_of_dependents[dependency_ref] = [dependent_ref]
+                    assert dependency_ref is not dependent_ref
                 first_ref = tmp[0]
                 last_ref = tmp[-1]
                 tensor_representation = self.tensor_reference_to_representation[refs[0]]
@@ -798,7 +799,9 @@ class ComgraRecorder:
         ]
         for tensor in tensors_to_show:
             traverse_graph_backwards__tensor(tensor,[None], [])
+        #
         # Sanity check
+        #
         for ref1 in tensor_references_to_use_for_this_iteration:
             for ref2 in tensor_references_to_use_for_this_iteration:
                 if ref1.get_canonical_reference() == ref2.get_canonical_reference():
@@ -811,7 +814,10 @@ class ComgraRecorder:
                     any([ref2 for ref2 in refs if ref1.get_canonical_reference() != ref2.get_canonical_reference()])]), \
             "No computational graph could be constructed. " \
             "The most common error that could cause this is that gradient computations are turned off."
+        assert not any((dependency in dependents) for dependency, dependents in tensor_reference_to_list_of_dependents.items())
+        #
         # Build the dependency graph based on the data extracted while recursing through the computation graph
+        #
         self._initialize_graph_structure_objects_at_end_of_iteration(
             tensor_references_to_use_for_this_iteration,
             tensor_reference_to_list_of_dependents,
