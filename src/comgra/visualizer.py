@@ -513,19 +513,26 @@ class Visualization:
         ])
 
         @app.callback([Output('trials-dropdown', 'options'),
-                       Output('trials-dropdown', 'value')],
+                       Output('trials-dropdown', 'value'),
+                       Output('restart-button', 'n_clicks')],
                       [Input('refresh-button', 'n_clicks')])
         @utilities.runtime_analysis_decorator
         def refresh_all_data(n_clicks):
             # Reset caches
             self.cache_for_training_step_configuration_and_recordings = {}
             self.trial_to_kpi_graph_excerpt = {}
+            # If any graphs changed, a complete refresh is required, so trigger the restart-button
+            server_restart_required = False
+            for ngs_file in (self.path / 'node_graph_structure').iterdir():
+                node_graph_hash = ngs_file.stem
+                if node_graph_hash not in self.ngs_hash_to_ngs:
+                    server_restart_required = True
             # Load the list of trials
             trials_folder = self.path / 'trials'
             subfolders = [a for a in trials_folder.iterdir() if a.is_dir()]
             options = [{'label': a.name, 'value': a.name} for a in subfolders]
             options.sort(key=lambda a: a['label'])
-            return options, options[0]['value']
+            return options, options[0]['value'], (1 if server_restart_required else 0)
 
         app.clientside_callback(
             """
@@ -544,11 +551,10 @@ class Visualization:
                       [Input('restart-button', 'n_clicks')])
         @utilities.runtime_analysis_decorator
         def reload_server(n_clicks):
-            if n_clicks == 0:
-                return ['ignore_this']
-            assert not self.debug_mode, ("If debug_mode is enabled, use_reloader is also enabled "
-                                         "(as of the time of this writing), which breaks multiprocessing.")
-            self.restart_signal_queue.put('restart')
+            if n_clicks > 0:
+                assert not self.debug_mode, ("If debug_mode is enabled, use_reloader is also enabled "
+                                             "(as of the time of this writing), which breaks multiprocessing.")
+                self.restart_signal_queue.put('restart')
             return ['ignore_this']
 
         @app.callback([Output('dummy-placeholder-output-for-updating-graphs', 'className')],
