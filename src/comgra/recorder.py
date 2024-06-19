@@ -130,6 +130,7 @@ class ComgraRecorder:
         self.computation_step_to_tensor = {}
         self.tensor_to_list_of_references: Dict[torch.Tensor, List[TensorReference]] = {}  # The first of these tuples is the canonical one
         self.tensor_reference_to_representation: Dict[TensorReference, TensorRepresentation] = {}
+        self.manual_tensor_connections_sink_to_sources: Dict[torch.Tensor, List[torch.Tensor]] = {}
         self.current_batch_size = None
         self.override__recording_is_active = None
 
@@ -252,6 +253,7 @@ class ComgraRecorder:
         self.computation_step_to_tensor = {}
         self.tensor_to_list_of_references = {}
         self.tensor_reference_to_representation = {}
+        self.manual_tensor_connections_sink_to_sources = collections.defaultdict(list)
         self.current_batch_size = current_batch_size
         self.training_step_configuration = TrainingStepConfiguration(
             type_of_execution=self.type_of_execution,
@@ -436,6 +438,12 @@ class ComgraRecorder:
                              f"({ref1.node_name}) on the same iteration ({ref1.iteration}). "
                              f"This is not allowed because it is ambiguous how to organize this in a graph.")
 
+    @utilities.runtime_analysis_decorator
+    def add_tensor_connection(self, src: torch.Tensor, sink: torch.Tensor):
+        assert isinstance(src, torch.Tensor)
+        assert isinstance(sink, torch.Tensor)
+        if src not in self.manual_tensor_connections_sink_to_sources[sink]:
+            self.manual_tensor_connections_sink_to_sources[sink].append(src)
 
     @utilities.runtime_analysis_decorator
     def _store_value_of_tensor(self, tensor: torch.Tensor, tensor_representation: TensorRepresentation):
@@ -608,6 +616,8 @@ class ComgraRecorder:
             (In terms of implementation, a new reference is created that copies the most recent older reference).
             """
             assert (direct_tensor is None) != (step_to_follow is None), "Use one of the two"
+            # TODO reread this function
+            #  make sure manual_tensor_connections_sink_to_sources can work whether step_to_follow is None or not
             # Skip duplicate calls.
             # It's possible for this function to be called twice with the same arguments:
             # There could be two or more paths through the computation graph that go from last_encountered_reference
