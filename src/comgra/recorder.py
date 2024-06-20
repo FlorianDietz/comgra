@@ -725,8 +725,9 @@ class ComgraRecorder:
             if keep_recursing:
                 # Recurse through the computation graph, accessed via .grad_fn
                 if tensor.grad_fn is not None:
-                    assert computation_step_to_tensor.get(tensor.grad_fn, None) is tensor, \
-                        (self.tensor_to_list_of_references[tensor][0],)
+                    if not this_was_called_because_of_a_manual_connection:  # 'tensor' may not be registered in this case
+                        assert computation_step_to_tensor[tensor.grad_fn] is tensor, \
+                            (self.tensor_to_list_of_references[tensor][0],)
                     for predecessor, _ in tensor.grad_fn.next_functions:
                         if predecessor is not None:
                             traverse_graph_backwards__computation_graph(
