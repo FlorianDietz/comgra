@@ -635,7 +635,6 @@ class ComgraRecorder:
             print('START tensor', [a.tensor_name if a else a for a in previously_encountered_tensor_references])
             last_encountered_reference = previously_encountered_tensor_references[-1] if previously_encountered_tensor_references else None
             # Skip duplicate calls.
-            # Each tensor should be registered only once, and its sources should be visited only once.
             key = (tensor, last_encountered_reference)
             if key in cache_to_avoid_duplicate_calls__tensor_references:
                 print("skipping", key)
@@ -709,6 +708,7 @@ class ComgraRecorder:
                 # Add last_encountered_reference to the list of dependents of last_ref
                 print('encountered', first_ref.tensor_name, first_ref.iteration, last_ref.tensor_name, last_ref.iteration)
                 if last_encountered_reference is not None:
+                    assert last_ref is not last_encountered_reference, last_ref
                     assert last_encountered_reference not in tensor_reference_to_list_of_dependents[last_ref], \
                         ("Programming error. If a dependency is registered twice, that means the graph traversal "
                          "has some redundancy and could be optimized. "
@@ -741,7 +741,7 @@ class ComgraRecorder:
                 # Recurse through self.manual_tensor_connections_sink_to_sources
                 for source_tensor in self.manual_tensor_connections_sink_to_sources.get(tensor, []):
                     # Sanity check
-                    connection = (id(source_tensor), id(tensor))
+                    connection = (source_tensor, tensor)
                     if connection in previously_followed_manual_connections:
                         raise ValueError(
                             f"A loop was encountered while constructing the dependency graph in comgra. "
