@@ -441,7 +441,7 @@ class ComgraRecorder:
         assert isinstance(src, torch.Tensor)
         assert isinstance(sink, torch.Tensor)
         assert src is not sink
-        if src not in self.manual_tensor_connections_sink_to_sources:
+        if src not in self.manual_tensor_connections_sink_to_sources[sink]:
             self.manual_tensor_connections_sink_to_sources[sink].append(src)
 
     @utilities.runtime_analysis_decorator
@@ -725,7 +725,7 @@ class ComgraRecorder:
             if keep_recursing:
                 # Recurse through the computation graph, accessed via .grad_fn
                 if tensor.grad_fn is not None:
-                    if not this_was_called_because_of_a_manual_connection:  # 'tensor' may not be registered in this case
+                    if not this_was_called_because_of_a_manual_connection:  # 'tensor' could not be registered in this case
                         assert computation_step_to_tensor[tensor.grad_fn] is tensor, \
                             (self.tensor_to_list_of_references[tensor][0],)
                     for predecessor, _ in tensor.grad_fn.next_functions:
