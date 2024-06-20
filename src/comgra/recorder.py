@@ -737,7 +737,7 @@ class ComgraRecorder:
                 # Recurse through self.manual_tensor_connections_sink_to_sources
                 for source_tensor in self.manual_tensor_connections_sink_to_sources.get(tensor, []):
                     # Sanity check
-                    connection = (source_tensor, tensor)
+                    connection = (id(source_tensor), id(tensor))
                     if connection in previously_followed_manual_connections:
                         raise ValueError(
                             f"A loop was encountered while constructing the dependency graph in comgra. "
