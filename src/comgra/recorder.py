@@ -605,7 +605,7 @@ class ComgraRecorder:
         def traverse_graph_backwards__tensor(
                 tensor: torch.Tensor,
                 previously_encountered_tensor_references: List[Optional[TensorReference]],
-                previously_followed_manual_connections: List[Tuple[torch.Tensor, torch.Tensor]],
+                previously_followed_manual_connections: List[Tuple[int, int]],
                 this_was_called_because_of_a_manual_connection=False,
         ):
             """
@@ -755,7 +755,7 @@ class ComgraRecorder:
         def traverse_graph_backwards__computation_graph(
                 step_to_follow,
                 previously_encountered_tensor_references: List[Optional[TensorReference]],
-                previously_followed_manual_connections: List[Tuple[torch.Tensor, torch.Tensor]],
+                previously_followed_manual_connections: List[Tuple[int, int]],
         ):
             """
             See documentation of traverse_graph_backwards__tensor().
