@@ -441,7 +441,8 @@ class ComgraRecorder:
         assert isinstance(src, torch.Tensor)
         assert isinstance(sink, torch.Tensor)
         assert src is not sink
-        if src not in self.manual_tensor_connections_sink_to_sources[sink]:
+        # We compare by id() and set() because pytorch will try to compare tensors with == on lists
+        if id(src) not in set(id(a) for a in self.manual_tensor_connections_sink_to_sources[sink]):
             self.manual_tensor_connections_sink_to_sources[sink].append(src)
 
     @utilities.runtime_analysis_decorator
