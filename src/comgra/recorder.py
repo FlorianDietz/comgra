@@ -436,6 +436,9 @@ class ComgraRecorder:
 
     @utilities.runtime_analysis_decorator
     def add_tensor_connection(self, src: torch.Tensor, sink: torch.Tensor):
+        """
+        Create a connection in the dependency graph, from the src tensor to the sink tensor.
+        """
         if not self.recording_is_active():
             return
         assert isinstance(src, torch.Tensor)
@@ -444,6 +447,16 @@ class ComgraRecorder:
         # We compare by id() and set() because pytorch will try to compare tensors with == on lists
         if id(src) not in set(id(a) for a in self.manual_tensor_connections_sink_to_sources[sink]):
             self.manual_tensor_connections_sink_to_sources[sink].append(src)
+
+    @utilities.runtime_analysis_decorator
+    def detach_while_keeping_connection(self, tensor: torch.Tensor):
+        """
+        Return tensor.detach(), but use add_tensor_connection() to connect the detached tensor to the original,
+        ensuring that the connection still shows up in the dependency graph.
+        """
+        res = tensor.detach()
+        self.add_tensor_connection(tensor, res)
+        return res
 
     @utilities.runtime_analysis_decorator
     def _store_value_of_tensor(self, tensor: torch.Tensor, tensor_representation: TensorRepresentation):
