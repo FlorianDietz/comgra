@@ -127,7 +127,6 @@ class ComgraRecorder:
         self.type_of_execution = None
         self.iteration = None
         self.record_all_tensors_per_batch_index_by_default = False
-        self.computation_step_to_tensor = {}
         self.tensor_to_list_of_references: Dict[torch.Tensor, List[TensorReference]] = {}  # The first of these tuples is the canonical one
         self.tensor_reference_to_representation: Dict[TensorReference, TensorRepresentation] = {}
         self.manual_tensor_connections_sink_to_sources: Dict[torch.Tensor, List[torch.Tensor]] = {}
@@ -250,7 +249,6 @@ class ComgraRecorder:
         self.current_stage = 'started'
         self.types_of_tensor_recordings = []
         self.current_type_of_tensor_recording = 'forward'
-        self.computation_step_to_tensor = {}
         self.tensor_to_list_of_references = {}
         self.tensor_reference_to_representation = {}
         self.manual_tensor_connections_sink_to_sources = collections.defaultdict(list)
@@ -357,8 +355,6 @@ class ComgraRecorder:
             type_of_tensor = 'loss'
         else:
             type_of_tensor = 'calculated'
-        if tensor.grad_fn is not None:
-            self.computation_step_to_tensor[tensor.grad_fn] = tensor
         if recording_type == 'kpis':
             items_to_record = ['mean', 'abs_mean', 'std', 'abs_max']
         elif recording_type == 'kpis_and_svd':
@@ -590,7 +586,16 @@ class ComgraRecorder:
         # Go backwards through the computation graph, starting from outputs, targets, and losses.
         # Go back until you encounter an input, or you can't go back anymore.
         #
-        assert None not in self.computation_step_to_tensor, self.computation_step_to_tensor[None]
+        computation_step_to_tensor = {
+            tensor.grad_fn: tensor for tensor
+            in self.tensor_to_list_of_references.keys()
+            if tensor.grad_fn is not None
+        }
+        assert None not in computation_step_to_tensor, computation_step_to_tensor[None]
+        assert len(set(computation_step_to_tensor.values())) == len(computation_step_to_tensor)
+        assert len(set(computation_step_to_tensor.keys())) == len(computation_step_to_tensor)
+        for k, v in computation_step_to_tensor.items():
+            assert k is v.grad_fn, (self.iteration, self.tensor_to_list_of_references[v][0].tensor_name)
         cache_to_avoid_duplicate_calls__tensor_references = set()
         cache_to_avoid_duplicate_calls__computation = set()
         tensor_references_to_use_for_this_iteration = set()
@@ -762,11 +767,11 @@ class ComgraRecorder:
             # Get the tensor, if there is one
             # (we may be at a computation step that lies in between two registered tensors)
             t = None
-            if step_to_follow in self.computation_step_to_tensor:
+            if step_to_follow in computation_step_to_tensor:
                 assert not hasattr(step_to_follow, 'variable'), \
                     "This shouldn't be possible. hasattr(step, 'variable') is True if it's a leaf, " \
                     "while computation_step_to_tensor is used for intermediate values."
-                t = self.computation_step_to_tensor[step_to_follow]
+                t = computation_step_to_tensor[step_to_follow]
             if hasattr(step_to_follow, 'variable'):
                 t = step_to_follow.variable
                 assert t in self.parameter_to_representation or t in self.tensor_to_list_of_references, \
