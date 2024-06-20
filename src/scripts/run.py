@@ -213,6 +213,12 @@ class Demonstration:
                         f"helper_partial_sums_up_to_iteration_{i}", helper_partial_sums,
                         node_name=f"helper_partial_sums", role_within_node=f"up_to_iteration_{i}",
                     )
+                    # Add an artificial connection between the input and helper_partial_sums.
+                    # This is for illustration purposes only:
+                    # Without this command, helper_partial_sums would appear without any connections in the
+                    # dependency graph, because it is created with .detach(),
+                    # which creates a gap in the computation graph.
+                    comgra.my_recorder.add_tensor_connection(input_for_this_iteration, helper_partial_sums)
                 # Calculate the loss and perform a backward pass as normal
                 loss = self.criterion(output, target_tensor)
                 self.optimizer.zero_grad()

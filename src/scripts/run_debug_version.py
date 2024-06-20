@@ -252,6 +252,7 @@ class Demonstration:
                         f"helper_partial_sums_up_to_iteration_{i}", helper_partial_sums,
                         node_name=f"helper_partial_sums", role_within_node=f"up_to_iteration_{i}",
                     )
+                    comgra.my_recorder.add_tensor_connection(input_for_this_iteration, helper_partial_sums)  # Not an actual exact dependency, but useful for illustration
                     comgra.my_recorder.register_tensor(
                         f"ref_1_{i}", helper_partial_sums,
                         node_name=f"ref_1", role_within_node=f"up_to_iteration_{i}",

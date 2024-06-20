@@ -76,6 +76,10 @@ comgra.my_recorder.start_recording(...)
 comgra.my_recorder.start_iteration(...)
 # Register any tensors you may want to investigate:
 comgra.my_recorder.register_tensor(...)
+# Create some additional, optional connections for cases where the
+# computation graph does not fully reflect the connections you want to see,
+# e.g. because of detach() commands or non-differentiable dependencies.
+comgra.my_recorder.add_tensor_connection(...)
 # Call these whenever you apply losses and propagate gradients:
 comgra.my_recorder.start_backward_pass()
 comgra.my_recorder.record_current_gradients(...)
