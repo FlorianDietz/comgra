@@ -276,6 +276,7 @@ class ComgraRecorder:
             is_input=False, is_parameter=False, is_target=False, is_loss=False,
             recording_type=None, record_per_batch_index=None,
             node_name=None, role_within_node=None, is_initial_value=False,
+            modify_tensor=None,
     ):
         """
         Register a tensor. Each tensor registered in this way will either become its own node in the GUI, or is assigned to part of a node.
@@ -291,10 +292,19 @@ class ComgraRecorder:
         :param node_name: An optional string that assigns this tensor to a node. All tensors with the same node_name will share a node in the GUI.
         :param role_within_node: If a node_name is specified, give this tensor a role within the node to differentiate it from the other tensors in the node.
         :param is_initial_value: Use is_initial_value=True to register the initial value of a hidden state after calling :py:func:`~comgra.recorder.ComgraRecorder.start_recording` but before :py:func:`~comgra.recorder.ComgraRecorder.start_iteration`.
-        :return:
+        :param modify_tensor: A function that takes the tensor and modifies it before storing it. This can be necessary e.g. when the dimensions or the datatype of the tensor you want to store are not what comgra expects. If this option is provided, comgra will also use add_tensor_connection() to ensure that connections to and from that tensor still show up in the dependency graph.
+        :return: The tensor, or a replacement for it if modify_tensor is provided.
         """
         if not self.recording_is_active():
-            return
+            return tensor
+        # Modify the tensor and use add_tensor_connection() to create a bypass
+        if modify_tensor is None:
+            bypass_tensor = tensor
+        else:
+            original_tensor = tensor
+            bypass_tensor = original_tensor * 1
+            tensor = modify_tensor(tensor)
+            self.add_tensor_connection(tensor, bypass_tensor)
         assert self.iteration is not None or is_initial_value or is_parameter, \
             "You must call start_iteration() before registering any tensors, unless you use is_initial_value=True."
         assert not is_initial_value or self.iteration is None, \
@@ -433,6 +443,7 @@ class ComgraRecorder:
                             (f"The tensor '{ref1.tensor_name}' has been recorded twice for the same node "
                              f"({ref1.node_name}) on the same iteration ({ref1.iteration}). "
                              f"This is not allowed because it is ambiguous how to organize this in a graph.")
+        return bypass_tensor
 
     @utilities.runtime_analysis_decorator
     def add_tensor_connection(self, src: torch.Tensor, sink: torch.Tensor):
