@@ -105,24 +105,6 @@ class NodeGraphStructure:
             tensor_reference_to_representation: Dict[TensorReference, TensorRepresentation],
             tensor_connections: List[Tuple[TensorReference, TensorReference]],
     ):
-        for dependency_ref, dependents in tensor_reference_to_list_of_dependents.items():
-            for dependent_ref in dependents:
-                dependency_type = tensor_reference_to_representation[dependency_ref.get_canonical_reference()].type_of_tensor
-                dependent_type = tensor_reference_to_representation[dependent_ref.get_canonical_reference()].type_of_tensor
-                # NOTE: If this does turn out to be a required feature, I will need to change the DAG construction.
-                # The tensors of type target and loss are currently only added at the end,
-                # and are not part of the DAG sorting algorithm.
-                # This may not be too much work to change?
-                # --> Don't fix what isn't broken. Do this only if necessary / requested.
-                if dependency_type == 'target':
-                    assert dependent_type in ['loss'], \
-                        (f"The tensor '{dependency_ref.tensor_name}' is registered as a 'target' but "
-                         f"the tensor '{dependent_ref.tensor_name}' depends on it and is not of type 'loss'.")
-                if dependency_type == 'loss':
-                    assert False, \
-                        (f"The tensor '{dependency_ref.tensor_name}' is registered as a 'loss' but "
-                         f"the tensor '{dependent_ref.tensor_name}' depends on it. "
-                         f"Losses can not be used as a dependency of other tensors.")
         #
         # General comment about this function:
         # The DAG construction works by creating a list of lists (node_list_list) where the outer list
@@ -179,18 +161,17 @@ class NodeGraphStructure:
         #
         # Logic for grouping:
         # * One set for each group of parameters in the same module (None of these have dependencies)
-        # * Sort all calculated and input tensors according to DAG logic
-        # * Losses
-        # * Move each set of parameters and targets to the right as far as possible without violating DAG logic
+        # * Sort all calculated, input, target and loss tensors according to DAG logic
+        # * Move each set of parameters to the right as far as possible without violating DAG logic
         #   (They do not have dependencies, but it's visually cleaner if they are further to the right,
-        #   where they are first used.)
+        #   where they are first used and if they remain grouped together by their names.)
         #
         nodes_list_list = []
         used_nodes = set()
-        nodes_list_for_parameters_and_targets: List[List[TensorReference]] = []
+        nodes_list_for_parameters: List[List[TensorReference]] = []
         for prefix in recorder.prefixes_for_grouping_module_parameters_visually:
             next_set_of_nodes = []
-            nodes_list_for_parameters_and_targets.append(next_set_of_nodes)
+            nodes_list_for_parameters.append(next_set_of_nodes)
             for ref in tensor_references_to_use_for_this_iteration:
                 a = tensor_reference_to_representation[ref.get_canonical_reference()]
                 if a.type_of_tensor == 'parameter' and ref not in used_nodes:
@@ -203,13 +184,9 @@ class NodeGraphStructure:
                 assert ref in used_nodes, \
                     (f"The parameter {ref.tensor_name} is not covered by any of the provided prefixes: "
                      f"{recorder.prefixes_for_grouping_module_parameters_visually}")
-        nodes_list_for_parameters_and_targets.append([
-            ref for ref in tensor_references_to_use_for_this_iteration
-            if tensor_reference_to_representation[ref.get_canonical_reference()].type_of_tensor == 'target'
-        ])
         #
         # The complicated part:
-        # Construct the DAG of the dependency graph for all 'input' and 'calculated' tensors
+        # Construct the DAG of the dependency graph for all 'input', 'calculated', 'target' and 'loss' tensors
         #
         for ref in used_nodes:
             assert all(other_ref in used_nodes for other_ref in node_to_tensor_references[ref.node_name]), \
@@ -217,36 +194,45 @@ class NodeGraphStructure:
                  "then so should all other tensors of the same node.")
         nodes_to_sort = [
             ref for ref in tensor_references_to_use_for_this_iteration
-            if tensor_reference_to_representation[ref.get_canonical_reference()].type_of_tensor in ['input', 'calculated']
+            if tensor_reference_to_representation[ref.get_canonical_reference()].type_of_tensor in ['input', 'calculated', 'target', 'loss']
                and ref not in used_nodes
         ]
         c = 0
         while c < len(nodes_to_sort):
-            next_set_of_nodes = []
-            nodes_list_list.append(next_set_of_nodes)
-            # Only place a TensorReference if ALL TensorReferences of the same node no longer have dependents.
-            # This ensures that a node is placed in only one location in the graph.
-            # Note: If tensors of the same node have dependencies between them, we could get a deadlock here.
-            # However, we raise an exception in this case earlier in this function.
-            for ref in nodes_to_sort:
-                if ref not in used_nodes and ref not in next_set_of_nodes:
-                    all_refs_of_that_node = node_to_tensor_references[ref.node_name]
-                    they_all_have_no_dependencies = True
-                    for r in all_refs_of_that_node:
-                        has_remaining_dependencies = any(
-                            a for a in tensor_reference_to_list_of_dependencies[r]
-                            if a not in used_nodes
-                        )
-                        if has_remaining_dependencies:
-                            they_all_have_no_dependencies = False
-                            break
-                    if they_all_have_no_dependencies:
+            # Add the item to the graph in order, if possible
+            no_nodes_can_be_placed = True
+            for types_of_node_to_place_next in [('input',), ('calculated',), ('target',), ('loss',)]:
+                next_set_of_nodes = []
+                nodes_list_list.append(next_set_of_nodes)
+                # Only place a TensorReference if ALL TensorReferences of the same node no longer have dependents.
+                # This ensures that a node is placed in only one location in the graph.
+                # Note: If tensors of the same node have dependencies between them, we could get a deadlock here.
+                # However, we raise an exception in this case earlier in this function.
+                for ref in nodes_to_sort:
+                    type_of_tensor = tensor_reference_to_representation[ref.get_canonical_reference()].type_of_tensor
+                    if ref not in used_nodes and ref not in next_set_of_nodes and \
+                            type_of_tensor in types_of_node_to_place_next:
+                        all_refs_of_that_node = node_to_tensor_references[ref.node_name]
+                        they_all_have_no_dependencies = True
                         for r in all_refs_of_that_node:
-                            next_set_of_nodes.append(r)
-                            c += 1
-            for ref in next_set_of_nodes:
-                used_nodes.add(ref)
-            assert next_set_of_nodes, \
+                            has_remaining_dependencies = any(
+                                a for a in tensor_reference_to_list_of_dependencies[r]
+                                if a not in used_nodes
+                            )
+                            if has_remaining_dependencies:
+                                they_all_have_no_dependencies = False
+                                break
+                        if they_all_have_no_dependencies:
+                            for r in all_refs_of_that_node:
+                                next_set_of_nodes.append(r)
+                                c += 1
+                for ref in next_set_of_nodes:
+                    used_nodes.add(ref)
+                # skip nodes of lower priority until we have no nodes of higher priority to place left
+                if next_set_of_nodes:
+                    no_nodes_can_be_placed = False
+                    break
+            assert not no_nodes_can_be_placed, \
                 (f"Programming error. Can't build dependency graph. "
                  f"There are tensors left to be added to the graph, "
                  f"but they all are marked as having open dependencies. "
@@ -261,21 +247,16 @@ class NodeGraphStructure:
         assert c == len(nodes_to_sort), (c, len(nodes_to_sort))
         assert sum([len(a) for a in nodes_list_list]) == len(set(b for a in nodes_list_list for b in a)), \
             (sum([len(a) for a in nodes_list_list]), len(set(b for a in nodes_list_list for b in a)))
-        # Parameters and targets
+        # Parameters
         # For each list of these, place them as far to the right as is possible
-        for list_of_parameters_and_targets in nodes_list_for_parameters_and_targets:
+        for list_of_parameters in nodes_list_for_parameters:
             farthest_possible_index = 0
             for i, nodes in enumerate(nodes_list_list):
                 shared_dependencies_of_nodes = {b for a in nodes for b in tensor_reference_to_list_of_dependencies[a]}
-                if any(a in shared_dependencies_of_nodes for a in list_of_parameters_and_targets):
+                if any(a in shared_dependencies_of_nodes for a in list_of_parameters):
                     break
                 farthest_possible_index += 1
-            nodes_list_list.insert(farthest_possible_index, list_of_parameters_and_targets)
-        # Losses
-        nodes_list_list.append([
-            ref for ref in tensor_references_to_use_for_this_iteration
-            if tensor_reference_to_representation[ref.get_canonical_reference()].type_of_tensor == 'loss'
-        ])
+            nodes_list_list.insert(farthest_possible_index, list_of_parameters)
         # Finalize
         nodes_list_list = [a for a in nodes_list_list if len(a) > 0]
         # Sanity check
