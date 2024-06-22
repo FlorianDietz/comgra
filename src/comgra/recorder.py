@@ -9,7 +9,7 @@ import re
 import shutil
 from pathlib import Path
 import pickle
-from typing import List, Dict, Optional, Tuple, Set
+from typing import List, Dict, Optional, Tuple, Set, Union
 
 import msgpack
 
@@ -128,6 +128,7 @@ class ComgraRecorder:
         self.iteration = None
         self.record_all_tensors_per_batch_index_by_default = False
         self.tensor_to_list_of_references: Dict[torch.Tensor, List[TensorReference]] = {}  # The first of these tuples is the canonical one
+        self.canonical_tensor_reference_to_tensor: Dict[TensorReference, torch.Tensor] = {}
         self.tensor_reference_to_representation: Dict[TensorReference, TensorRepresentation] = {}
         self.manual_tensor_connections_sink_to_sources: Dict[torch.Tensor, List[torch.Tensor]] = {}
         self.current_batch_size = None
@@ -250,6 +251,7 @@ class ComgraRecorder:
         self.types_of_tensor_recordings = []
         self.current_type_of_tensor_recording = 'forward'
         self.tensor_to_list_of_references = {}
+        self.canonical_tensor_reference_to_tensor = {}
         self.tensor_reference_to_representation = {}
         self.manual_tensor_connections_sink_to_sources = collections.defaultdict(list)
         self.current_batch_size = current_batch_size
@@ -279,6 +281,14 @@ class ComgraRecorder:
     ):
         """
         Register a tensor. Each tensor registered in this way will either become its own node in the GUI, or is assigned to part of a node.
+
+        This function will set .requires_grad in order to make sure that the tensor is tracked by the computation graph,
+        even if it e.g. is an input and does not normally require a gradient.
+
+        Because of the way requires_grad works, this needs to happen before the tensor is used in another computation,
+        or else the attribute will have no effect. Therefore, register_tensor() should be called on a tensor before
+        that tensor is used in another computation.
+
         :param tensor_name: The name with which the tensor should be registered. The name should be unique per iteration.
         :param tensor: A pytorch tensor.
         :param index_of_batch_dimension: The index of the batch dimension of the tensor.
@@ -291,7 +301,7 @@ class ComgraRecorder:
         :param node_name: An optional string that assigns this tensor to a node. All tensors with the same node_name will share a node in the GUI.
         :param role_within_node: If a node_name is specified, give this tensor a role within the node to differentiate it from the other tensors in the node.
         :param is_initial_value: Use is_initial_value=True to register the initial value of a hidden state after calling :py:func:`~comgra.recorder.ComgraRecorder.start_recording` but before :py:func:`~comgra.recorder.ComgraRecorder.start_iteration`.
-        :return:
+        :return: A :py:obj:`~comgra.objects.TensorReference`
         """
         if not self.recording_is_active():
             return
@@ -400,6 +410,7 @@ class ComgraRecorder:
                 record_per_batch_index=record_per_batch_index,
             )
             self.tensor_reference_to_representation[tensor_reference] = tensor_representation
+            self.canonical_tensor_reference_to_tensor[tensor_reference] = tensor
             # Store the current value of the tensor
             self._store_value_of_tensor(tensor, tensor_representation)
         else:
@@ -433,16 +444,53 @@ class ComgraRecorder:
                             (f"The tensor '{ref1.tensor_name}' has been recorded twice for the same node "
                              f"({ref1.node_name}) on the same iteration ({ref1.iteration}). "
                              f"This is not allowed because it is ambiguous how to organize this in a graph.")
+        return tensor_reference
 
     @utilities.runtime_analysis_decorator
-    def add_tensor_connection(self, src: torch.Tensor, sink: torch.Tensor):
+    def add_tensor_connection(
+            self, src: Union[torch.Tensor, str, TensorReference], sink: Union[torch.Tensor, str, TensorReference]
+    ):
         """
         Create a connection in the dependency graph, from the src tensor to the sink tensor.
+        :param src: The start of the connection, as either a tensor, the name of a registered tensor, or a :py:obj:`~comgra.objects.TensorReference`.
+        :param sink: The end of the connection, as either a tensor, the name of a registered tensor, or a :py:obj:`~comgra.objects.TensorReference`.
+        :return:
         """
         if not self.recording_is_active():
             return
-        assert isinstance(src, torch.Tensor)
-        assert isinstance(sink, torch.Tensor)
+        def verify_object(obj, identifier):
+            if isinstance(obj, str):
+                matching_references = []
+                for tensor, refs in self.tensor_to_list_of_references.items():
+                    for ref in refs:
+                        if ref.tensor_name == obj:
+                            matching_references.append((tensor, ref))
+                assert matching_references, f"There is no tensor matching the name '{obj}' for the {identifier}."
+                # If the name matches multiple registered tensors, pick the one with the highest iteration
+                max_iteration = max(ref.iteration for _, ref in matching_references)
+                matching_references = [(t, ref) for t, ref in matching_references if ref.iteration == max_iteration]
+                assert len(matching_references) == 1, \
+                    (f"Programming error. This error should never be visible to users. "
+                     f"Two tensors where registered with the same name for the same iteration. "
+                     f"register_tensor() should raise an exception when this happens.\n"
+                     f"{identifier}\n{obj}\n{max_iteration}\n{matching_references}")
+                obj = matching_references[0][0]
+            if isinstance(obj, TensorReference):
+                obj = self.canonical_tensor_reference_to_tensor[obj.get_canonical_reference()]
+            assert isinstance(obj, torch.Tensor), \
+                f"The {identifier} must be either a tensor, the name of a registered tensor, or a TensorReference."
+            assert obj.requires_grad, \
+                (f"The {identifier} must have the requires_grad attribute set to True.\n"
+                 f"Without this, backpropagating through the computation graph may not arrive at this tensor "
+                 f"(in case of sinks) or propagate past it (in case of sources).\n"
+                 f"Two additional notes:\n"
+                 f"(1) comgra's register_tensor() function will set .requires_grad automatically.\n"
+                 f"(2) You need to set .requires_grad immediately, before using the tensor in another computation, "
+                 f"or else the attribute won't have an effect. "
+                 f"This also means that you should call register_tensor() immediately after defining a tensor.")
+            return obj
+        src = verify_object(src, 'src')
+        sink = verify_object(sink, 'sink')
         assert src is not sink
         # We compare by id() and set() because pytorch will try to compare tensors with == on lists
         if id(src) not in set(id(a) for a in self.manual_tensor_connections_sink_to_sources[sink]):

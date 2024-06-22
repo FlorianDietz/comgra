@@ -271,6 +271,20 @@ In order to record gradients, comgra needs to put Comgra needs to set the 'requi
 
 It also means that it can matter where in your code you call `register_tensor()`. If you call it on a tensor that does not have requires_grad set to true already, you should call it immediately after creating the tensor, before using it in any other computation. Else the computation graph will not be constructed correctly.
 
+It is not possible to set `requires_grad` to `True` on some types of tensors, which can make `register_tensor()` fail. To deal with this, register a replacement tensor instead and then use `add_tensor connection to ensure they stay connected. Example:
+
+```python
+# This can't have requires_grad because it's an integer tensor
+a = torch.tensor([1, 2, 3])
+# We register a float() version of it instead
+comgra.my_recorder.register_tensor("my_tensor", a.float())
+# Then we create a connection between that float() version and the next time the original tensor is used.
+b = a + 1.0
+comgra.my_recorder.add_tensor_connection("my_tensor", b)
+```
+
+You should also be aware that `requires_grad` is necessary but not sufficient for `add_tensor_connection()` to work: It's possible that a tensor is built from two tensors, one of which has `requires_grad` and the other does not. Comgra won't automatically record the second one in this case and will not notice that anything is amiss. Use `add_tensor_connection()` to manually add connections for these cases.
+
 
 ## Future Development
 
