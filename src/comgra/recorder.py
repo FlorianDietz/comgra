@@ -128,6 +128,7 @@ class ComgraRecorder:
         self.iteration = None
         self.record_all_tensors_per_batch_index_by_default = False
         self.tensor_to_list_of_references: Dict[torch.Tensor, List[TensorReference]] = {}  # The first of these tuples is the canonical one
+        self.tensors_that_were_manually_marked_to_require_grad_but_dont_need_to_be_recorded: Set[torch.Tensor] = set()
         self.canonical_tensor_reference_to_tensor: Dict[TensorReference, torch.Tensor] = {}
         self.tensor_reference_to_representation: Dict[TensorReference, TensorRepresentation] = {}
         self.manual_tensor_connections_sink_to_sources: Dict[torch.Tensor, List[torch.Tensor]] = {}
@@ -251,6 +252,7 @@ class ComgraRecorder:
         self.types_of_tensor_recordings = []
         self.current_type_of_tensor_recording = 'forward'
         self.tensor_to_list_of_references = {}
+        self.tensors_that_were_manually_marked_to_require_grad_but_dont_need_to_be_recorded = set()
         self.canonical_tensor_reference_to_tensor = {}
         self.tensor_reference_to_representation = {}
         self.manual_tensor_connections_sink_to_sources = collections.defaultdict(list)
@@ -503,6 +505,8 @@ class ComgraRecorder:
         ensuring that the connection still shows up in the dependency graph.
         """
         res = tensor.detach()
+        res.requires_grad = True
+        self.tensors_that_were_manually_marked_to_require_grad_but_dont_need_to_be_recorded.add(res)
         self.add_tensor_connection(tensor, res)
         return res
 
@@ -848,10 +852,15 @@ class ComgraRecorder:
                     "while computation_step_to_tensor is used for intermediate values."
                 t = computation_step_to_tensor[step_to_follow]
             if hasattr(step_to_follow, 'variable'):
-                t = step_to_follow.variable
-                assert t in self.parameter_to_representation or t in self.tensor_to_list_of_references, \
-                    ("Backpropagation encountered a parameter that has not been registered. "
-                     "Use track_module() to recursively acquire all modules and their parameters.")
+                assert (step_to_follow.variable in self.parameter_to_representation
+                        or step_to_follow.variable in self.tensor_to_list_of_references
+                        or step_to_follow.variable in self.tensors_that_were_manually_marked_to_require_grad_but_dont_need_to_be_recorded), \
+                    ("Backpropagation encountered a leaf tensor that has not been registered. "
+                     "This can happen if you set .requires_grad = True on a tensor that isn't a parameter "
+                     "and isn't registered with register_tensor().")
+                if (step_to_follow.variable in self.parameter_to_representation or
+                        step_to_follow.variable in self.tensor_to_list_of_references):
+                    t = step_to_follow.variable
             #
             # If this step created a tensor that is registered,
             # stop recursing and switch to traverse_graph_backwards__tensor.
