@@ -773,10 +773,17 @@ class ComgraRecorder:
                          "has some redundancy and could be optimized. "
                          "This should be prevented by cache_to_avoid_duplicate_calls.")
                     tensor_reference_to_list_of_dependents[last_ref].append(last_encountered_reference)
-                # If this reference is an import of an earlier reference or type_of_tensor == 'input',
-                # do not recurse
-                if first_ref.node_name.endswith(SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS) \
-                        or tensor_representation.type_of_tensor == 'input':
+                # If this reference is an import of an earlier reference, do not recurse
+                # NOTE: This used to be more restrictive. It used to also filter on type_of_tensor == 'input'.
+                # I removed this in part because showing what contributed to inputs is not actually bad, and in part
+                # because it was bugged and fixing it much harder than it seems.
+                # The issue was that there can be multiple inputs depending on each other,
+                # and type_of_tensor == 'input' caused those connections to be skipped.
+                # If I decide to change this back later, keep in mind a special case that makes this harder:
+                # old0->input0->input1, old0->new1.
+                # A ll of those tensors should be shown, and the connection old0->input0
+                # should then also appear in the graph and not get dropped.
+                if first_ref.node_name.endswith(SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS):
                     keep_recursing = False
                 # Set the previously_encountered_tensor_references
                 previously_encountered_tensor_references = previously_encountered_tensor_references + list(reversed(tmp))
