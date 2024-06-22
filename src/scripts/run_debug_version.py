@@ -206,12 +206,16 @@ class Demonstration:
             tmp = output.detach()
             comgra.my_recorder.register_tensor(f"unconnected", tmp)
             tmp = output.detach()
-            comgra.my_recorder.register_tensor(f"connected_0", tmp)
+            comgra.my_recorder.register_tensor(f"connected_0", tmp) # connect to memory
             comgra.my_recorder.add_tensor_connection(memory, tmp)
             tmp_that_is_not_registered = (output + 1)
             tmp = tmp_that_is_not_registered.detach()
-            comgra.my_recorder.register_tensor(f"connected_1", tmp)
+            comgra.my_recorder.register_tensor(f"connected_1", tmp) # connect to output
             comgra.my_recorder.add_tensor_connection(tmp_that_is_not_registered, tmp)
+            tmp = output + 1
+            comgra.my_recorder.add_tensor_connection(memory, tmp)
+            tmp = tmp + 1
+            comgra.my_recorder.register_tensor(f"connected_2", tmp) # connect to output + memory
             # This should result in a connection between output and root_module.subnet_mem__out,
             # because memory is a secondary TensorReference for that tensor.
             # comgra.my_recorder.add_tensor_connection(output, memory)
