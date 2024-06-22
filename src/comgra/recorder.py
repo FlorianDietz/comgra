@@ -1012,7 +1012,7 @@ class ComgraRecorder:
     def _save_training_step_configuration(self):
         self.configurations_path.mkdir(parents=True, exist_ok=True)
         training_step_configuration_path = self.configurations_path / f'{self.training_step}.pkl'
-        assert not training_step_configuration_path.exists()
+        assert not training_step_configuration_path.exists(), training_step_configuration_path
         with open(training_step_configuration_path, 'wb') as f:
             pickle.dump(self.training_step_configuration, f)
 
