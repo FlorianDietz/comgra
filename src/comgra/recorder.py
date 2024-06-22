@@ -817,7 +817,7 @@ class ComgraRecorder:
                             f"This was caused by add_tensor_connection(). "
                             f"Please make sure you did not accidentally use that function to create a loop. "
                             f"The following tensor references were involved in the loop (named tensors only!):\n"
-                            f"{', '.join([a.tensor_name for a in previously_encountered_tensor_references if a is not None])}"
+                            f"{', '.join([str((a.tensor_name, a.iteration)) for a in previously_encountered_tensor_references if a is not None])}"
                         )
                     traverse_graph_backwards__tensor(
                         source_tensor, previously_encountered_tensor_references,
