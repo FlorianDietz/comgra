@@ -230,12 +230,10 @@ class Demonstration:
             # comgra.my_recorder.register_tensor(f"longer_loop_part_1", tmp1)
             # tmp2 = tmp1 + 1
             # comgra.my_recorder.add_tensor_connection(tmp2, tmp0)
-            #
-            # A loop that goes all the way back to an input before looping is not recognized as a problem
-            # because the recursion stops at input tensors.
-            #
-            comgra.my_recorder.add_tensor_connection(output, x)
-            comgra.my_recorder.add_tensor_connection(output, input_for_this_iteration)
+            # A loop that goes all the way back to an input before looping.
+            # comgra.my_recorder.add_tensor_connection(output, input_for_this_iteration)
+            # A loop that goes far back, but not quite to an input, and to an unregistered tensor
+            # comgra.my_recorder.add_tensor_connection(output, x)
             #
             # Apply the loss on the last iteration only
             #
