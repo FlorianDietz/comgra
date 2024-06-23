@@ -784,6 +784,13 @@ class ComgraRecorder:
                 # Add last_encountered_reference to the list of dependents of last_ref
                 print('encountered', first_ref.tensor_name, first_ref.iteration, last_ref.tensor_name, last_ref.iteration)
                 if last_encountered_reference is not None:
+                    if last_ref is last_encountered_reference and previously_followed_manual_connections:
+                        raise ValueError(
+                            f"The tensor {last_ref.tensor_name} on iteration {last_ref.iteration} was "
+                            f"encountered twice while recursing through the computation graph. "
+                            f"A manual connection defined by add_tensor_connection() was encountered during this "
+                            f"process and may be responsible. Please ensure that add_tensor_connection() does not "
+                            f"introduce any cycles in your computation graph.")
                     assert last_ref is not last_encountered_reference, last_ref
                     assert last_encountered_reference not in tensor_reference_to_list_of_dependents[last_ref], \
                         ("Programming error. If a dependency is registered twice, that means the graph traversal "
