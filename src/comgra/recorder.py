@@ -9,7 +9,7 @@ import re
 import shutil
 from pathlib import Path
 import pickle
-from typing import List, Dict, Optional, Tuple, Set, Union
+from typing import List, Dict, Optional, Tuple, Set, Union, Any
 
 import msgpack
 
@@ -131,7 +131,8 @@ class ComgraRecorder:
         self.tensors_that_were_manually_marked_to_require_grad_but_dont_need_to_be_recorded: Set[torch.Tensor] = set()
         self.canonical_tensor_reference_to_tensor: Dict[TensorReference, torch.Tensor] = {}
         self.tensor_reference_to_representation: Dict[TensorReference, TensorRepresentation] = {}
-        self.manual_tensor_connections_sink_to_sources: Dict[torch.Tensor, List[torch.Tensor]] = {}
+        self.manual_tensor_connections_sink_to_sources_by_tensor: Dict[torch.Tensor, List[torch.Tensor]] = {}
+        self.manual_tensor_connections_sink_to_sources_by_computation_step: Dict[Any, List[torch.Tensor]] = {}
         self.current_batch_size = None
         self.override__recording_is_active = None
 
@@ -255,7 +256,8 @@ class ComgraRecorder:
         self.tensors_that_were_manually_marked_to_require_grad_but_dont_need_to_be_recorded = set()
         self.canonical_tensor_reference_to_tensor = {}
         self.tensor_reference_to_representation = {}
-        self.manual_tensor_connections_sink_to_sources = collections.defaultdict(list)
+        self.manual_tensor_connections_sink_to_sources_by_tensor = collections.defaultdict(list)
+        self.manual_tensor_connections_sink_to_sources_by_computation_step = collections.defaultdict(list)
         self.current_batch_size = current_batch_size
         self.training_step_configuration = TrainingStepConfiguration(
             type_of_execution=self.type_of_execution,
@@ -494,9 +496,17 @@ class ComgraRecorder:
         src = verify_object(src, 'src')
         sink = verify_object(sink, 'sink')
         assert src is not sink
-        # We compare by id() and set() because pytorch will try to compare tensors with == on lists
-        if id(src) not in set(id(a) for a in self.manual_tensor_connections_sink_to_sources[sink]):
-            self.manual_tensor_connections_sink_to_sources[sink].append(src)
+        # Store the sink differently, depending on whether grad_fn is set or not,
+        # because this determines how the sink tensor can be discovered later:
+        # Either by recursing through the computation graph's grad_fn elements, or as a leaf tensor.
+        if sink.grad_fn is None:
+            # We compare by id() and set() because pytorch will try to compare objects with == on lists
+            if id(src) not in set(id(a) for a in self.manual_tensor_connections_sink_to_sources_by_tensor[sink]):
+                self.manual_tensor_connections_sink_to_sources_by_tensor[sink].append(src)
+        else:
+            # We compare by id() and set() because pytorch will try to compare objects with == on lists
+            if id(src) not in set(id(a) for a in self.manual_tensor_connections_sink_to_sources_by_computation_step[sink.grad_fn]):
+                self.manual_tensor_connections_sink_to_sources_by_computation_step[sink.grad_fn].append(src)
 
     @utilities.runtime_analysis_decorator
     def detach_while_keeping_connection(self, tensor: torch.Tensor):
@@ -807,23 +817,15 @@ class ComgraRecorder:
                                 predecessor, previously_encountered_tensor_references,
                                 previously_followed_manual_connections,
                             )
-                # Recurse through self.manual_tensor_connections_sink_to_sources
-                for source_tensor in self.manual_tensor_connections_sink_to_sources.get(tensor, []):
-                    # Sanity check
-                    connection = (id(source_tensor), id(tensor))
-                    if connection in previously_followed_manual_connections:
-                        raise ValueError(
-                            f"A loop was encountered while constructing the dependency graph in comgra. "
-                            f"This was caused by add_tensor_connection(). "
-                            f"Please make sure you did not accidentally use that function to create a loop. "
-                            f"The following tensor references were involved in the loop (named tensors only!):\n"
-                            f"{', '.join([str((a.tensor_name, a.iteration)) for a in previously_encountered_tensor_references if a is not None])}"
-                        )
-                    traverse_graph_backwards__tensor(
-                        source_tensor, previously_encountered_tensor_references,
-                        previously_followed_manual_connections + [connection],
-                        this_was_called_because_of_a_manual_connection=True,
-                    )
+                print('tensor, in tensor')
+                # Recurse through self.manual_tensor_connections_sink_to_sources_by_tensor
+                helper_to_recurse_through_manual_tensor_connections(
+                    tensor,
+                    None,
+                    previously_encountered_tensor_references,
+                    previously_followed_manual_connections,
+                )
+
         @utilities.runtime_analysis_decorator
         def traverse_graph_backwards__computation_graph(
                 step_to_follow,
@@ -878,6 +880,55 @@ class ComgraRecorder:
                             predecessor, previously_encountered_tensor_references,
                             previously_followed_manual_connections,
                         )
+                print('grad_fn, in graph')
+                helper_to_recurse_through_manual_tensor_connections(
+                    None,
+                    step_to_follow,
+                    previously_encountered_tensor_references,
+                    previously_followed_manual_connections,
+                )
+                if hasattr(step_to_follow, 'variable') and isinstance(step_to_follow.variable, torch.Tensor):
+                    print('tensor, in graph')
+                    helper_to_recurse_through_manual_tensor_connections(
+                        step_to_follow.variable,
+                        None,
+                        previously_encountered_tensor_references,
+                        previously_followed_manual_connections,
+                    )
+        def helper_to_recurse_through_manual_tensor_connections(
+                sink_as_tensor,
+                sink_as_computation_step,
+                previously_encountered_tensor_references: List[Optional[TensorReference]],
+                previously_followed_manual_connections: List[Tuple[int, int]],
+        ):
+            assert (sink_as_tensor is None) != (sink_as_computation_step is None), "One of the two options"
+            if sink_as_tensor is not None:
+                source_tensors = [
+                    a for a in self.manual_tensor_connections_sink_to_sources_by_tensor.get(sink_as_tensor, [])
+                ]
+                sink_id = id(sink_as_tensor)
+            else:
+                source_tensors = [
+                    a for a in self.manual_tensor_connections_sink_to_sources_by_computation_step.get(sink_as_computation_step, [])
+                ]
+                sink_id = id(sink_as_computation_step)
+            print('connections', len(source_tensors))
+            for source_tensor in source_tensors:
+                # Sanity check
+                connection = (id(source_tensor), sink_id)
+                if connection in previously_followed_manual_connections:
+                    raise ValueError(
+                        f"A loop was encountered while constructing the dependency graph in comgra. "
+                        f"This was caused by add_tensor_connection(). "
+                        f"Please make sure you did not accidentally use that function to create a loop. "
+                        f"The following tensor references were involved in the loop (named tensors only!):\n"
+                        f"{', '.join([str((a.tensor_name, a.iteration)) for a in previously_encountered_tensor_references if a is not None])}"
+                    )
+                traverse_graph_backwards__tensor(
+                    source_tensor, previously_encountered_tensor_references,
+                    previously_followed_manual_connections + [connection],
+                    this_was_called_because_of_a_manual_connection=True,
+                )
         #
         # Backpropagate from any tensor that was created or otherwise referenced in this iteration
         #
