@@ -708,10 +708,12 @@ class ComgraRecorder:
             of the references to those iterations is used as a dependency and the others are ignored
             (In terms of implementation, a new reference is created that copies the most recent older reference).
             """
+            print('START tensor', [a.tensor_name if a else a for a in previously_encountered_tensor_references])
             last_encountered_reference = previously_encountered_tensor_references[-1] if previously_encountered_tensor_references else None
             # Skip duplicate calls.
             key = (tensor, last_encountered_reference)
             if key in cache_to_avoid_duplicate_calls__tensor_references:
+                print("skipping", key)
                 return
             cache_to_avoid_duplicate_calls__tensor_references.add(key)
             #
@@ -780,6 +782,7 @@ class ComgraRecorder:
                 last_ref = tmp[-1]
                 tensor_representation = self.tensor_reference_to_representation[refs[0]]
                 # Add last_encountered_reference to the list of dependents of last_ref
+                print('encountered', first_ref.tensor_name, first_ref.iteration, last_ref.tensor_name, last_ref.iteration)
                 if last_encountered_reference is not None:
                     assert last_ref is not last_encountered_reference, last_ref
                     assert last_encountered_reference not in tensor_reference_to_list_of_dependents[last_ref], \
@@ -801,6 +804,7 @@ class ComgraRecorder:
                     keep_recursing = False
                 # Set the previously_encountered_tensor_references
                 previously_encountered_tensor_references = previously_encountered_tensor_references + list(reversed(tmp))
+                print('update', [a.tensor_name if a else a for a in previously_encountered_tensor_references])
                 assert previously_encountered_tensor_references[-1] is first_ref
             #
             # Recurse
@@ -813,6 +817,7 @@ class ComgraRecorder:
                             (self.tensor_to_list_of_references[tensor][0],)
                     for predecessor, _ in tensor.grad_fn.next_functions:
                         if predecessor is not None:
+                            print('backprop to predecessor FROM ', tensor.grad_fn)
                             traverse_graph_backwards__computation_graph(
                                 predecessor, previously_encountered_tensor_references,
                                 previously_followed_manual_connections,
@@ -825,6 +830,7 @@ class ComgraRecorder:
                     previously_encountered_tensor_references,
                     previously_followed_manual_connections,
                 )
+            print('END tensor')
 
         @utilities.runtime_analysis_decorator
         def traverse_graph_backwards__computation_graph(
@@ -835,6 +841,7 @@ class ComgraRecorder:
             """
             See documentation of traverse_graph_backwards__tensor().
             """
+            print('START computation_graph', step_to_follow, [a.tensor_name if a else a for a in previously_encountered_tensor_references])
             assert step_to_follow is not None
             last_encountered_reference = previously_encountered_tensor_references[-1] if previously_encountered_tensor_references else None
             # Skip duplicate calls.
@@ -843,6 +850,7 @@ class ComgraRecorder:
             # to the current tensor.
             key = (step_to_follow, last_encountered_reference)
             if key in cache_to_avoid_duplicate_calls__computation_graph:
+                print("skipping", key)
                 return
             cache_to_avoid_duplicate_calls__computation_graph.add(key)
             # Get the registered tensor, if there is one
@@ -869,6 +877,7 @@ class ComgraRecorder:
             # Else continue recursing along the computation graph.
             #
             if t is not None:
+                print('delegate to tensor')
                 traverse_graph_backwards__tensor(
                     t, previously_encountered_tensor_references,
                     previously_followed_manual_connections,
@@ -876,6 +885,7 @@ class ComgraRecorder:
             else:
                 for predecessor, _ in step_to_follow.next_functions:
                     if predecessor is not None:
+                        print('backprop to predecessor')
                         traverse_graph_backwards__computation_graph(
                             predecessor, previously_encountered_tensor_references,
                             previously_followed_manual_connections,
@@ -895,6 +905,8 @@ class ComgraRecorder:
                         previously_encountered_tensor_references,
                         previously_followed_manual_connections,
                     )
+            print('END computation_graph')
+
         def helper_to_recurse_through_manual_tensor_connections(
                 sink_as_tensor,
                 sink_as_computation_step,
@@ -938,6 +950,7 @@ class ComgraRecorder:
             if ref.iteration == self.iteration
         ]
         for tensor in tensors_to_show:
+            print("ROOT")
             traverse_graph_backwards__tensor(tensor,[], [])
         #
         # Sanity check
