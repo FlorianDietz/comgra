@@ -232,6 +232,21 @@ class NodeGraphStructure:
                 if next_set_of_nodes:
                     no_nodes_can_be_placed = False
                     break
+            if no_nodes_can_be_placed:
+                # Note:
+                # Some loops caused by add_tensor_connection() can be discovered during graph construction,
+                # but this is not guaranteed.
+                # The caching mechanism to prevent repeated function calls can also prevent
+                # a loop from being discovered, depending on the order in which tensors end up being processed.
+                raise ValueError(
+                    "The dependency graph can not be constructed. "
+                    "Its dependencies contain a circular reference, likely caused by add_tensor_connection(). "
+                    "If you did not use add_tensor_connection(), this error should not be possible. "
+                    "In that case, please file a bug report."
+                )
+            # Old error message, before no_nodes_can_be_placed became a feature, not a bug, that can be
+            # triggered by misuse of add_tensor_connection().
+            # This assert remains here for future debugging purposes only because it prints a lot of useful stuff.
             assert not no_nodes_can_be_placed, \
                 (f"Programming error. Can't build dependency graph. "
                  f"There are tensors left to be added to the graph, "

@@ -496,17 +496,19 @@ class ComgraRecorder:
         src = verify_object(src, 'src')
         sink = verify_object(sink, 'sink')
         assert src is not sink
-        # Store the sink differently, depending on whether grad_fn is set or not,
+        # Store the sink in up to two different ways, depending on whether grad_fn is set or not,
         # because this determines how the sink tensor can be discovered later:
         # Either by recursing through the computation graph's grad_fn elements, or as a leaf tensor.
-        if sink.grad_fn is None:
-            # We compare by id() and set() because pytorch will try to compare objects with == on lists
-            if id(src) not in set(id(a) for a in self.manual_tensor_connections_sink_to_sources_by_tensor[sink]):
-                self.manual_tensor_connections_sink_to_sources_by_tensor[sink].append(src)
-        else:
+        # Note that if the sink is stored both ways then the graph backpropagation algorithm may end up recursing
+        # through it twice. It should be able to handle that without issue, just like it has to be able to handle
+        # the possibility that a grad_fn leads to the same tensor twice by two different routes.
+        if sink.grad_fn is not None:
             # We compare by id() and set() because pytorch will try to compare objects with == on lists
             if id(src) not in set(id(a) for a in self.manual_tensor_connections_sink_to_sources_by_computation_step[sink.grad_fn]):
                 self.manual_tensor_connections_sink_to_sources_by_computation_step[sink.grad_fn].append(src)
+        # We compare by id() and set() because pytorch will try to compare objects with == on lists
+        if id(src) not in set(id(a) for a in self.manual_tensor_connections_sink_to_sources_by_tensor[sink]):
+            self.manual_tensor_connections_sink_to_sources_by_tensor[sink].append(src)
 
     @utilities.runtime_analysis_decorator
     def detach_while_keeping_connection(self, tensor: torch.Tensor):
@@ -707,6 +709,14 @@ class ComgraRecorder:
             If the tensor is registered multiple times, but for an older iteration only, then only the most recent
             of the references to those iterations is used as a dependency and the others are ignored
             (In terms of implementation, a new reference is created that copies the most recent older reference).
+            ---
+            Other special cases to consider:
+            If a tensor has no grad_fn, you can't backpropagate through it and you find it as a leaf variable in the graph.
+            If it does have a grad_fn, it can't be found directly during backpropagation and computation_step_to_tensor has to be used instead.
+            If a tensor has no requires_grad, it won't be found during backpropagation.
+            To cover all these cases, it is necessary for the code to discover tensors both by recursing through the graph
+            and by manually visiting tensors directly, through add_tensor_connection(),
+            manual_tensor_connections_sink_to_sources_by_tensor and manual_tensor_connections_sink_to_sources_by_computation_step
             """
             print('START tensor', [a.tensor_name if a else a for a in previously_encountered_tensor_references])
             last_encountered_reference = previously_encountered_tensor_references[-1] if previously_encountered_tensor_references else None
