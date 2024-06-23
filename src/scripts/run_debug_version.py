@@ -218,7 +218,12 @@ class Demonstration:
             comgra.my_recorder.register_tensor(f"connected_2", tmp) # connect to output + memory
             # This should result in a connection between output and root_module.subnet_mem__out,
             # because memory is a secondary TensorReference for that tensor.
-            # comgra.my_recorder.add_tensor_connection(output, memory)
+            comgra.my_recorder.add_tensor_connection(output, memory)
+            # Detach a tensor but still create a connection
+            tmp = output * 1
+            tmp = comgra.my_recorder.detach_while_keeping_connection(tmp)
+            tmp = tmp * 1
+            comgra.my_recorder.register_tensor(f"connected_3", tmp)  # connect to output
             #
             # These lines should result in an error if they are uncommented:
             # The error should show the name of the tensor
@@ -228,15 +233,20 @@ class Demonstration:
             # * immediate loop
             # comgra.my_recorder.add_tensor_connection(output * 1, output)
             # * longer loop
+            # It should give an error even if only one of the two tensors is registered (they may be different errors).
+            # It may optional give an error if neither tensor is registered, since then we have a loop that doesn't
+            # actually do anything harmful, as it doesn't touch on any tensors.
+            # Just be sure the loop doesn't result in a timeout but gets caught
+            # and stopped by caching after one iteration.
             # tmp0 = x + 1
             # comgra.my_recorder.register_tensor(f"longer_loop_part_0", tmp0)
             # tmp1 = tmp0 + 1
             # comgra.my_recorder.register_tensor(f"longer_loop_part_1", tmp1)
             # tmp2 = tmp1 + 1
             # comgra.my_recorder.add_tensor_connection(tmp2, tmp0)
-            # A loop that goes all the way back to an input before looping.
+            # * A loop that goes all the way back to an input before looping.
             # comgra.my_recorder.add_tensor_connection(output, input_for_this_iteration)
-            # A loop that goes far back, but not quite to an input, and to an unregistered tensor
+            # * A loop that goes far back, but not quite to an input, and to an unregistered tensor
             # comgra.my_recorder.add_tensor_connection(output, x)
             #
             # Apply the loss on the last iteration only
