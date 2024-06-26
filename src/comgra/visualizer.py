@@ -869,12 +869,12 @@ class Visualization:
                     'batch_abs_max': "Maximum absolute value over the batch",
                     'batch_std': "STD over the batch",
                     'has_no_batch_dimension': "Has no batch dimension",
-                }.get(a, f"batch index {a}")
+                }.get(a, f"Sample {a}")
             )
             batch_index_options.sort(
                 key=lambda a: -1 if a['value'] in ['batch_mean', 'batch_abs_max', 'batch_std'] else (
                     -2 if a['value'] == 'has_no_batch_dimension' else a['value']))
-            # Increment or decrement the batch index if the user clicked the buttons.
+            # Increment or decrement the sample index if the user clicked the buttons.
             idx = [a['value'] for a in batch_index_options].index(batch_index_value)
             if ctx.triggered_id == 'increment-batch-index-button':
                 idx = max(0, min(len(batch_index_options) - 1, idx + 1))
