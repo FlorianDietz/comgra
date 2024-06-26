@@ -266,6 +266,8 @@ class ComgraRecorder:
         self.tensor_recordings = TensorRecordings()
         self.mapping_of_tensors_for_extracting_kpis = {}
         self.override__recording_is_active = override__recording_is_active
+        # It's important only to return now, after clearing all caches from the previous training step
+        # and clearing memory
         if not self.recording_is_active():
             return
         # Register the tensors on the parameters
