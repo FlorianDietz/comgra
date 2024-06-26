@@ -250,32 +250,36 @@ class ComgraRecorder:
         self.record_all_tensors_per_batch_index_by_default = record_all_tensors_per_batch_index_by_default
         assert self.current_stage == 'inactive', self.current_stage
         self.current_stage = 'started'
-        self.types_of_tensor_recordings = []
         self.current_type_of_tensor_recording = 'forward'
-        self.tensor_to_list_of_references = {}
-        self.tensors_that_were_manually_marked_to_require_grad_but_dont_need_to_be_recorded = set()
-        self.canonical_tensor_reference_to_tensor = {}
-        self.tensor_reference_to_representation = {}
-        self.manual_tensor_connections_sink_to_sources_by_tensor = collections.defaultdict(list)
-        self.manual_tensor_connections_sink_to_sources_by_computation_step = collections.defaultdict(list)
         self.current_batch_size = current_batch_size
+        self.override__recording_is_active = override__recording_is_active
+        self._reset_caches()
+        if not self.recording_is_active():
+            return
         self.training_step_configuration = TrainingStepConfiguration(
             type_of_execution=self.type_of_execution,
             modules_and_parameters=self.set_of_top_level_modules,
         )
-        self.tensor_recordings = TensorRecordings()
-        self.mapping_of_tensors_for_extracting_kpis = {}
-        self.override__recording_is_active = override__recording_is_active
-        # It's important only to return now, after clearing all caches from the previous training step
-        # and clearing memory
-        if not self.recording_is_active():
-            return
         # Register the tensors on the parameters
         for tensor, parameter in self.parameter_to_representation.items():
             tensor_name = parameter.full_unique_name
             node_name = next(
                 (a for a in self.prefixes_for_grouping_module_parameters_in_nodes if tensor_name.startswith(a)), None)
             self.register_tensor(tensor_name, tensor, is_parameter=True, node_name=node_name)
+
+    def _reset_caches(self):
+        # Note that this method should be called both before and after each training step.
+        # It empties caches, which allows pytorch to free memory.
+        self.training_step_configuration = None
+        self.tensor_recordings = TensorRecordings()
+        self.mapping_of_tensors_for_extracting_kpis = {}
+        self.types_of_tensor_recordings = []
+        self.tensor_to_list_of_references = {}
+        self.tensors_that_were_manually_marked_to_require_grad_but_dont_need_to_be_recorded = set()
+        self.canonical_tensor_reference_to_tensor = {}
+        self.tensor_reference_to_representation = {}
+        self.manual_tensor_connections_sink_to_sources_by_tensor = collections.defaultdict(list)
+        self.manual_tensor_connections_sink_to_sources_by_computation_step = collections.defaultdict(list)
 
     @utilities.runtime_analysis_decorator
     def register_tensor(
@@ -1090,6 +1094,8 @@ class ComgraRecorder:
         self._save_tensor_recordings()
         # Save the graph of KPIs, which is independent of the rest of the recordings
         self._save_recorded_kpi_graphs_if_needed()
+        # Clear caches
+        self._reset_caches()
 
     def _save_training_step_configuration(self):
         self.configurations_path.mkdir(parents=True, exist_ok=True)
