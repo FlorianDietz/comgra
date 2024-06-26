@@ -353,7 +353,7 @@ class ComgraRecorder:
             assert index_of_batch_dimension is not None
             value_dimensions = [i for i in range(len(tensor.shape)) if i != index_of_batch_dimension]
             if recording_type is None:
-                recording_type = 'neurons'
+                recording_type = 'neuron'
         if index_of_batch_dimension is None:
             assert not record_per_batch_index, \
                 f"This tensor has no batch dimension and therefore can't have record_per_batch_index=True: {tensor_name}"
@@ -379,8 +379,8 @@ class ComgraRecorder:
             items_to_record = ['mean', 'abs_mean', 'std', 'abs_max']
         elif recording_type == 'kpis_and_svd':
             items_to_record = ['mean', 'abs_mean', 'std', 'abs_max', 'svd']
-        elif recording_type == 'neurons':
-            items_to_record = ['mean', 'abs_mean', 'std', 'abs_max', 'neurons']
+        elif recording_type == 'neuron':
+            items_to_record = ['mean', 'abs_mean', 'std', 'abs_max', 'neuron']
         elif recording_type == 'single_value':
             items_to_record = ['single_value']
         else:
@@ -562,7 +562,7 @@ class ComgraRecorder:
                     val = torch.amax(tensor.abs(), dim=value_dimensions).unsqueeze(dim=expansion_dim)
                 elif item == 'svd':
                     val = self._get_highest_svd(tensor)
-                elif item == 'neurons':
+                elif item == 'neuron':
                     val = torch.movedim(tensor, tensor_representation.index_of_batch_dimension, 0)
                     val = val.reshape((val.shape[0], -1))
                     assert len(val.shape) == 2 and val.shape[0] == self.current_batch_size, \
@@ -1170,7 +1170,7 @@ class ComgraRecorder:
             else:
                 batch_values = [batching_type]
                 assert tensor.shape[0] == 1, (tensor.shape, self.current_batch_size, batch_size_to_record, key)
-            if item == 'neurons':
+            if item == 'neuron':
                 neuron_values = []
                 shape_without_batch_dimension = list(tensor_representation.shape)
                 del shape_without_batch_dimension[tensor_representation.index_of_batch_dimension]
