@@ -235,16 +235,15 @@ In the `src/scripts/run.py` script we also run a second trial in which this bug 
 
 The results of this can be seen by switching the "Trial" selector from "trial_bugged_original_version" to "trial_no_activation_function_on_output_layer".
 
-If you inspect this second trial, you will notice that the bug is gone. The loss curves of the second trial, in the 'Graphs' section, show much faster convergence than they did before.
-
+If you inspect this second trial, you will notice that the bug is gone. The loss curves of the second trial, in the 'Graphs' section, show much faster convergence than they did before and also generalized better to higher lengths.
 
 <details>
-  <summary><b>Click here to expand: Differences in convergence speed</b></summary>
+  <summary><b>Click here to expand: Differences in convergence speed and length generalization</b></summary>
 
-  | <img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/00.png" width="100%"/>
+  | <img src="src/assets/screenshots_for_tutorial/comparison_loss_graphs/original.png" width="100%"/>
   | -
 
-  | <img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/01.png" width="100%"/>
+  | <img src="src/assets/screenshots_for_tutorial/comparison_loss_graphs/fixed.png" width="100%"/>
   | -
 </details>
 
