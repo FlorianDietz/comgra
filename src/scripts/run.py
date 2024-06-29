@@ -47,8 +47,9 @@ class Demonstration:
         self.model = CompleteModule(
             self.input_size, self.hidden_size, self.memory_size, self.output_size
         ).to(self.device)
-        self.criterion = torch.nn.CrossEntropyLoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-4)
+        # We use reduction='none' here so that we get the loss on a per-sample basis later, so we can record it
+        self.criterion = torch.nn.CrossEntropyLoss(reduction='none')
         # Initialize comgra
         # This command tells comgra to permanently register all parameters of a given module.
         # Note:
@@ -210,8 +211,8 @@ class Demonstration:
                 for i in range(0, num_iterations):
                     helper_partial_sums = input_tensor[:, :i+1, :].sum(dim=1).detach()
                     comgra.my_recorder.register_tensor(
-                        f"helper_partial_sums_up_to_iteration_{i}", helper_partial_sums,
-                        node_name=f"helper_partial_sums", role_within_node=f"up_to_iteration_{i}",
+                        f"helper_partial_sums_up_to_iteration_{i:02}", helper_partial_sums,
+                        node_name=f"helper_partial_sums", role_within_node=f"up_to_iteration_{i:02}",
                     )
                     # Add an artificial connection between the input and helper_partial_sums.
                     # This is for illustration purposes only:
@@ -219,13 +220,18 @@ class Demonstration:
                     # dependency graph, because it is created with .detach(),
                     # which creates a gap in the computation graph.
                     comgra.my_recorder.add_tensor_connection(input_for_this_iteration, helper_partial_sums)
-                # Calculate the loss and perform a backward pass as normal
-                loss = self.criterion(output, target_tensor)
+                # Calculate the loss
+                # Remember that we use a modified criterion here so that we can inspect the loss per sample,
+                # so we need to explicitly take the mean afterward.
+                loss_per_sample = self.criterion(output, target_tensor).unsqueeze(1)
+                comgra.my_recorder.register_tensor(f"loss_per_sample", loss_per_sample)
+                loss = loss_per_sample.mean()
+                comgra.my_recorder.register_tensor(f"loss", loss, is_loss=True)
+                # Perform a backwards pass as usual
                 self.optimizer.zero_grad()
                 loss.backward()
-                comgra.my_recorder.register_tensor(f"loss", loss, is_loss=True)
                 accuracy = (output.argmax(dim=1).eq(target_tensor.argmax(dim=1))).float().mean()
-                accuracy_first_ten = (output[:10, :].argmax(dim=1).eq(target_tensor[:10, :].argmax(dim=1))).float().mean()
+                accuracy_first_ten_samples = (output[:10, :].argmax(dim=1).eq(target_tensor[:10, :].argmax(dim=1))).float().mean()
                 # Create graphs.
                 # A separate graph is automatically created for each separate type_of_execution.
                 # You can also use the second parameter to create subgroups. Here we measure accuracy twice,
@@ -242,7 +248,7 @@ class Demonstration:
                     "accuracy", f"all", accuracy,
                 )
                 comgra.my_recorder.record_kpi_in_graph(
-                    "accuracy", f"first_ten", accuracy_first_ten,
+                    "accuracy", f"first_ten_samples", accuracy_first_ten_samples,
                 )
                 # We skip the update step for some data, because we want to see how that affects network values.
                 # (We unfortunately can not use torch.no_grad() if we want to record data in comgra,
