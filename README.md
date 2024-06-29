@@ -25,7 +25,7 @@ Comgra records everything that could be relevant to you, and allows you to inspe
 
 Suitable both for novices and for professional neural architecture designers: Create a simple visualization of your network to understand what is happening under the hood, or perform advanced analyses and trace anomalies through the computation graph.
 
-| <img src="src/assets/screenshots_for_tutorial/main_overview_version_3.png" width="100%"/>
+| <img src="src/assets/screenshots_for_tutorial/main_overview.png" width="100%"/>
 | -
 
 Comgra's GUI has three parts:
@@ -134,7 +134,6 @@ As a first step, let's look at network summary information, graphs, and the note
 
 The Notes tab shows anything that we logged with `add_note()`. If we scroll down, we see that performance improves, but it does not look very good.
 
-
 | <img src="src/assets/screenshots_for_tutorial/graphs_info.png" width="100%"/>
 | -
 
@@ -155,7 +154,7 @@ Let's start by setting some selectors to some arbitrary but sensible values to g
 * Set the "Type of training Step" to "05_iterations" so that we are only shown training steps that ran for exactly 5 iterations.
 * Select the last iteration: Note that the Node for the Loss only appears in the computational graph if the last iteration is selected, because a loss is only applied on the last iteration.
 * Select the "input" node.
-* Set "Batch or sample" to "sample 0": The values at the bottom of the screen now show the values for only the first element of the batch. This makes it possible to investigate how the network reacts to specific examples, while "Mean over the batch" is more useful for investigating how statistics change over time. Note that the values "mean", "abs_mean", "std", and "abs_max" at the bottom of the screen are statistics over the value dimension of the tensor. Setting "Batch or sample" to "Mean over the batch" means that it additionally calculates the mean over the batch dimension after calculating the statistic over the value dimension. This combination gives you a lot of flexibility in how you look at the data.
+* Set "Batch or sample" to "Sample 0": The values at the bottom of the screen now show the values for only the first element of the batch. This makes it possible to investigate how the network reacts to specific examples, while "Mean over the batch" is more useful for investigating how statistics change over time. Note that the values "mean", "abs_mean", "std", and "abs_max" at the bottom of the screen are statistics over the value dimension of the tensor. Setting "Batch or sample" to "Mean over the batch" means that it additionally calculates the mean over the batch dimension after calculating the statistic over the value dimension. This combination gives you a lot of flexibility in how you look at the data.
 
 | <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/01.png" width="100%"/>
 | -
@@ -163,7 +162,7 @@ Let's start by setting some selectors to some arbitrary but sensible values to g
 We have currently selected the "input" node in the dependency graph (the green node at the top left). The lines that go from the selected node to other nodes indicate dependencies. In the following we move along the dependency graph by clicking on subsequent nodes until we get to the "Loss" node. (Note that a different node is highlighted in each image).
 
 <details>
-  <summary><b>Click here to expand: Walking through the computation graph</b></summary>
+  <summary><b>Click here to expand: Walking through the dependency graph</b></summary>
 
   | <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/02.png" width="100%"/>
   | -
@@ -181,6 +180,9 @@ We have currently selected the "input" node in the dependency graph (the green n
   | -
 
   | <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/07.png" width="100%"/>
+  | -
+
+  | <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/08.png" width="100%"/>
   | -
 </details>
 

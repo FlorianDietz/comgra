@@ -226,7 +226,7 @@ class Demonstration:
                 # Calculate the loss
                 # Remember that we use a modified criterion here so that we can inspect the loss per sample,
                 # so we need to explicitly take the mean afterward.
-                loss_per_sample = self.criterion(output, target_tensor).unsqueeze(1)
+                loss_per_sample = self.criterion(output, target_tensor)
                 comgra.my_recorder.register_tensor(f"loss_per_sample", loss_per_sample)
                 loss = loss_per_sample.mean()
                 comgra.my_recorder.register_tensor(f"loss", loss, is_loss=True)
