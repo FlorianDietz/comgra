@@ -125,7 +125,7 @@ class Demonstration:
         for i, (num_iterations, use_for_training, dataloader) in enumerate(self.task_data):
             comgra.my_recorder.add_note(f"Dataset {i}: {num_iterations} iterations, used for training: {use_for_training}, {len(dataloader.dataset):,.0f}")
         # Train the model
-        num_training_steps = 20_100
+        num_training_steps = 20_500
         for training_step in range(num_training_steps):
             # Pick a random dataloader and run a batch of it.
             idx = training_step % len(self.task_data)
