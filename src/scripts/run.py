@@ -131,6 +131,8 @@ class Demonstration:
             idx = training_step % len(self.task_data)
             num_iterations, use_for_training, dataloader = self.task_data[idx]
             self.run_one_training_step(training_step, num_iterations, dataloader, use_for_training)
+        # Save anything that is still in the buffer
+        comgra.my_recorder.finalize()
 
 
     def run_one_training_step(self, training_step, num_iterations, dataloader, update_the_model_parameters):

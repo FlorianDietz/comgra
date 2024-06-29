@@ -1093,7 +1093,16 @@ class ComgraRecorder:
         # Save the tensors
         self._save_tensor_recordings()
         # Save the graph of KPIs, which is independent of the rest of the recordings
-        self._save_recorded_kpi_graphs_if_needed()
+        self._save_recorded_kpi_graphs_if_needed(False)
+        # Clear caches
+        self._reset_caches()
+
+    def finalize(self):
+        """
+        Save anything that is still in the buffer.
+        """
+        # Save the graph of KPIs, which is independent of the rest of the recordings
+        self._save_recorded_kpi_graphs_if_needed(True)
         # Clear caches
         self._reset_caches()
 
@@ -1342,13 +1351,14 @@ class ComgraRecorder:
             self.kpi_graph_changed = True
 
     @utilities.runtime_analysis_decorator
-    def _save_recorded_kpi_graphs_if_needed(self):
-        if not self.kpi_graph_changed:
-            return
-        if self.training_step < self.kpi_graph_next_training_step_to_update_file:
-            return
+    def _save_recorded_kpi_graphs_if_needed(self, finalize):
+        if not finalize:
+            if not self.kpi_graph_changed:
+                return
+            if self.training_step < self.kpi_graph_next_training_step_to_update_file:
+                return
+            self.kpi_graph_next_training_step_to_update_file *= self.kpi_graph_exponential_backoff_factor
         self.kpi_graph_changed = False
-        self.kpi_graph_next_training_step_to_update_file *= self.kpi_graph_exponential_backoff_factor
         # Save the file with a tmp suffix first, then overwrite the real one.
         # This prevents issues in case the visualizer is accessing the file while it is being overwritten.
         tmp_path = self._save_file(self.kpi_graph_excerpt, self.trial_path, 'kpi_graph_tmp')
