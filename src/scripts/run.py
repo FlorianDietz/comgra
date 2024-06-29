@@ -37,7 +37,6 @@ class Demonstration:
         configurations = [
             'bugged_original_version',
             'no_activation_function_on_output_layer',
-            'no_activation_function_or_sigmoid',
         ]
         for configuration in configurations:
             self.current_configuration = configuration
@@ -50,7 +49,7 @@ class Demonstration:
         ).to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-4)
         # We use reduction='none' here so that we get the loss on a per-sample basis later, so we can record it
-        self.criterion = torch.nn.CrossEntropyLoss(reduction='none')
+        self.criterion = torch.nn.MSELoss(reduction='none')
         # Initialize comgra
         # This command tells comgra to permanently register all parameters of a given module.
         # Note:
@@ -126,7 +125,7 @@ class Demonstration:
         for i, (num_iterations, use_for_training, dataloader) in enumerate(self.task_data):
             comgra.my_recorder.add_note(f"Dataset {i}: {num_iterations} iterations, used for training: {use_for_training}, {len(dataloader.dataset):,.0f}")
         # Train the model
-        num_training_steps = 20_000
+        num_training_steps = 20_100
         for training_step in range(num_training_steps):
             # Pick a random dataloader and run a batch of it.
             idx = training_step % len(self.task_data)
@@ -193,8 +192,7 @@ class Demonstration:
             # Note that we store the memory in a node called 'memory', the same as 'initial_memory' above,
             # because they both refer to the same hidden state and this way the GUI will combine them when appropriate.
             output, memory = self.model(x)
-            if self.current_configuration != 'no_activation_function_or_sigmoid':
-                output = torch.sigmoid(output)
+            output = torch.sigmoid(output)
             comgra.my_recorder.register_tensor(f"output", output)
             comgra.my_recorder.register_tensor(f"memory_out", memory, node_name='memory')
             assert output.shape == (batch_size, self.output_size)
@@ -214,7 +212,8 @@ class Demonstration:
                     helper_partial_sums = input_tensor[:, :i+1, :].sum(dim=1).detach()
                     comgra.my_recorder.register_tensor(
                         f"helper_partial_sums_up_to_iteration_{i:02}", helper_partial_sums,
-                        node_name=f"helper_partial_sums", role_within_node=f"up_to_iteration_{i:02}",
+                        node_name=f"helper_partial_sums",
+                        role_within_node=f"final" if (i == num_iterations - 1) else f"up_to_iteration_{i:02}",
                     )
                     # Add an artificial connection between the input and helper_partial_sums.
                     # This is for illustration purposes only:
@@ -303,9 +302,8 @@ class ExampleDataset(Dataset):
         self.data = []
         # Inputs are sequences of 5 random numbers in [0;1]
         # Targets are 1 for the sequence with the greatest sum and 0 for the others.
-        self.inputs = torch.rand((dataset_size, number_of_iterations, 5)).to(device)
-        tmp = self.inputs.sum(dim=1)
-        self.targets = tmp.eq(tmp.max(dim=1, keepdim=True)[0].expand(dataset_size, 5)).float()
+        self.inputs = (torch.rand((dataset_size, number_of_iterations, 5)) * 2 - 1).to(device)
+        self.targets = (self.inputs.sum(dim=1) > 0.0).float()
 
     def __len__(self):
         return self.dataset_size
@@ -334,7 +332,7 @@ class NeuralNet(nn.Module):
         # of the current module and all its parents, as recorded by comgra.my_recorder.track_module()
         comgra.my_recorder.register_tensor(f"{comgra.my_recorder.get_name_of_module(self)}__hidden_state", x)
         x = self.fnn2(x)
-        if DEMONSTRATION.current_configuration not in ['no_activation_function_on_output_layer', 'no_activation_function_or_sigmoid']:
+        if DEMONSTRATION.current_configuration != 'no_activation_function_on_output_layer':
             x = self.activation(x)
         comgra.my_recorder.register_tensor(f"{comgra.my_recorder.get_name_of_module(self)}__out", x)
         return x

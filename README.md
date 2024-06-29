@@ -37,9 +37,9 @@ Comgra's GUI has three parts:
 
   Each rectangle in the dependency graph is a node that represents a named tensor. The colors indicate the roles of the tensor in the network, such as input, intermediate result, parameter, etc.
 
-  When you select a node it becomes highlighted, along with all nodes that it depends on (to the left) and that depend on it (to the right). Only the links for the selected node are shown by default to avoid visual clutter, but by clicking through the nodes you can explore the entire dependency graph.
+  When you select a node it becomes highlighted, along with all nodes that it depends on (to the left) and that depend on it (to the right). Only the links for the selected node are shown by default to avoid visual clutter, but by clicking on one node after the other you can explore the entire dependency graph.
   
-  If a node has a dotted border on one side, it indicates that it does not have any dependency (left) or dependent (right) on that iteration. If a connection is drawn with a thinner line, it indicates that some of the tensors in the node have this connection, but the currently selected one does not. This is the case for the node 'subnet_pre', which summarizes all four parameters of the module with that name. You can use the "Role of Tensor" selector to switch to another parameter in that module, which will change the connections.
+  If a node has a dotted border on one side, it indicates that it does not have any dependency (left) or dependent (right) on that iteration. If a connection is drawn with a thinner line, it indicates that some of the tensors in the node have this connection, but the currently selected one does not. In the example network of the tutorial, this is the case for the node 'subnet_pre', which summarizes all four parameters of the module with that name. You can use the "Role of Tensor" selector to switch to another parameter in that module, which will change the connections.
 
   The dependency graph is generated automatically based on the computation graph used by pytorch and the names you assign to tensors through comgra. It is a subgraph of the computation graph, but it is much easier to understand because it is smaller and skips all the distracting details.
 
@@ -109,14 +109,15 @@ For convenience, you can run the file from the commandline using
 comgra-test-run
 ```
 
-and you can start the GUI on the data it generates by calling
+The results of that run will be stored in a local folder of the library. You can start the GUI on this data by running
+
 ```bash
 comgra --use-path-for-test-run
 ```
 
 ### The Task and the Architecture
 
-We use a synthetic task that is designed to test a neural network's ability to generalize to longer sequences, while being very simple and human-interpretable. The input is a sequence of N tuples of 5 numbers between 0.0 and 1.0. The network should treat these as 5 separate sequences. Its objective is to determine which of these 5 sequences has the largest sum.
+We use a synthetic task that is designed to test a neural network's ability to generalize to longer sequences, while being very simple and human-interpretable. The input is a sequence of N tuples of 5 numbers between -1.0 and 1.0. The network should treat these as 5 separate, independent sequences. Its objective is to sum up each of the sequences and decide if their sum is positive. The target consists of 5 numbers, one for each sequence, which is a 1 if the sum is positive and a 0 otherwise. 
 
 Our architecture is a simple recurrent neural network that is composed of three submodules. It's nothing fancy, but illustrates how comgra can be integrated into an architecture.
 
@@ -144,8 +145,6 @@ The Network tab shows a recursive breakdown of all network parameters, in tree f
 
 Next, let's click the "Tensors" button and start the main analysis.
 
-When you start comgra, the screen should look like this.
-
 | <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/00_start.png" width="100%"/>
 | -
 
@@ -159,7 +158,7 @@ Let's start by setting some selectors to some arbitrary but sensible values to g
 | <img src="src/assets/screenshots_for_tutorial/slideshow_nodes/01.png" width="100%"/>
 | -
 
-We have currently selected the "input" node in the dependency graph (the green node in the top left). The lines that go from the selected node to other nodes indicate dependencies. In the following we move along the dependency graph by clicking on subsequent nodes until we get to the "Loss" node. (Note that a different node is highlighted in each image).
+We have currently selected the "input" node in the dependency graph (the green node at the top left). The lines that go from the selected node to other nodes indicate dependencies. In the following we move along the dependency graph by clicking on subsequent nodes until we get to the "Loss" node. (Note that a different node is highlighted in each image).
 
 <details>
   <summary><b>Click here to expand: Walking through the computation graph</b></summary>
@@ -203,28 +202,28 @@ Next, we investigate if the network parameters show any suspicious behavior. To 
   | -
 </details>
 
-Judging by the way abs_mean and abs_max change over the course of training, the network parameters specialize and become more extreme, but they do not explode. This looks like healthy behavior.
+Judging by the way _abs_mean_ and _abs_max_ change over the course of training, the network parameters specialize and become more extreme, but they do not explode. This looks like healthy behavior.
 
 The best way to get a feel for the GUI is to try it yourself. There is a lot of basic information that is helpful to investigate, both as a sanity check and to get a better intuitive feel for your network's internals. Try the following:
 
 * Look at the inputs, outputs and targets for different samples and at different training steps. Is the target what it should be? Does the output approximate it well? Do intermediate tensors all have the same value range, or are some of them larger or smaller than others? Can you notice any irregularities when you compare different batches?
-* So far we have only looked at the tensors produced by the network, but there is also a selector to look at the gradients on the tensors instead. Check the gradients on some tensors. Do they point in the right direction? Does it look like the gradients are ever too larger or too small? Comgra makes it easy to find vanishing or exploding gradients, and to pinpoint at which node in the computation graph the problem starts.
-* In our example script, we defined a node called "helper_partial_sums", which can be found to the top right of the dependency graph, below the target. Unlike other nodes, this node contains several different tensors with different roles, and you can switch between them using the "Role of tensor" selector. We use this feature here to store helper values for debugging, because the partial sums are relevant for solving the task but wouldn't normally get stored by the network, so it is convenient to make them available in the GUI. Note that the "Role of tensor" feature is also useful if you are working with self-attention or another mechanism that can work on a variable number of tensors.
+* So far we have only looked at the tensors produced by the network, but there is also a selector to look at the gradients on the tensors instead. Check the gradients on some tensors. Do they point in the right direction? Does it look like the gradients are ever too large or too small? Comgra makes it easy to find vanishing or exploding gradients, and to pinpoint at which node in the computation graph the problem starts.
+* In our example script, we defined a node called "helper_partial_sums", which can be found at the top left of the dependency graph. Unlike other nodes, this node contains several different tensors with different roles, and you can switch between them using the "Role of tensor" selector. We use this feature here to store helper values for debugging, because the partial sums are relevant for solving the task but wouldn't normally get stored by the network, so it is convenient to make them available in the GUI. Note that the "Role of tensor" feature is also useful if you are working with self-attention or another mechanism that can work on a variable number of tensors.
 
-All of these explorative analyses are easy and fast to do, so they are often worth the time. They can save you hours or days of frustration by catching a simple mistake early. Even if you find no mistakes, they can still be helpful to get a better understanding of your network's behavior.
+All of these exploratory analyses are easy and fast to do, so they are often worth the time. They can save you hours or days of frustration by catching a simple mistake early. Even if you find no mistakes, they can still be helpful to get a better understanding of your network's behavior.
 
 ### Finding the Bug
 
 As we noticed before, the code works, but not very well.
 
-If you paid careful attention during the explorative analysis you may have noticed something odd:  
+If you paid careful attention during the exploratory analysis you may have noticed something odd:  
 The neurons of the output tensor should be either 1 or 0. While values close to 1 are reached early in training, values close to 0 are reached only very late. If we look at the mean over the batch, the values are much greater than expected, too.
 
 Why could this be?
 
-If we look at the tensor immediately preceding the output in the dependency graph ("subnet_out__out"), we notice that its positive values are much higher than its negative values. This is a problem, because that's the tensor we put into our sigmoid activation function!
+If we look at the tensor immediately preceding the output in the dependency graph ("subnet_out__out"), we notice that its positive values are much higher than its negative values. This is a problem, because that tensor is fed into a sigmoid function!
 
-From here on, we jump into our code to find out what's going on. If the source of the problem is not clear to you, then it can help to just register more intermediate tensors with comgra and run the experiment again, inspecting both the values and the gradients on each tensor. If you have seen this sort of behavior before you may find the culprit immediately: Our subnetworks use an activation function, leaky_relu with a negative slope of 0.01, and they apply this activation at every layer, including the last one.
+From here on, we jump into our code to find out what's going on. If the source of the problem is not clear to you, then it can help to just register more intermediate tensors with comgra and run the experiment again, inspecting both the values and the gradients on each tensor. If you have seen this sort of behavior before, you may find the culprit quickly: Our subnetworks use an activation function, _leaky_relu_ with a negative slope of 0.01, and they apply this activation at every layer, including the last one.
 
 This means that while our submodules can produce negative outputs, they learn to do so at only 1% of the rate they should.
 
@@ -232,23 +231,47 @@ We have found the source of the bug.
 
 In the `src/scripts/run.py` script we also run a second trial in which this bug is fixed: We simply skip the activation function on the last layer of submodules.
 
-The results of this can be seen by switching the "Trial" selector from "trial_bugged_original_version" to "no_activation_function_on_output_layer".
+The results of this can be seen by switching the "Trial" selector from "trial_bugged_original_version" to "trial_no_activation_function_on_output_layer".
 
-If you inspect this second trial, you will notice that the bug is gone and performance has improved by a lot. In particular, OOD accuracy at a length of 20 ierations went from 0.586 to 0.859 in our local trials.
+If you inspect this second trial, you will notice that the bug is gone. The loss curves of the second trial, in the 'Graphs' section, show much faster convergence than they did before.
+
+
+<details>
+  <summary><b>Click here to expand: Differences in convergence speed</b></summary>
+
+  | <img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/00.png" width="100%"/>
+  | -
+
+  | <img src="src/assets/screenshots_for_tutorial/slideshow_parameter_updates/01.png" width="100%"/>
+  | -
+</details>
 
 This was the sort of bug that harmed performance but still allowed the network to solve the task. Without the inspection abilities offered by comgra, it would normally be next to impossible to detect a bug like this.
+
+### Investigating Further by Logging Helper Tensors
+
+While fixing this bug clearly has a positive effect based on the loss curves, the overall loss and accuracy still seem pretty bad.
+
+Where does the high loss come from? Is it a bug, or is the task just difficult?
+
+To investigate this, we use the node "helper_partial_sums", which we define in the run.py file as a helper. The values stored here are not used by the network, but they help us with debugging.
+
+Intuitively, we would expect the task to be more difficult if the final sum of a sequence is close to 0. The node "helper_partial_sums" stores this final sum. Comparing this value with the node "loss_per_sample" for several samples confirms that the network has a high loss in exactly the situations where "helper_partial_sums" is close to 0.
+
+This finding suggest the next line of research to improve our model: Modify the network to be better able to handle small numbers with high numerical accuracy. Doing so is beyond the scope of this tutorial.
+
 
 ## Other Features
 
 Comgra gives you a lot of different ways to look at your data. Here are some suggestions for what you can do with it:
 
 * Go through toy examples step-by-step. This is normally time-consuming and often not worth it, but comgra makes it easy.
-* Use the type_of_execution parameter to ensure that rarely occurring special cases still get recorded regularly and are easy to find. You can also use it to mark inputs with specific properties you are interested in. For example, to mark especially simple or especially hard inputs, or inputs with extreme outlier values.
+* Use the _type_of_execution_ parameter of `start_recording()` to ensure that rarely occurring special cases still get recorded regularly and are easy to find. You can also use it to mark inputs with specific properties you are interested in. For example, to mark especially simple or especially hard inputs, or inputs with extreme outlier values.
 * Check for anomalous gradients. Do any of your activation functions unexpectedly kill gradients? Are you using attention mechanisms with extreme weights that drive down the gradients? Are gradients non-zero, but with wildly different magnitudes in different parts of the network or under different circumstances? 
 * Trace NaNs and Extreme Values. Where did the anomalous value come from? Just find the first training step where any tensor is NaN or abs().mean() is extreme. Then find out why this may be, by looking at the gradients on that step and previous ones.
 * Check if network initialization is sensible. What do tensors and their gradients look like on the very first training steps? Do their means change significantly? If so, this suggests that the initialization can be improved.
 * Check a tensor's variance over the batch dimension. If this decreases, we may have mode collapse. If it increases unboundedly, it suggests that a tensor is receiving consistently one-directional gradients that makes the tensor more and more extreme over time, instead of approximating a target value more accurately.
-* Challenge your intuition. Sometimes the network acts differently than you would intuitively expect. In one concrete case that happened to me, I was interpolating a tensor as y=a*w+b*(1-w) and was surprised to see that the value for "a" received a gradient pushing it away from the target value of y. This actually made mathematical sense for the values I had (a=1.1, b=0.1, w=0.5, target of y = 1), but it was not intuitive to me. Comgra enabled me to notice this discrepancy between my intuition and the network's actual behavior, and that allowed me to improve the network. I have encountered several cases like these, where my intuition about the optimal learned attention weights was different from what was actually learned on a toy task, which taught me a lot about the network dynamics.
+* Challenge your intuition. Sometimes the network acts differently than you would intuitively expect. In one concrete case that happened to me, I was interpolating a tensor as y=a*w+b*(1-w) and was surprised to see that the value for "a" received a gradient pushing it away from the target value of "y". This actually made mathematical sense for the values I had (a=1.1, b=0.1, w=0.5, target of y = 1), but it was not intuitive to me. Comgra enabled me to notice this discrepancy between my intuition and the network's actual behavior, and that allowed me to improve the network. I have encountered several cases like these, where my intuition about the optimal learned attention weights was different from what was actually learned on a toy task, which taught me a lot about the network dynamics.
 * Check if any neurons end up with interpretable values. For example, the weights in attention mechanisms tell you what the network pays attention to. But there are also more subtle interpretable values that would be difficult to inspect without comgra, unless you already know what to look for before you run the experiment. For example, you can compare the mean absolute values of the two branches in a residual connection to find out if the network ignores a calculation and relies on residuals.
 
 
@@ -267,19 +290,19 @@ The file should define a function called `create_visualization()`. Check the fil
 ## Known Issues
 
 
-In order to record gradients, comgra needs to put Comgra needs to set the 'requires_grad' attribute to True on all tensors you register with it. This does not affect training and should have no negative consequences for most users. However, it can lead to side effects if you make direct use of this attribute in your own code.
+In order to record gradients, comgra needs to set the 'requires_grad' attribute to True on all tensors you register with it. This does not affect training and should have no negative consequences for most users. However, it can lead to side effects if you make direct use of this attribute in your own code.
 
-It also means that it can matter where in your code you call `register_tensor()`. If you call it on a tensor that does not have requires_grad set to true already, you should call it immediately after creating the tensor, before using it in any other computation. Else the computation graph will not be constructed correctly.
+It also means that it can matter where in your code you call `register_tensor()`. If you call it on a tensor that does not have requires_grad set to true already, you should call it immediately after creating the tensor, before using it in any other computation. Otherwise, the computation graph will not be constructed correctly.
 
-It is not possible to set `requires_grad` to `True` on some types of tensors, which can make `register_tensor()` fail. To deal with this, register a replacement tensor instead and then use `add_tensor connection to ensure they stay connected. Example:
+It is not possible to set `requires_grad` to `True` on some types of tensors, which can make `register_tensor()` fail. To deal with this, register a replacement tensor instead and then use `add_tensor_connection()` to ensure they stay connected. Example:
 
 ```python
-# This can't have requires_grad because it's an integer tensor
+# This tensor can't have requires_grad because it is an integer tensor
 a = torch.tensor([1, 2, 3])
 # We register a float() version of it instead
 comgra.my_recorder.register_tensor("my_tensor", a.float())
 # Then we create a connection between that float() version and the next time the original tensor is used.
-b = a + 1.0
+b = a * 1.0
 comgra.my_recorder.add_tensor_connection("my_tensor", b)
 ```
 
