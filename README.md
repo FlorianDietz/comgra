@@ -137,7 +137,7 @@ The Notes tab shows anything that we logged with `add_note()`. If we scroll down
 | <img src="src/assets/screenshots_for_tutorial/graphs_info.png" width="100%"/>
 | -
 
-The Graphs tab shows KPIs we logged with `record_kpi_in_graph()`.
+The Graphs tab shows KPIs we logged with `record_kpi_in_graph()`. This visualization is based on plotly and is interactive, similar to tensorboard. We can see that the loss only converges slowly and that the network generalizes poorly: The curves for 15 iterations and 20 iterations, which are only used during testing, are much higher than the rest.
 
 | <img src="src/assets/screenshots_for_tutorial/network_info.png" width="100%"/>
 | -
@@ -220,7 +220,7 @@ All of these exploratory analyses are easy and fast to do, so they are often wor
 
 As we noticed before, the code works, but not very well.
 
-If you paid careful attention during the exploratory analysis you may have noticed something odd:  
+If you paid close attention during the exploratory analysis you may have noticed something odd:  
 The neurons of the output tensor should be either 1 or 0. While values close to 1 are reached early in training, values close to 0 are reached only very late. If we look at the mean over the batch, the values are much greater than expected, too.
 
 Why could this be?
