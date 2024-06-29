@@ -37,6 +37,7 @@ class Demonstration:
         configurations = [
             'bugged_original_version',
             'no_activation_function_on_output_layer',
+            'no_activation_function_or_sigmoid',
         ]
         for configuration in configurations:
             self.current_configuration = configuration
@@ -192,7 +193,8 @@ class Demonstration:
             # Note that we store the memory in a node called 'memory', the same as 'initial_memory' above,
             # because they both refer to the same hidden state and this way the GUI will combine them when appropriate.
             output, memory = self.model(x)
-            output = torch.sigmoid(output)
+            if self.current_configuration != 'no_activation_function_or_sigmoid':
+                output = torch.sigmoid(output)
             comgra.my_recorder.register_tensor(f"output", output)
             comgra.my_recorder.register_tensor(f"memory_out", memory, node_name='memory')
             assert output.shape == (batch_size, self.output_size)
@@ -332,7 +334,7 @@ class NeuralNet(nn.Module):
         # of the current module and all its parents, as recorded by comgra.my_recorder.track_module()
         comgra.my_recorder.register_tensor(f"{comgra.my_recorder.get_name_of_module(self)}__hidden_state", x)
         x = self.fnn2(x)
-        if DEMONSTRATION.current_configuration != 'no_activation_function_on_output_layer':
+        if DEMONSTRATION.current_configuration not in ['no_activation_function_on_output_layer', 'no_activation_function_or_sigmoid']:
             x = self.activation(x)
         comgra.my_recorder.register_tensor(f"{comgra.my_recorder.get_name_of_module(self)}__out", x)
         return x
