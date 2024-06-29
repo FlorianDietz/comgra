@@ -313,6 +313,16 @@ You should also be aware that `requires_grad` is necessary but not sufficient fo
 ## Future Development
 
 
+Currently, you have to decide at the beginning of a training step whether you want comgra to record it. However. it can happen that you only know at the end of a training step if the step was interesting enough to be worth recording, or if any particular part of the batch was more interesting than the rest.
+
+We therefore want to make it possible to decide retroactively, at the end of the batch, if you want to record, and what parts of the batch you want to record. This could e.g. help with debugging by automatically finding and recording the very first step where gradients start going out of bounds.
+
+Combine this with anomaly detection and comgra will be able to extract the most interesting and informative samples for you and make them easily accessible using selectors.
+
+
+## Future Development (long term)
+
+
 A goal for the future development of this tool is the automated detection of anomalies in computational graphs.
 
 It should be possible to define anomalies like "Tensor X has a greater absolute value than 1" or the like, and then have the program automatically calculate likely dependencies such as this:
