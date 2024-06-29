@@ -87,6 +87,8 @@ comgra.my_recorder.record_current_gradients(...)
 comgra.my_recorder.finish_iteration()
 # Call this whenever you end a training step:
 comgra.my_recorder.finish_recording()
+# Call this when you are done
+comgra.my_recorder.finalize()
 ```
 
 When your code runs, comgra will store data in the folder you specified with `ComgraRecorder(comgra_root_path="/my/path/for/storing/data", group="name_of_experiment_group")`.  

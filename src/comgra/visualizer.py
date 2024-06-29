@@ -920,7 +920,8 @@ class Visualization:
                 for k in self.ngs_hash_to_graph_container_dash_id.keys()
             ]
             assert len(graph_container_visibilities) == len(self.ngs_hash_to_graph_container_dash_id)
-            assert len([a for a in graph_container_visibilities if a == 'active']) == 1, ngs_hash
+            assert len([a for a in graph_container_visibilities if a == 'active']) == 1, \
+                (ngs_hash, len([a for a in graph_container_visibilities if a == 'active']))
             res = [
                       name_of_selected_node,
                       type_of_execution_options, type_of_execution,
