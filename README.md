@@ -12,7 +12,7 @@
   - [Initial Exploration](#initial-exploration)
   - [Finding the Bug](#finding-the-bug)
 - [Other Features](#other-features)
-- [Customization](#customization)
+- [Custom Visualization](#custom-visualization)
 - [Known Issues](#known-issues)
 - [Future Development](#future-development)
 
@@ -143,6 +143,8 @@ The Graphs tab shows KPIs we logged with `record_kpi_in_graph()`. This visualiza
 | -
 
 The Network tab shows a recursive breakdown of all network parameters, in tree form. We can see that none of the submodules has such a small number of parameters that it could form a bottleneck, which rules out one kind of bug.
+
+There is also a "Visualization" tab. This is an advanced feature described under [Custom Visualization](#custom-visualization). It is not relevant for this tutorial.
 
 Next, let's click the "Tensors" button and start the main analysis.
 
@@ -278,7 +280,7 @@ Comgra gives you a lot of different ways to look at your data. Here are some sug
 * Check if any neurons end up with interpretable values. For example, the weights in attention mechanisms tell you what the network pays attention to. But there are also more subtle interpretable values that would be difficult to inspect without comgra, unless you already know what to look for before you run the experiment. For example, you can compare the mean absolute values of the two branches in a residual connection to find out if the network ignores a calculation and relies on residuals.
 
 
-## Customization
+## Custom Visualization
 
 
 You can integrate your own custom visualization into comgra to take advantage of comgra's recording and filtering features.
@@ -287,7 +289,12 @@ To do so, use the `--visualization-file` parameter when you start the comgra GUI
 
 This visualization can depend on all the same filters and selectors that the rest of comgra uses, allowing you to apply comgra's flexibility to the specific visualization requirements of your task. For example, if you work on transformer models in LLMs, you could supply a script that can color-code the text fed into the transformer based on its attention weights so that you can look for correlations between the text and network weights.
 
-The file should define a function called `create_visualization()`. Check the file `scripts/example_custom_visualization.py` for an example. This file is used automatically when you run `comgra --use-path-for-test-run`.  We recommend running the server with the `--debug-mode` flag while developing external visualizations.
+The file should define a function called `create_visualization()`. Check the file `scripts/example_custom_visualization.py` for an example. This file is used automatically when you run `comgra --use-path-for-test-run` is run every time you change the selection in the GUI while the 'Visualization' tab is selected.
+
+The file `scripts/example_custom_visualization.py` results in the following visualization in the GUI: It creates a graph for the helper variable "helper_partial_sums", which shows how our five sequences change over the course of the iterations. This graph automatically adjusts when you change the training step or the "Batch or sample" selector.
+
+| <img src="src/assets/screenshots_for_tutorial/custom_visualization.png" width="100%"/>
+| -
 
 
 ## Known Issues
