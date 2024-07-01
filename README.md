@@ -56,7 +56,7 @@ pip install comgra
 
 ## Usage
 
-To use comgra, modify your python code with the following commands in the appropriate places. Most of it just tells comgra what you are currently doing so that it knows how to associate the tensors you register. The file `src/scripts/run.py` contains a documented example that you can copy and will be explained in detail below.
+To use comgra, modify your python code with the following commands in the appropriate places. Most of it just tells comgra what you are currently doing so that it knows how to associate the tensors you register. The file `src/scripts/run.py` ([found here](https://github.com/FlorianDietz/comgra/blob/main/src/scripts/run.py)) contains a documented example that you can copy and that will be explained in detail below.
 
 ```python
 import comgra
@@ -294,7 +294,7 @@ This means that while our submodules can produce negative outputs, they learn to
 
 We have found the source of the bug.
 
-In the `src/scripts/run.py` script we also run a second trial in which this bug is fixed: We simply skip the activation function on the last layer of submodules.
+In the `src/scripts/run.py` [script](https://github.com/FlorianDietz/comgra/blob/main/src/scripts/run.py) we also run a second trial in which this bug is fixed: We simply skip the activation function on the last layer of submodules.
 
 The results of this can be seen by switching the "Trial" selector from "trial_bugged_original_version" to "trial_no_activation_function_on_output_layer".
 
