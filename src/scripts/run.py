@@ -70,6 +70,21 @@ class Demonstration:
             # The different trials in a group can then be selected by their 'trial_id' and compared.
             group=self.comgra_group,
             trial_id=f'trial_{self.current_configuration}',
+            # This parameter determines when and how often Comgra makes a recording.
+            # There are several options for this.
+            # This one is often the most effective one:
+            # At the beginning of each training step, later in this code, you specify what the type of this recording is.
+            # For example, you could differentiate between randomly selected training and training on a specific example
+            # that you would like to inspect in more detail.
+            # The DecisionMakerForRecordingsFrequencyPerType recording type ensures that a recording is made
+            # if the last training of the specified type was at least N training steps ago.
+            # In this way, you make sure that each type gets recorded often enough to be useful,
+            # but not so often that the program slows down and your hard drive gets filled up.
+            # An alternative recorder is DecisionMakerForRecordingsExponentialFalloff, which works similarly,
+            # but records more often at the beginning of training than later on.
+            # In this way you can get detailed information early, for debugging, but don't generate too much data
+            # if you train the network for a longer time.
+            decision_maker_for_recordings=DecisionMakerForRecordingsFrequencyPerType(min_training_steps_difference=1000),
             # These parameters can be left empty, but it is recommended to fill them in
             # if your computation graph is complex.
             # They ensure that similar module parameters get visually grouped together into the same
@@ -88,21 +103,6 @@ class Demonstration:
             prefixes_for_grouping_module_parameters_in_nodes=[
                 'root_module.subnet_pre',
             ],
-            # This parameter determines when and how often Comgra makes a recording.
-            # There are several options for this.
-            # This one is often the most effective one:
-            # At the beginning of each training step, later in this code, you specify what the type of this recording is.
-            # For example, you could differentiate between randomly selected training and training on a specific example
-            # that you would like to inspect in more detail.
-            # The DecisionMakerForRecordingsFrequencyPerType recording type ensures that a recording is made
-            # if the last training of the specified type was at least N training steps ago.
-            # In this way, you make sure that each type gets recorded often enough to be useful,
-            # but not so often that the program slows down and your hard drive gets filled up.
-            # An alternative recorder is DecisionMakerForRecordingsExponentialFalloff, which works similarly,
-            # but records more often at the beginning of training than later on.
-            # In this way you can get detailed information early, for debugging, but don't generate too much data
-            # if you train the network for a longer time.
-            decision_maker_for_recordings=DecisionMakerForRecordingsFrequencyPerType(min_training_steps_difference=1000),
             # Comgra records data both in terms of statistics over the batch dimension and in terms of
             # individual items in the batch.
             # If batches are large, this consumes too much memory and slows down the recording.

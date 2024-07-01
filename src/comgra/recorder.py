@@ -28,10 +28,11 @@ class ComgraRecorder:
 
     def __init__(
             self, comgra_root_path, group, trial_id,
-            prefixes_for_grouping_module_parameters_visually,
-            prefixes_for_grouping_module_parameters_in_nodes,
             decision_maker_for_recordings,
-            comgra_is_active=True, max_num_batch_size_to_record=None,
+            max_num_batch_size_to_record=None,
+            prefixes_for_grouping_module_parameters_visually=None,
+            prefixes_for_grouping_module_parameters_in_nodes=None,
+            comgra_is_active=True,
             max_num_mappings_to_save_at_once_during_serialization=10000,
             type_of_serialization='msgpack',
             calculate_svd_and_other_expensive_operations_of_parameters=True,
@@ -42,11 +43,11 @@ class ComgraRecorder:
         :param comgra_root_path: The path where comgra will store all the data it extracts.
         :param group: The name of a folder that will be created within comgra_root_path and combines several trials. When you start the comgra server, the path you give to the server should include this folder. All trials written to the same folder will be visualized in parallel in the GUI.
         :param trial_id: The name for this trial run. If you want to compare multiple independent trials in the comgra GUI, give them unique names here and save them with the same 'group' parameter.
+        :param decision_maker_for_recordings: An object that determines how often comgra makes a recording.
+        :param max_num_batch_size_to_record: The number of indices of each batch that get recorded in detail. If you set this too high, it may take up a lot of memory and space on the hard drive. Set this to None to record all values.
         :param prefixes_for_grouping_module_parameters_visually: Use this to group similar module parameters visually into the same column in the dependency graph. All module parameters whose complete name (including the list of names of modules they are contained in) match one of these prefixes are grouped together.
         :param prefixes_for_grouping_module_parameters_in_nodes: Building on prefixes_for_grouping_module_parameters_visually, group the parameters together into a single node.
-        :param decision_maker_for_recordings: An object that determines how often comgra makes a recording.
         :param comgra_is_active: Set this to False if you want to turn this library off.
-        :param max_num_batch_size_to_record: The number of indices of each batch that get recorded in detail. If you set this too high, it may take up a lot of memory and space on the hard drive.
         :param max_num_mappings_to_save_at_once_during_serialization: An optional parameter you can experiment with if comgra is too slow. If this is too low, comgra becomes slow. If this is too high, the program may crash due to memory problems. (This problem is caused by a serialization bug in a backend library.)
         :param type_of_serialization: Several options for serialization exist. It is recommended to keep the default.
         :param calculate_svd_and_other_expensive_operations_of_parameters: An optional feature to record statistics that are more expensive to calculate than others.
@@ -63,9 +64,9 @@ class ComgraRecorder:
             self.recordings_path.mkdir(parents=True, exist_ok=True)
         self.type_of_serialization = type_of_serialization
         self.calculate_svd_and_other_expensive_operations_of_parameters = calculate_svd_and_other_expensive_operations_of_parameters
-        self.prefixes_for_grouping_module_parameters_visually = list(prefixes_for_grouping_module_parameters_visually)
-        self.prefixes_for_grouping_module_parameters_in_nodes = list(prefixes_for_grouping_module_parameters_in_nodes)
-        assert all(isinstance(a, str) for a in prefixes_for_grouping_module_parameters_visually)
+        self.prefixes_for_grouping_module_parameters_visually = list(prefixes_for_grouping_module_parameters_visually or [''])
+        self.prefixes_for_grouping_module_parameters_in_nodes = list(prefixes_for_grouping_module_parameters_in_nodes or [])
+        assert all(isinstance(a, str) for a in self.prefixes_for_grouping_module_parameters_visually)
         for i, a in enumerate(self.prefixes_for_grouping_module_parameters_visually):
             for j, b in enumerate(self.prefixes_for_grouping_module_parameters_visually):
                 if j >= i:
@@ -220,7 +221,7 @@ class ComgraRecorder:
     def start_recording(
             self, training_step, current_batch_size,
             type_of_execution='main_execution_type',
-            record_all_tensors_per_batch_index_by_default=False,
+            record_all_tensors_per_batch_index_by_default=True,
             override__recording_is_active=None,
     ):
         """
