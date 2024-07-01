@@ -380,21 +380,25 @@ class Visualization:
                 target_x = int(target_left)
                 target_y = int(target_top + 0.5 * height_per_box)
                 connection_name = self._nodes_to_connection_dash_id(ngs_hash, source, target)
-                stroke_color = vp.node_type_to_color[ngs.name_to_node[source].type_of_tensor]
+                stroke_color_by_source = vp.node_type_to_color[ngs.name_to_node[source].type_of_tensor]
+                stroke_color_by_target = vp.node_type_to_color[ngs.name_to_node[target].type_of_tensor]
                 if DISPLAY_ALL_CONNECTIONS_GRAPHICALLY:
                     svg_connection_lines.append(dash_svg.Line(
                         id=connection_name,
                         x1=str(source_x), x2=str(target_x), y1=str(source_y), y2=str(target_y),
-                        stroke=stroke_color,
+                        stroke=stroke_color_by_source,
                         strokeWidth=1,
                     ))
                 if HIGHLIGHT_SELECTED_CONNECTIONS:
-                    for n1, n2 in [(source, target), (target, source)]:
+                    for n1, n2, color_by_other_node in [
+                        (source, target, stroke_color_by_target),
+                        (target, source, stroke_color_by_source),
+                    ]:
                         self.ngs_hash_to_node_to_list_of_connections.setdefault(
                             ngs_hash, {}).setdefault(n1, []).append((
                             source_x, source_y, target_x, target_y, n2,
                             (vp.highlighting_colors[
-                                 'highlighted'] if DISPLAY_ALL_CONNECTIONS_GRAPHICALLY else stroke_color)
+                                 'highlighted'] if DISPLAY_ALL_CONNECTIONS_GRAPHICALLY else color_by_other_node)
                         ))
         elements_of_the_graph.append(
             dash_svg.Svg(svg_connection_lines, viewBox=f'0 0 {vp.total_display_width} {vp.total_display_height}'))
