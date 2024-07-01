@@ -6,7 +6,7 @@ comgra = ["*.py"]
 scripts = ["*.py"]
 [project]
 name = "comgra"
-version = "0.10.1"
+version = "0.10.3.dev1"
 authors = [
     { name="Florian Dietz", email="floriandietz44@gmail.com" },
 ]
