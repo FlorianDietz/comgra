@@ -158,7 +158,7 @@ To start the GUI and visualize your results, run
 comgra --path "/my/path/for/storing/data/name_of_experiment_group"
 ```
 
-Note that --path should include both the "comgra_root_path" and the "group" parameter you gave to ComgraRecorder.
+Note that "--path" should include both the "comgra_root_path" and the "group" parameter you gave to ComgraRecorder. You can start the GUI while the script is still running and it will automatically load new data as it becomes available.
 
 
 ## Tutorial - Debugging an Example Network
