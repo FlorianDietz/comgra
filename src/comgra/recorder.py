@@ -52,8 +52,8 @@ class ComgraRecorder:
         :param type_of_serialization: Several options for serialization exist. It is recommended to keep the default.
         :param calculate_svd_and_other_expensive_operations_of_parameters: An optional feature to record statistics that are more expensive to calculate than others.
         """
-        comgra_root_path = Path(comgra_root_path)
-        assert comgra_root_path.exists()
+        comgra_root_path = Path(comgra_root_path).resolve()
+        assert comgra_root_path.exists(), comgra_root_path
         self.comgra_is_active = comgra_is_active
         self.trial_id = trial_id
         self.group_path = comgra_root_path / group
@@ -61,7 +61,9 @@ class ComgraRecorder:
         self.recordings_path = self.trial_path / 'recordings'
         self.configurations_path = self.trial_path / 'configurations'
         if comgra_is_active:
+            shutil.rmtree(self.trial_path, ignore_errors=True)
             self.recordings_path.mkdir(parents=True, exist_ok=True)
+            self.configurations_path.mkdir(parents=True, exist_ok=True)
         self.type_of_serialization = type_of_serialization
         self.calculate_svd_and_other_expensive_operations_of_parameters = calculate_svd_and_other_expensive_operations_of_parameters
         self.prefixes_for_grouping_module_parameters_visually = list(prefixes_for_grouping_module_parameters_visually or [''])
@@ -1108,7 +1110,6 @@ class ComgraRecorder:
         self._reset_caches()
 
     def _save_training_step_configuration(self):
-        self.configurations_path.mkdir(parents=True, exist_ok=True)
         training_step_configuration_path = self.configurations_path / f'{self.training_step}.pkl'
         assert not training_step_configuration_path.exists(), training_step_configuration_path
         with open(training_step_configuration_path, 'wb') as f:
