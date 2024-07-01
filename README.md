@@ -104,7 +104,7 @@ Note that --path should include both the "comgra_root_path" and the "group" para
 
 ## Tutorial - Debugging an Example Network
 
-The file `src/scripts/run.py` trains a neural network on an example task. This network contains a subtle bug, and in this tutorial we will show you how you can use comgra to find that bug.
+The file `src/scripts/run.py` ([found here](https://github.com/FlorianDietz/comgra/blob/main/src/scripts/run.py)) trains a neural network on an example task. This network contains a subtle bug, and in this tutorial we will show you how you can use comgra to find that bug.
 
 For convenience, you can run the file from the commandline using
 ```bash
