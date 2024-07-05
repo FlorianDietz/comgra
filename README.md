@@ -14,7 +14,8 @@
 - [Other Features](#other-features)
 - [Custom Visualization](#custom-visualization)
 - [Known Issues](#known-issues)
-- [Future Development](#future-development)
+- [Future Development: Dynamic Recordings](#future-development-dynamic-recordings)
+- [Future Development: Anomaly Detection and Correlation Analysis](#future-development-anomaly-detection-and-correlation-analysis)
 
 ## Overview
 
@@ -378,7 +379,7 @@ comgra.my_recorder.add_tensor_connection("my_tensor", b)
 You should also be aware that `requires_grad` is necessary but not sufficient for `add_tensor_connection()` to work: It's possible that a tensor is built from two tensors, one of which has `requires_grad` and the other does not. Comgra won't automatically record the second one in this case and will not notice that anything is amiss. Use `add_tensor_connection()` to manually add connections for these cases.
 
 
-## Future Development
+## Future Development: Dynamic Recordings
 
 
 Currently, you have to decide at the beginning of a training step whether you want comgra to record it. However. it can happen that you only know at the end of a training step if the step was interesting enough to be worth recording, or if any particular part of the batch was more interesting than the rest.
@@ -388,15 +389,17 @@ We therefore want to make it possible to decide retroactively, at the end of the
 Combine this with anomaly detection and comgra will be able to extract the most interesting and informative samples for you and make them easily accessible using selectors.
 
 
-## Future Development (long term)
+## Future Development: Anomaly Detection and Correlation Analysis
 
 
 A goal for the future development of this tool is the automated detection of anomalies in computational graphs.
 
-It should be possible to define anomalies like "Tensor X has a greater absolute value than 1" or the like, and then have the program automatically calculate likely dependencies such as this:
+As a first step, we want to detect anomalies to automatically generate warnings such as "Tensor X looks like it suffers from vanishing gradients". There are a large number of possible anomalies that are time-consuming to check manually. It would be very convenient if you could be sure that none of them apply to your model because these things are found automatically.
 
-The anomaly "abnormally high loss" has 87% correlation with the anomaly "Tensor 5 is close to zero".
+As a second step, we want to scan for anomalies that are not harmful in themselves, but notably strange, and look for correlations between them: "If the attention tensor X has very extreme values then tensor Y tends to be sparse." or "The loss is much higher than normal if the sample belongs to category Z."
 
 This would save a lot of time with debugging, by automatically generating a list of possible reasons for unexpected behavior.
+
+The goal of this feature is not to detect anomalies with perfect reliability, but to quickly and cheaply generate hints that guide a human's attention in the right direction, to save time.
 
 Anomalies could be defined in many different ways, and standard tools for causality analysis already exist. If you are interested in a feature like this and/or want to help, please let me know at floriandietz44@gmail.com
