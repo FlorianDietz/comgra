@@ -92,7 +92,7 @@ comgra.my_recorder.finish_recording()
 comgra.my_recorder.finalize()
 ```
 
-Not all of these commands are necessary. The following is a minimal example:
+Not all of these commands are necessary. The following is a minimal example. You can [run it directly on Colab](https://colab.research.google.com/drive/1RuMHlv_pp1_t_tkZfojV0LVR-Zo7QoVv?usp=sharing)
 
 ```python
 import torch
@@ -233,6 +233,9 @@ The results of that run will be stored in a local folder of the library. You can
 ```bash
 comgra --use-path-for-test-run
 ```
+
+You can also [check out the GUI on Colab](https://colab.research.google.com/drive/15PEZjxFG6CVTewHBXidTXMsM6CCQM6kC?usp=sharing), with pre-generated data.
+
 
 ### The Task and the Architecture
 
