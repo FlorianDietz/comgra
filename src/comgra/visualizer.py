@@ -1148,7 +1148,7 @@ class Visualization:
                         [html.Tr([
                             html.Td(val) for val in [
                                 trials_value, training_step_value, iteration_value,
-                                type_of_execution,
+                                tsc.type_of_execution,  # This may not equal type_of_execution, which can be "any_value" because it's a filter
                                 cleaned_tensor_name,
                                 cleaned_role_within_tensor,
                                 node.type_of_tensor,
@@ -1173,14 +1173,15 @@ class Visualization:
                 hide_containers_for_tensors = True
                 children = [
                     html.Div(self.display_kpi_graphs(
-                        trials_value, type_of_execution,
+                        trials_value, tsc.type_of_execution,  # This may not equal type_of_execution, which can be "any_value" because it's a filter
                     ), className="kpi-graphs-div"),
                 ]
             elif display_type_radio_buttons == 'Visualization':
                 hide_containers_for_tensors = False
                 children = [
                     html.Div(self.create_external_visualization(
-                        recordings, type_of_execution, tsc, ngs, db,
+                        recordings, type_of_execution,  # Note that type_of_execution can be "any_value" because it's a filter
+                        tsc, ngs, db,
                         training_step_value, type_of_recording_value, batch_index_value, iteration_value, node_name,
                         role_of_tensor_in_node_value,
                     ), className="external-visualization-div"),
