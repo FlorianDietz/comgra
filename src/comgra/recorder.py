@@ -1310,7 +1310,7 @@ class ComgraRecorder:
         return path
 
     @utilities.runtime_analysis_decorator
-    def record_kpi_in_graph(self, kpi_group, kpi_name, val, timepoint=None):
+    def record_kpi_in_graph(self, kpi_group, kpi_name, val, timepoint=None, record_even_if_recording_is_inactive=False):
         """
         Create graphs, similar to tensorboard. These can be inspected in their own tab in the GUI. A separate graph is automatically created for each separate type_of_execution. You can also use the parameters of this function to create subgroups.
 
@@ -1320,8 +1320,9 @@ class ComgraRecorder:
         :param kpi_name: The name of the line in the graph that this value will be written to.
         :param val: The value to store. Either a one-element tensor or a number.
         :param timepoint: The timepoint to use for the x-axis. Defaults to the training_step.
+        :param record_even_if_recording_is_inactive: If True, graph values will be recorded even if comgra is not recording tensors on this training_step. This can be useful if you use your own conditions for when to call this function and those conditions rarely coincide with comgra being active. This argument is False by default because checking whether to record requires a GPU-to-CPU transfer, and we don't want to make these unnecessarily often.
         """
-        if not self.recording_is_active():
+        if not self.recording_is_active() and not (record_even_if_recording_is_inactive and self.comgra_is_active):
             return
         if timepoint is None:
             timepoint = self.training_step
