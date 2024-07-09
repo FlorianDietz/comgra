@@ -1382,7 +1382,7 @@ class Visualization:
                 title=f'{kpi_group}',
                 xaxis=dict(title='step'),
                 yaxis=dict(title='value'),
-                legend=dict(x=0, y=1),  # Positioning of the legend (0 to 1, where 0 is left/bottom and 1 is right/top)
+                legend=dict(),
                 hovermode='closest'
             ))
             graphs.append(dcc.Graph(figure=fig))
