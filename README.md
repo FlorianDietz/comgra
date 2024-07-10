@@ -120,6 +120,7 @@ comgra.my_recorder = ComgraRecorder(
     trial_id="example_trial",
     decision_maker_for_recordings=DecisionMakerForRecordingsFrequencyPerType(min_training_steps_difference=10),
 )
+comgra.my_recorder.add_note("This is an optional log message that will show up in the 'Notes' tab.")
 
 # Create model, loss function, and optimizer
 model = SimpleModel()
@@ -143,6 +144,7 @@ for epoch in range(num_epochs):
     comgra.my_recorder.register_tensor("targets", targets, is_target=True)
     loss = criterion(outputs, targets)
     comgra.my_recorder.register_tensor("loss", loss, is_loss=True)
+    comgra.my_recorder.record_kpi_in_graph("loss", "", loss)
     # Backward
     optimizer.zero_grad()
     loss.backward()
