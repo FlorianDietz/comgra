@@ -72,7 +72,7 @@ comgra.my_recorder.add_note(...)
 comgra.my_recorder.record_kpi_in_graph()
 # Call this whenever you start a new training step you want to record.
 # Each training step may be composed of multiple iterations.
-comgra.my_recorder.start_recording(...)
+comgra.my_recorder.start_batch(...)
 # Call this whenever you start the forward pass of an iteration:
 comgra.my_recorder.start_iteration(...)
 # Register any tensors you may want to investigate:
@@ -87,7 +87,7 @@ comgra.my_recorder.record_current_gradients(...)
 # Call this whenever you end an iteration:
 comgra.my_recorder.finish_iteration()
 # Call this whenever you end a training step:
-comgra.my_recorder.finish_recording()
+comgra.my_recorder.finish_batch()
 # Call this when you are done
 comgra.my_recorder.finalize()
 ```
@@ -135,7 +135,7 @@ targets = 2 * inputs + torch.randn(100, 5) * 0.1
 # Training loop
 num_epochs = 100
 for epoch in range(num_epochs):
-    comgra.my_recorder.start_recording(epoch, inputs.shape[0])
+    comgra.my_recorder.start_batch(epoch, inputs.shape[0])
     comgra.my_recorder.start_iteration()
     # Forward
     comgra.my_recorder.register_tensor("inputs", inputs, is_input=True)
@@ -151,7 +151,7 @@ for epoch in range(num_epochs):
     optimizer.step()
     comgra.my_recorder.record_current_gradients(f"gradients")
     comgra.my_recorder.finish_iteration()
-    comgra.my_recorder.finish_recording()
+    comgra.my_recorder.finish_batch()
 comgra.my_recorder.finalize()
 ```
 
@@ -338,7 +338,7 @@ This finding suggest the next line of research to improve our model: Modify the 
 Comgra gives you a lot of different ways to look at your data. Here are some suggestions for what you can do with it:
 
 * Go through toy examples step-by-step. This is normally time-consuming and often not worth it, but comgra makes it easy.
-* Use the _type_of_execution_ parameter of `start_recording()` to ensure that rarely occurring special cases still get recorded regularly and are easy to find. You can also use it to mark inputs with specific properties you are interested in. For example, to mark especially simple or especially hard inputs, or inputs with extreme outlier values.
+* Use the _type_of_execution_ parameter of `start_batch()` to ensure that rarely occurring special cases still get recorded regularly and are easy to find. You can also use it to mark inputs with specific properties you are interested in. For example, to mark especially simple or especially hard inputs, or inputs with extreme outlier values.
 * Check for anomalous gradients. Do any of your activation functions unexpectedly kill gradients? Are you using attention mechanisms with extreme weights that drive down the gradients? Are gradients non-zero, but with wildly different magnitudes in different parts of the network or under different circumstances? 
 * Trace NaNs and Extreme Values. Where did the anomalous value come from? Just find the first training step where any tensor is NaN or abs().mean() is extreme. Then find out why this may be, by looking at the gradients on that step and previous ones.
 * Check if network initialization is sensible. What do tensors and their gradients look like on the very first training steps? Do their means change significantly? If so, this suggests that the initialization can be improved.

@@ -35,7 +35,7 @@ targets = 2 * inputs + torch.randn(100, 5) * 0.1
 # Training loop
 num_epochs = 100
 for epoch in range(num_epochs):
-    comgra.my_recorder.start_recording(epoch, inputs.shape[0])
+    comgra.my_recorder.start_batch(epoch, inputs.shape[0])
     comgra.my_recorder.start_iteration()
     # Forward
     comgra.my_recorder.register_tensor("inputs", inputs, is_input=True)
@@ -50,6 +50,6 @@ for epoch in range(num_epochs):
     optimizer.step()
     comgra.my_recorder.record_current_gradients(f"gradients")
     comgra.my_recorder.finish_iteration()
-    comgra.my_recorder.finish_recording()
+    comgra.my_recorder.finish_batch()
 comgra.my_recorder.finalize()
 

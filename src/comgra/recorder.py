@@ -220,7 +220,7 @@ class ComgraRecorder:
         return self.module_to_name[module]
 
     @utilities.runtime_analysis_decorator
-    def start_recording(
+    def start_batch(
             self, training_step, current_batch_size,
             type_of_execution='main_execution_type',
             record_all_tensors_per_batch_index_by_default=True,
@@ -313,7 +313,7 @@ class ComgraRecorder:
         :param record_per_batch_index: If True, a record is made for each sample of the batch instead of just summary statistics. Only uses as many samples as specified with :py:obj:`~comgra.recorder.ComgraRecorder.max_num_batch_size_to_record`
         :param node_name: An optional string that assigns this tensor to a node. All tensors with the same node_name will share a node in the GUI.
         :param role_within_node: If a node_name is specified, give this tensor a role within the node to differentiate it from the other tensors in the node.
-        :param is_initial_value: Use is_initial_value=True to register the initial value of a hidden state after calling :py:func:`~comgra.recorder.ComgraRecorder.start_recording` but before :py:func:`~comgra.recorder.ComgraRecorder.start_iteration`.
+        :param is_initial_value: Use is_initial_value=True to register the initial value of a hidden state after calling :py:func:`~comgra.recorder.ComgraRecorder.start_batch` but before :py:func:`~comgra.recorder.ComgraRecorder.start_iteration`.
         :return: A :py:obj:`~comgra.objects.TensorReference`
         """
         if not self.recording_is_active():
@@ -325,7 +325,7 @@ class ComgraRecorder:
              "before the first call of start_iteration().")
         assert not is_initial_value or self.current_stage == 'started', \
             ("Use is_initial_value=True to register the initial value of a hidden state after "
-             "calling start_recording() but before start_iteration().")
+             "calling start_batch() but before start_iteration().")
         iteration_to_use_for_registration = -1 if is_initial_value else self.iteration
         assert (1 if is_input else 0) + (1 if is_parameter else 0) + \
                (1 if is_target else 0) + (1 if is_loss else 0) <= 1, tensor_name
@@ -622,7 +622,7 @@ class ComgraRecorder:
     @utilities.runtime_analysis_decorator
     def start_iteration(self):
         """
-        Tell comgra that a new iteration has started. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.start_recording`.
+        Tell comgra that a new iteration has started. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.start_batch`.
         """
         assert self.current_stage in ['started', 'after_iteration'], self.current_stage
         self.current_stage = 'forward'
@@ -662,7 +662,7 @@ class ComgraRecorder:
     @utilities.runtime_analysis_decorator
     def finish_iteration(self):
         """
-        Tell comgra that the iteration has ended. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.start_iteration` but before :py:func:`~comgra.recorder.ComgraRecorder.finish_recording`.
+        Tell comgra that the iteration has ended. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.start_iteration` but before :py:func:`~comgra.recorder.ComgraRecorder.finish_batch`.
         """
         assert self.current_stage in ['forward', 'backward'], self.current_stage
         self.current_stage = 'after_iteration'
@@ -1083,7 +1083,7 @@ class ComgraRecorder:
         ))
 
     @utilities.runtime_analysis_decorator
-    def finish_recording(self):
+    def finish_batch(self):
         """
         Tell comgra that the recording has ended. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.finish_iteration`.
         """

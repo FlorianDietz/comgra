@@ -145,7 +145,7 @@ class Demonstration:
         # Each time a new training step is started, call this function.
         # Comgra will automatically decide whether to make a recording based on
         # decision_maker_for_recordings and override__recording_is_active
-        comgra.my_recorder.start_recording(
+        comgra.my_recorder.start_batch(
             training_step,
             batch_size,
             # This is the string that is used by DecisionMakerForRecordingsFrequencyPerType
@@ -279,9 +279,9 @@ class Demonstration:
             # Tell comgra that the iteration has finished.
             comgra.my_recorder.finish_iteration()
         # Finish a batch.
-        # This is the counterpart to start_next_recording.
+        # This is the counterpart to start_batch.
         # All tensors registered by comgra will be serialized at this point.
-        comgra.my_recorder.finish_recording()
+        comgra.my_recorder.finish_batch()
 
     def generate_task_data(self):
         # Generate some datasets for training (lengths 1 to 10) and for testing (lengths 15 and 20)
