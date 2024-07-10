@@ -143,6 +143,8 @@ class ComgraRecorder:
         """
         :return: True if comgra is currently recording, False otherwise.
         """
+        if self.current_stage != 'inactive':
+            return True
         if self.override__recording_is_active is None:
             return self.comgra_is_active and self.decision_maker_for_recordings.is_record_on_this_iteration(
                 self.training_step, self.type_of_execution,
@@ -669,6 +671,7 @@ class ComgraRecorder:
         self.current_type_of_tensor_recording = 'forward'  # This will be used when the parameters get recorded in traverse_graph_backwards
         if not self.recording_is_active():
             return
+        utilities.print_total_runtimes()
         #
         # Go backwards through the computation graph, starting from outputs, targets, and losses.
         # Go back until you encounter an input, or you can't go back anymore.
