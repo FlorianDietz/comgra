@@ -316,7 +316,7 @@ class ComgraRecorder:
         :param node_name: An optional string that assigns this tensor to a node. All tensors with the same node_name will share a node in the GUI.
         :param role_within_node: If a node_name is specified, give this tensor a role within the node to differentiate it from the other tensors in the node.
         :param is_initial_value: Use is_initial_value=True to register the initial value of a hidden state after calling :py:func:`~comgra.recorder.ComgraRecorder.start_batch` but before :py:func:`~comgra.recorder.ComgraRecorder.start_iteration`.
-        :return: A :py:obj:`~comgra.objects.TensorReference`
+        :return: None
         """
         if not self.recording_is_active():
             return
@@ -459,7 +459,6 @@ class ComgraRecorder:
                             (f"The tensor '{ref1.tensor_name}' has been recorded twice for the same node "
                              f"({ref1.node_name}) on the same iteration ({ref1.iteration}). "
                              f"This is not allowed because it is ambiguous how to organize this in a graph.")
-        return tensor_reference
 
     @utilities.runtime_analysis_decorator
     def add_tensor_connection(
