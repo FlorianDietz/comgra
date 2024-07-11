@@ -245,7 +245,7 @@ class ComgraRecorder:
             f"The training_step should increase monotonically."
         self.training_step = training_step
         assert type_of_execution is not None, type_of_execution
-        assert type_of_execution != 'any_value', type_of_execution
+        assert type_of_execution != 'any_value', "Don't use 'any_value', it has a special meaning in the GUI."
         assert not type_of_execution.startswith('__'), type_of_execution
         assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution)
         self.type_of_execution = type_of_execution
