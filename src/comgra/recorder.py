@@ -259,6 +259,8 @@ class ComgraRecorder:
         self._reset_caches()
         if not self.recording_is_active():
             return
+        assert self.set_of_top_level_modules, \
+            "No modules have been defined yet. Use track_module() on your modules before starting a recording."
         self.training_step_configuration = TrainingStepConfiguration(
             type_of_execution=self.type_of_execution,
             modules_and_parameters=self.set_of_top_level_modules,
@@ -627,8 +629,6 @@ class ComgraRecorder:
         assert self.current_stage in ['started', 'after_iteration'], self.current_stage
         self.current_stage = 'forward'
         self.iteration = 0 if self.iteration is None else (self.iteration + 1)
-        assert self.set_of_top_level_modules, \
-            "No modules have been defined yet. Use track_module() on your modules before starting a recording."
 
     @utilities.runtime_analysis_decorator
     def start_backward_pass(self):
@@ -666,9 +666,9 @@ class ComgraRecorder:
         """
         assert self.current_stage in ['forward', 'backward'], self.current_stage
         self.current_stage = 'after_iteration'
-        self.current_type_of_tensor_recording = 'forward'  # This will be used when the parameters get recorded in traverse_graph_backwards
         if not self.recording_is_active():
             return
+        self.current_type_of_tensor_recording = 'forward'  # This will be used when the parameters get recorded in traverse_graph_backwards
         #
         # Go backwards through the computation graph, starting from outputs, targets, and losses.
         # Go back until you encounter an input, or you can't go back anymore.
@@ -1116,6 +1116,7 @@ class ComgraRecorder:
             pickle.dump(self.training_step_configuration, f)
 
     def _save_tensor_recordings(self):
+        #
         # Notes on how this code works, and why:
         # Convert the TensorRecordings from tensor to float.
         # While doing so, minimize GPU-to-CPU transfers by batching the tensors,
