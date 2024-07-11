@@ -169,6 +169,8 @@ class ComgraRecorder:
         :param module_name: The name with which the module will show up in the GUI
         :param module: A pytorch module
         """
+        if not self.comgra_is_active:
+            return
         assert self.current_stage == 'inactive', "Modules should be tracked before starting any recordings."
         self._track_module_recursive(module_name, module, self.set_of_top_level_modules, [])
 
