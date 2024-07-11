@@ -307,8 +307,6 @@ class Demonstration:
                     f"split_test_out", split_test_out
                 )
             if iteration == num_iterations - 1:
-                # Tell comgra that we are now performing a backward pass and register some more tensors
-                comgra.my_recorder.start_backward_pass()
                 comgra.my_recorder.register_tensor(f"target", target_tensor, is_target=True)
                 # Calculate the loss and perform a backward pass as normal
                 loss = self.criterion(output, target_tensor)

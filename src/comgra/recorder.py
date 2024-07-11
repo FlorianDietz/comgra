@@ -631,19 +631,9 @@ class ComgraRecorder:
         self.iteration = 0 if self.iteration is None else (self.iteration + 1)
 
     @utilities.runtime_analysis_decorator
-    def start_backward_pass(self):
-        """
-        Tell comgra that the forward pass has ended and you are now backpropagating. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.start_iteration` but before :py:func:`~comgra.recorder.ComgraRecorder.record_current_gradients` and :py:func:`~comgra.recorder.ComgraRecorder.finish_iteration`.
-        """
-        assert self.current_stage == 'forward', self.current_stage
-        self.current_stage = 'backward'
-        if not self.recording_is_active():
-            return
-
-    @utilities.runtime_analysis_decorator
     def record_current_gradients(self, name_of_loss_group, set_gradients_to_zero_if_not_a_parameter=False):
         """
-        Tell comgra to save all gradients that are currently on all registered tensors and parameters. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.start_backward_pass` but before :py:func:`~comgra.recorder.ComgraRecorder.finish_iteration`.
+        Tell comgra to save all gradients that are currently on all registered tensors and parameters. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.start_iteration` but before :py:func:`~comgra.recorder.ComgraRecorder.finish_iteration`.
         @param name_of_loss_group: The gradients are stored under this name. It is possible to call this function multiple times with different names in order to save multiple different sets of gradients.
         """
         if not self.recording_is_active():
@@ -664,7 +654,7 @@ class ComgraRecorder:
         """
         Tell comgra that the iteration has ended. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.start_iteration` but before :py:func:`~comgra.recorder.ComgraRecorder.finish_batch`.
         """
-        assert self.current_stage in ['forward', 'backward'], self.current_stage
+        assert self.current_stage == 'forward', self.current_stage
         self.current_stage = 'after_iteration'
         if not self.recording_is_active():
             return

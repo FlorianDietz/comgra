@@ -82,7 +82,6 @@ comgra.my_recorder.register_tensor(...)
 # e.g. because of detach() commands or non-differentiable dependencies.
 comgra.my_recorder.add_tensor_connection(...)
 # Call these whenever you apply losses and propagate gradients:
-comgra.my_recorder.start_backward_pass()
 comgra.my_recorder.record_current_gradients(...)
 # Call this whenever you end an iteration:
 comgra.my_recorder.finish_iteration()

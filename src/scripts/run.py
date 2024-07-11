@@ -201,8 +201,6 @@ class Demonstration:
             assert memory.shape == (batch_size, self.memory_size)
             # Apply the loss on the last iteration only
             if iteration == num_iterations - 1:
-                # Tell comgra that we are now performing a backward pass and register some more tensors
-                comgra.my_recorder.start_backward_pass()
                 comgra.my_recorder.register_tensor(f"target", target_tensor, is_target=True)
                 # We calculate and register some helper tensors:
                 # The partial sums of the inputs up to some iteration.
