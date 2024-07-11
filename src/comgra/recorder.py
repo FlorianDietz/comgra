@@ -144,7 +144,7 @@ class ComgraRecorder:
         :return: True if comgra is currently recording, False otherwise.
         """
         if self.override__recording_is_active is None:
-            return self.comgra_is_active and self.decision_maker_for_recordings.is_record_on_this_iteration(
+            return self.comgra_is_active and self.decision_maker_for_recordings.is_record_on_this_step(
                 self.training_step, self.type_of_execution,
             )
         return self.comgra_is_active and self.override__recording_is_active

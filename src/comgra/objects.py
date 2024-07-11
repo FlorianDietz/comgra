@@ -338,7 +338,7 @@ class DecisionMakerForRecordings(abc.ABC):
     pass
 
     @abc.abstractmethod
-    def is_record_on_this_iteration(self, training_step, type_of_execution):
+    def is_record_on_this_step(self, training_step, type_of_execution):
         pass
 
 
@@ -346,7 +346,7 @@ class DecisionMakerForRecordings(abc.ABC):
 class DecisionMakerForRecordingsHardcoded(DecisionMakerForRecordings):
     fixed_training_steps: set[int]
 
-    def is_record_on_this_iteration(self, training_step, type_of_execution):
+    def is_record_on_this_step(self, training_step, type_of_execution):
         return training_step in self.fixed_training_steps
 
 
@@ -356,7 +356,7 @@ class DecisionMakerForRecordingsFrequencyPerType(DecisionMakerForRecordings):
     exponential_backoff_factor: float = 1.0
     identifier_to_last_recorded_step_and_min_difference: Dict = dataclasses.field(default_factory=dict)
 
-    def is_record_on_this_iteration(self, training_step, type_of_execution):
+    def is_record_on_this_step(self, training_step, type_of_execution):
         if type_of_execution is None:
             return False
         assert self.exponential_backoff_factor >= 1.0, self.exponential_backoff_factor
@@ -384,7 +384,7 @@ class DecisionMakerForRecordingsExponentialFalloff(DecisionMakerForRecordings):
         self.current_valid_steps = []
         self.current_step_size = starting_step_size
 
-    def is_record_on_this_iteration(self, training_step, type_of_execution):
+    def is_record_on_this_step(self, training_step, type_of_execution):
         if self.current_step_size * (self.maximum_number_of_recordings - 1) < training_step:
             self.current_step_size *= 2
         self.current_valid_steps = [
