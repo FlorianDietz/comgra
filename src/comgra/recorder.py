@@ -128,6 +128,7 @@ class ComgraRecorder:
         self.mapping_of_tensors_for_extracting_kpis: Dict[Tuple[int, str, Optional[int], Optional[int], str, str, str], Tuple[torch.Tensor, TensorRepresentation]] = {}
         self.training_step = None
         self.type_of_execution = None
+        self.list_of_delayed_function_calls = []
         self.iteration = None
         self.record_all_tensors_per_batch_index_by_default = False
         self.tensor_to_list_of_references: Dict[torch.Tensor, List[TensorReference]] = {}  # The first of these tuples is the canonical one
@@ -138,13 +139,20 @@ class ComgraRecorder:
         self.manual_tensor_connections_sink_to_sources_by_computation_step: Dict[Any, List[torch.Tensor]] = {}
         self.current_batch_size = None
         self.override__recording_is_active = None
+        self.sanity_check__recursion_for_delayed_calls = None
 
     def recording_is_active(self):
         """
         :return: True if comgra is currently recording, False otherwise.
         """
         if self.override__recording_is_active is None:
-            return self.comgra_is_active and self.decision_maker_for_recordings.is_record_on_this_step(
+            if not self.comgra_is_active:
+                return False
+            if self.type_of_execution is None:
+                # While the type_of_execution is unknown (it will be set later by decide_recording_of_batch()),
+                # pretend that the recording is active.
+                return True
+            return self.decision_maker_for_recordings.is_record_on_this_step(
                 self.training_step, self.type_of_execution,
             )
         return self.comgra_is_active and self.override__recording_is_active
@@ -204,6 +212,7 @@ class ComgraRecorder:
         """
         This function acts as a simple logger, in case you want to view text messages.
         The notes can be viewed in their own tab in the GUI.
+        These messages are always logged, independent of whether a recording is made on this training step.
         :param note: A string you want to log.
         """
         if not self.comgra_is_active:
@@ -234,6 +243,7 @@ class ComgraRecorder:
         :param current_batch_size: An integer that represents the current batch size.
         :param type_of_execution: An optional string that assigns this recording to a category.
         The GUI allows you to filter by this category.
+        If this is set to None, it is treated as uncertain whether recordings should be made until :py:func:`~comgra.recorder.ComgraRecorder.decide_recording_of_batch` is called.
         :param record_all_tensors_per_batch_index_by_default: If True,
         :py:func:`~comgra.recorder.ComgraRecorder.register_tensor` will act as if record_per_batch_index was True by default.
         :param override__recording_is_active: Override decision_maker_for_recordings of :py:obj:`~comgra.recorder.ComgraRecorder`.
@@ -246,10 +256,10 @@ class ComgraRecorder:
         assert self.training_step is None or training_step > self.training_step, \
             f"The training_step should increase monotonically."
         self.training_step = training_step
-        assert type_of_execution is not None, type_of_execution
-        assert type_of_execution != 'any_value', "Don't use 'any_value', it has a special meaning in the GUI."
-        assert not type_of_execution.startswith('__'), type_of_execution
-        assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution)
+        if type_of_execution is not None:
+            assert type_of_execution != 'any_value', "Don't use 'any_value', it has a special meaning in the GUI."
+            assert not type_of_execution.startswith('__'), type_of_execution
+            assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution)
         self.type_of_execution = type_of_execution
         self.iteration = None
         self.record_all_tensors_per_batch_index_by_default = record_all_tensors_per_batch_index_by_default
@@ -259,12 +269,20 @@ class ComgraRecorder:
         self.current_batch_size = current_batch_size
         self.override__recording_is_active = override__recording_is_active
         self._reset_caches()
+        self.sanity_check__recursion_for_delayed_calls = False
         if not self.recording_is_active():
             return
         assert self.set_of_top_level_modules, \
             "No modules have been defined yet. Use track_module() on your modules before starting a recording."
+        #
+        # Note:
+        # The below code is run immediately, even if type_of_execution is None.
+        # In this case we need to wait for decide_recording_of_batch() before running code and should wrap code
+        # in helper functions that we pass to _run_now_or_add_to_delayed_calls().
+        # However, this is already done by register_tensor() internally
+        #
         self.training_step_configuration = TrainingStepConfiguration(
-            type_of_execution=self.type_of_execution,
+            type_of_execution=self.type_of_execution,  # This may be None, but must be set later, before serialization
             modules_and_parameters=self.set_of_top_level_modules,
         )
         # Register the tensors on the parameters
@@ -277,6 +295,7 @@ class ComgraRecorder:
     def _reset_caches(self):
         # Note that this method should be called both before and after each training step.
         # It empties caches, which allows pytorch to free memory.
+        self.list_of_delayed_function_calls = []
         self.training_step_configuration = None
         self.tensor_recordings = TensorRecordings()
         self.mapping_of_tensors_for_extracting_kpis = {}
@@ -322,145 +341,149 @@ class ComgraRecorder:
         """
         if not self.recording_is_active():
             return
-        assert self.iteration is not None or is_initial_value or is_parameter, \
-            "You must call start_iteration() before registering any tensors, unless you use is_initial_value=True."
-        assert not is_initial_value or self.iteration is None, \
-            ("You can only use is_initial_value=True when registering a tensor "
-             "before the first call of start_iteration().")
-        assert not is_initial_value or self.current_stage == 'started', \
-            ("Use is_initial_value=True to register the initial value of a hidden state after "
-             "calling start_batch() but before start_iteration().")
-        iteration_to_use_for_registration = -1 if is_initial_value else self.iteration
-        assert (1 if is_input else 0) + (1 if is_parameter else 0) + \
-               (1 if is_target else 0) + (1 if is_loss else 0) <= 1, tensor_name
-        assert not tensor_name.startswith('node__')
-        node_name = 'node__' + (tensor_name if node_name is None else node_name)
-        role_within_node = tensor_name if role_within_node is None else role_within_node
-        # Safety checks to avoid overlap with SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS
-        assert '*' not in tensor_name, "tensor_name can't contain an asterisk."
-        assert '*' not in node_name, "node_name can't contain an asterisk."
         # Make sure that gradients are generated and retained for later.
         if not tensor.requires_grad:
             tensor.requires_grad = True
         tensor.retain_grad()
-        # Make parameters of this function call consistent with each other
-        if is_loss:
-            recording_type = 'single_value'
-            index_of_batch_dimension = None
-            value_dimensions = []
-        elif is_parameter:
-            if self.calculate_svd_and_other_expensive_operations_of_parameters and len(tensor.shape) == 2:
-                recording_type = 'kpis_and_svd'
+
+        def function_to_run():
+            nonlocal node_name, role_within_node, index_of_batch_dimension, recording_type, record_per_batch_index
+            assert self.iteration is not None or is_initial_value or is_parameter, \
+                "You must call start_iteration() before registering any tensors, unless you use is_initial_value=True."
+            assert not is_initial_value or self.iteration is None, \
+                ("You can only use is_initial_value=True when registering a tensor "
+                 "before the first call of start_iteration().")
+            assert not is_initial_value or self.current_stage == 'started', \
+                ("Use is_initial_value=True to register the initial value of a hidden state after "
+                 "calling start_batch() but before start_iteration().")
+            iteration_to_use_for_registration = -1 if is_initial_value else self.iteration
+            assert (1 if is_input else 0) + (1 if is_parameter else 0) + \
+                   (1 if is_target else 0) + (1 if is_loss else 0) <= 1, tensor_name
+            assert not tensor_name.startswith('node__')
+            node_name = 'node__' + (tensor_name if node_name is None else node_name)
+            role_within_node = tensor_name if role_within_node is None else role_within_node
+            # Safety checks to avoid overlap with SUFFIX_TO_AVOID_DUPLICATES_WHEN_REUSING_REFERENCES_FROM_OLDER_ITERATIONS
+            assert '*' not in tensor_name, "tensor_name can't contain an asterisk."
+            assert '*' not in node_name, "node_name can't contain an asterisk."
+            # Make parameters of this function call consistent with each other
+            if is_loss:
+                recording_type = 'single_value'
+                index_of_batch_dimension = None
+                value_dimensions = []
+            elif is_parameter:
+                if self.calculate_svd_and_other_expensive_operations_of_parameters and len(tensor.shape) == 2:
+                    recording_type = 'kpis_and_svd'
+                else:
+                    recording_type = 'kpis'
+                index_of_batch_dimension = None
+                value_dimensions = [i for i in range(len(tensor.shape))]
+                iteration_to_use_for_registration = -1
             else:
-                recording_type = 'kpis'
-            index_of_batch_dimension = None
-            value_dimensions = [i for i in range(len(tensor.shape))]
-            iteration_to_use_for_registration = -1
-        else:
-            assert index_of_batch_dimension is not None
-            value_dimensions = [i for i in range(len(tensor.shape)) if i != index_of_batch_dimension]
-            if recording_type is None:
-                recording_type = 'neuron'
-        if index_of_batch_dimension is None:
-            assert not record_per_batch_index, \
-                f"This tensor has no batch dimension and therefore can't have record_per_batch_index=True: {tensor_name}"
-        else:
-            assert len(tensor.shape) > index_of_batch_dimension and \
-                   tensor.shape[index_of_batch_dimension] == self.current_batch_size, tensor_name
-            if record_per_batch_index is None:
-                record_per_batch_index = self.record_all_tensors_per_batch_index_by_default
-        if recording_type == 'single_value':
-            assert index_of_batch_dimension is None
-        # Create a TensorReference for the tensor and store various references for later.
-        if is_input:
-            type_of_tensor = 'input'
-        elif is_parameter:
-            type_of_tensor = 'parameter'
-        elif is_target:
-            type_of_tensor = 'target'
-        elif is_loss:
-            type_of_tensor = 'loss'
-        else:
-            type_of_tensor = 'calculated'
-        if recording_type == 'kpis':
-            items_to_record = ['mean', 'abs_mean', 'std', 'abs_max']
-        elif recording_type == 'kpis_and_svd':
-            items_to_record = ['mean', 'abs_mean', 'std', 'abs_max', 'svd']
-        elif recording_type == 'neuron':
-            items_to_record = ['mean', 'abs_mean', 'std', 'abs_max', 'neuron']
-        elif recording_type == 'single_value':
-            items_to_record = ['single_value']
-        else:
-            raise NotImplementedError(recording_type)
-        assert (tensor_name, iteration_to_use_for_registration) not in [(ref.tensor_name, ref.iteration) for k, refs in self.tensor_to_list_of_references.items() for ref in refs], \
-            (f"Two tensors were recorded with the same name in the same iteration. "
-             f"Give your tensors unique names: {(tensor_name, iteration_to_use_for_registration)}")
-        assert (node_name, role_within_node) not in [
-            (ref.node_name, ref.role_within_node)
-            for refs in self.tensor_to_list_of_references.values()
-            for ref in refs
-            if ref.iteration == iteration_to_use_for_registration
-        ], \
-            (f"For iteration {iteration_to_use_for_registration}, the tensor '{tensor_name}' defined for node '{node_name}' "
-             f"has the same role as a previously recorded "
-             f"tensor within that same node: '{role_within_node}'")
-        tensor_is_registered_for_the_first_time = (tensor not in self.tensor_to_list_of_references)
-        previous_reference = (None if tensor_is_registered_for_the_first_time else self.tensor_to_list_of_references[tensor][-1])
-        tensor_reference = TensorReference(
-            tensor_name=tensor_name,
-            iteration=iteration_to_use_for_registration,
-            node_name=node_name,
-            role_within_node=role_within_node,
-            is_canonical_reference=tensor_is_registered_for_the_first_time,
-            previous_reference=previous_reference,
-        )
-        if tensor_is_registered_for_the_first_time:
-            self.tensor_to_list_of_references[tensor] = [tensor_reference]
-            tensor_representation = TensorRepresentation(
-                original_reference=tensor_reference,
-                type_of_tensor=type_of_tensor,
-                shape=list(tensor.shape),
-                index_of_batch_dimension=index_of_batch_dimension,
-                value_dimensions=list(value_dimensions),
-                recording_type=recording_type,
-                items_to_record=list(items_to_record),
-                record_per_batch_index=record_per_batch_index,
+                assert index_of_batch_dimension is not None
+                value_dimensions = [i for i in range(len(tensor.shape)) if i != index_of_batch_dimension]
+                if recording_type is None:
+                    recording_type = 'neuron'
+            if index_of_batch_dimension is None:
+                assert not record_per_batch_index, \
+                    f"This tensor has no batch dimension and therefore can't have record_per_batch_index=True: {tensor_name}"
+            else:
+                assert len(tensor.shape) > index_of_batch_dimension and \
+                       tensor.shape[index_of_batch_dimension] == self.current_batch_size, tensor_name
+                if record_per_batch_index is None:
+                    record_per_batch_index = self.record_all_tensors_per_batch_index_by_default
+            if recording_type == 'single_value':
+                assert index_of_batch_dimension is None
+            # Create a TensorReference for the tensor and store various references for later.
+            if is_input:
+                type_of_tensor = 'input'
+            elif is_parameter:
+                type_of_tensor = 'parameter'
+            elif is_target:
+                type_of_tensor = 'target'
+            elif is_loss:
+                type_of_tensor = 'loss'
+            else:
+                type_of_tensor = 'calculated'
+            if recording_type == 'kpis':
+                items_to_record = ['mean', 'abs_mean', 'std', 'abs_max']
+            elif recording_type == 'kpis_and_svd':
+                items_to_record = ['mean', 'abs_mean', 'std', 'abs_max', 'svd']
+            elif recording_type == 'neuron':
+                items_to_record = ['mean', 'abs_mean', 'std', 'abs_max', 'neuron']
+            elif recording_type == 'single_value':
+                items_to_record = ['single_value']
+            else:
+                raise NotImplementedError(recording_type)
+            assert (tensor_name, iteration_to_use_for_registration) not in [(ref.tensor_name, ref.iteration) for k, refs in self.tensor_to_list_of_references.items() for ref in refs], \
+                (f"Two tensors were recorded with the same name in the same iteration. "
+                 f"Give your tensors unique names: {(tensor_name, iteration_to_use_for_registration)}")
+            assert (node_name, role_within_node) not in [
+                (ref.node_name, ref.role_within_node)
+                for refs in self.tensor_to_list_of_references.values()
+                for ref in refs
+                if ref.iteration == iteration_to_use_for_registration
+            ], \
+                (f"For iteration {iteration_to_use_for_registration}, the tensor '{tensor_name}' defined for node '{node_name}' "
+                 f"has the same role as a previously recorded "
+                 f"tensor within that same node: '{role_within_node}'")
+            tensor_is_registered_for_the_first_time = (tensor not in self.tensor_to_list_of_references)
+            previous_reference = (None if tensor_is_registered_for_the_first_time else self.tensor_to_list_of_references[tensor][-1])
+            tensor_reference = TensorReference(
+                tensor_name=tensor_name,
+                iteration=iteration_to_use_for_registration,
+                node_name=node_name,
+                role_within_node=role_within_node,
+                is_canonical_reference=tensor_is_registered_for_the_first_time,
+                previous_reference=previous_reference,
             )
-            self.tensor_reference_to_representation[tensor_reference] = tensor_representation
-            self.canonical_tensor_reference_to_tensor[tensor_reference] = tensor
-            # Store the current value of the tensor
-            self._store_value_of_tensor(tensor, tensor_representation)
-        else:
-            # Every subsequent time the same tensor is recorded, just save the reference to the earlier recording
-            # (by storing the name in the same list)
-            # and make sure it is consistent with the previous recording
-            self.tensor_to_list_of_references[tensor].append(tensor_reference)
-            canonical_reference = self.tensor_to_list_of_references[tensor][0]
-            tr = self.tensor_reference_to_representation[canonical_reference]
-            msg = (f"The tensor '{tensor_name}' on iteration {iteration_to_use_for_registration} "
-                   f"was previously recorded with "
-                   f"the name '{tr.original_reference.tensor_name}' "
-                   f"and iteration {tr.original_reference.iteration}, "
-                   f"but with different values for ")
-            assert tr.type_of_tensor == type_of_tensor, \
-                msg + "its type_of_tensor"
-            assert tr.index_of_batch_dimension == index_of_batch_dimension, \
-                msg + "its index_of_batch_dimension"
-            assert tuple(tr.value_dimensions) == tuple(value_dimensions), \
-                msg + "its value_dimensions"
-            assert tr.recording_type == recording_type, \
-                msg + "its recording_type"
-            assert tuple(tr.items_to_record) == tuple(items_to_record), \
-                msg + "its items_to_record"
-            assert tr.record_per_batch_index == record_per_batch_index, \
-                msg + "its record_per_batch_index"
-            for ref1 in self.tensor_to_list_of_references[tensor]:
-                for ref2 in self.tensor_to_list_of_references[tensor]:
-                    if ref1 is not ref2 and ref1.iteration == ref2.iteration:
-                        assert ref1.node_name != ref2.node_name, \
-                            (f"The tensor '{ref1.tensor_name}' has been recorded twice for the same node "
-                             f"({ref1.node_name}) on the same iteration ({ref1.iteration}). "
-                             f"This is not allowed because it is ambiguous how to organize this in a graph.")
+            if tensor_is_registered_for_the_first_time:
+                self.tensor_to_list_of_references[tensor] = [tensor_reference]
+                tensor_representation = TensorRepresentation(
+                    original_reference=tensor_reference,
+                    type_of_tensor=type_of_tensor,
+                    shape=list(tensor.shape),
+                    index_of_batch_dimension=index_of_batch_dimension,
+                    value_dimensions=list(value_dimensions),
+                    recording_type=recording_type,
+                    items_to_record=list(items_to_record),
+                    record_per_batch_index=record_per_batch_index,
+                )
+                self.tensor_reference_to_representation[tensor_reference] = tensor_representation
+                self.canonical_tensor_reference_to_tensor[tensor_reference] = tensor
+                # Store the current value of the tensor
+                self._store_value_of_tensor(tensor, tensor_representation)
+            else:
+                # Every subsequent time the same tensor is recorded, just save the reference to the earlier recording
+                # (by storing the name in the same list)
+                # and make sure it is consistent with the previous recording
+                self.tensor_to_list_of_references[tensor].append(tensor_reference)
+                canonical_reference = self.tensor_to_list_of_references[tensor][0]
+                tr = self.tensor_reference_to_representation[canonical_reference]
+                msg = (f"The tensor '{tensor_name}' on iteration {iteration_to_use_for_registration} "
+                       f"was previously recorded with "
+                       f"the name '{tr.original_reference.tensor_name}' "
+                       f"and iteration {tr.original_reference.iteration}, "
+                       f"but with different values for ")
+                assert tr.type_of_tensor == type_of_tensor, \
+                    msg + "its type_of_tensor"
+                assert tr.index_of_batch_dimension == index_of_batch_dimension, \
+                    msg + "its index_of_batch_dimension"
+                assert tuple(tr.value_dimensions) == tuple(value_dimensions), \
+                    msg + "its value_dimensions"
+                assert tr.recording_type == recording_type, \
+                    msg + "its recording_type"
+                assert tuple(tr.items_to_record) == tuple(items_to_record), \
+                    msg + "its items_to_record"
+                assert tr.record_per_batch_index == record_per_batch_index, \
+                    msg + "its record_per_batch_index"
+                for ref1 in self.tensor_to_list_of_references[tensor]:
+                    for ref2 in self.tensor_to_list_of_references[tensor]:
+                        if ref1 is not ref2 and ref1.iteration == ref2.iteration:
+                            assert ref1.node_name != ref2.node_name, \
+                                (f"The tensor '{ref1.tensor_name}' has been recorded twice for the same node "
+                                 f"({ref1.node_name}) on the same iteration ({ref1.iteration}). "
+                                 f"This is not allowed because it is ambiguous how to organize this in a graph.")
+        self._run_now_or_add_to_delayed_calls(function_to_run)
 
     @utilities.runtime_analysis_decorator
     def add_tensor_connection(
@@ -474,53 +497,57 @@ class ComgraRecorder:
         """
         if not self.recording_is_active():
             return
-        def verify_object(obj, identifier):
-            if isinstance(obj, str):
-                matching_references = []
-                for tensor, refs in self.tensor_to_list_of_references.items():
-                    for ref in refs:
-                        if ref.tensor_name == obj:
-                            matching_references.append((tensor, ref))
-                assert matching_references, f"There is no tensor matching the name '{obj}' for the {identifier}."
-                # If the name matches multiple registered tensors, pick the one with the highest iteration
-                max_iteration = max(ref.iteration for _, ref in matching_references)
-                matching_references = [(t, ref) for t, ref in matching_references if ref.iteration == max_iteration]
-                assert len(matching_references) == 1, \
-                    (f"Programming error. This error should never be visible to users. "
-                     f"Two tensors where registered with the same name for the same iteration. "
-                     f"register_tensor() should raise an exception when this happens.\n"
-                     f"{identifier}\n{obj}\n{max_iteration}\n{matching_references}")
-                obj = matching_references[0][0]
-            if isinstance(obj, TensorReference):
-                obj = self.canonical_tensor_reference_to_tensor[obj.get_canonical_reference()]
-            assert isinstance(obj, torch.Tensor), \
-                f"The {identifier} must be either a tensor, the name of a registered tensor, or a TensorReference."
-            assert obj.requires_grad, \
-                (f"The {identifier} must have the requires_grad attribute set to True.\n"
-                 f"Without this, backpropagating through the computation graph may not arrive at this tensor "
-                 f"(in case of sinks) or propagate past it (in case of sources).\n"
-                 f"Two additional notes:\n"
-                 f"(1) comgra's register_tensor() function will set .requires_grad automatically.\n"
-                 f"(2) You need to set .requires_grad immediately, before using the tensor in another computation, "
-                 f"or else the attribute won't have an effect. "
-                 f"This also means that you should call register_tensor() immediately after defining a tensor.")
-            return obj
-        src = verify_object(src, 'src')
-        sink = verify_object(sink, 'sink')
-        assert src is not sink
-        # Store the sink in up to two different ways, depending on whether grad_fn is set or not,
-        # because this determines how the sink tensor can be discovered later:
-        # Either by recursing through the computation graph's grad_fn elements, or as a leaf tensor.
-        # Note that if the sink is stored both ways then the graph backpropagation algorithm may end up recursing
-        # through it twice. It should be able to handle that without issue, just like it has to be able to handle
-        # the possibility that a grad_fn leads to the same tensor twice by two different routes.
-        if sink.grad_fn is not None:
+
+        def function_to_run():
+            nonlocal src, sink
+            def verify_object(obj, identifier):
+                if isinstance(obj, str):
+                    matching_references = []
+                    for tensor, refs in self.tensor_to_list_of_references.items():
+                        for ref in refs:
+                            if ref.tensor_name == obj:
+                                matching_references.append((tensor, ref))
+                    assert matching_references, f"There is no tensor matching the name '{obj}' for the {identifier}."
+                    # If the name matches multiple registered tensors, pick the one with the highest iteration
+                    max_iteration = max(ref.iteration for _, ref in matching_references)
+                    matching_references = [(t, ref) for t, ref in matching_references if ref.iteration == max_iteration]
+                    assert len(matching_references) == 1, \
+                        (f"Programming error. This error should never be visible to users. "
+                         f"Two tensors where registered with the same name for the same iteration. "
+                         f"register_tensor() should raise an exception when this happens.\n"
+                         f"{identifier}\n{obj}\n{max_iteration}\n{matching_references}")
+                    obj = matching_references[0][0]
+                if isinstance(obj, TensorReference):
+                    obj = self.canonical_tensor_reference_to_tensor[obj.get_canonical_reference()]
+                assert isinstance(obj, torch.Tensor), \
+                    f"The {identifier} must be either a tensor, the name of a registered tensor, or a TensorReference."
+                assert obj.requires_grad, \
+                    (f"The {identifier} must have the requires_grad attribute set to True.\n"
+                     f"Without this, backpropagating through the computation graph may not arrive at this tensor "
+                     f"(in case of sinks) or propagate past it (in case of sources).\n"
+                     f"Two additional notes:\n"
+                     f"(1) comgra's register_tensor() function will set .requires_grad automatically.\n"
+                     f"(2) You need to set .requires_grad immediately, before using the tensor in another computation, "
+                     f"or else the attribute won't have an effect. "
+                     f"This also means that you should call register_tensor() immediately after defining a tensor.")
+                return obj
+            src = verify_object(src, 'src')
+            sink = verify_object(sink, 'sink')
+            assert src is not sink
+            # Store the sink in up to two different ways, depending on whether grad_fn is set or not,
+            # because this determines how the sink tensor can be discovered later:
+            # Either by recursing through the computation graph's grad_fn elements, or as a leaf tensor.
+            # Note that if the sink is stored both ways then the graph backpropagation algorithm may end up recursing
+            # through it twice. It should be able to handle that without issue, just like it has to be able to handle
+            # the possibility that a grad_fn leads to the same tensor twice by two different routes.
+            if sink.grad_fn is not None:
+                # We compare by id() and set() because pytorch will try to compare objects with == on lists
+                if id(src) not in set(id(a) for a in self.manual_tensor_connections_sink_to_sources_by_computation_step[sink.grad_fn]):
+                    self.manual_tensor_connections_sink_to_sources_by_computation_step[sink.grad_fn].append(src)
             # We compare by id() and set() because pytorch will try to compare objects with == on lists
-            if id(src) not in set(id(a) for a in self.manual_tensor_connections_sink_to_sources_by_computation_step[sink.grad_fn]):
-                self.manual_tensor_connections_sink_to_sources_by_computation_step[sink.grad_fn].append(src)
-        # We compare by id() and set() because pytorch will try to compare objects with == on lists
-        if id(src) not in set(id(a) for a in self.manual_tensor_connections_sink_to_sources_by_tensor[sink]):
-            self.manual_tensor_connections_sink_to_sources_by_tensor[sink].append(src)
+            if id(src) not in set(id(a) for a in self.manual_tensor_connections_sink_to_sources_by_tensor[sink]):
+                self.manual_tensor_connections_sink_to_sources_by_tensor[sink].append(src)
+        self._run_now_or_add_to_delayed_calls(function_to_run)
 
     @utilities.runtime_analysis_decorator
     def detach_while_keeping_connection(self, tensor: torch.Tensor):
@@ -629,7 +656,78 @@ class ComgraRecorder:
         """
         assert self.current_stage in ['started', 'after_iteration'], self.current_stage
         self.current_stage = 'forward'
-        self.iteration = 0 if self.iteration is None else (self.iteration + 1)
+        if not self.recording_is_active():
+            return
+        def function_to_run():
+            self.iteration = 0 if self.iteration is None else (self.iteration + 1)
+        self._run_now_or_add_to_delayed_calls(function_to_run)
+
+    @utilities.runtime_analysis_decorator
+    def _run_now_or_add_to_delayed_calls(self, lam):
+        """
+        If type_of_execution was provided when :py:func:`~comgra.recorder.ComgraRecorder.start_batch()`
+        was called, (i.e. if self.type_of_execution is not None)
+        then execute the provided function immediately.
+        Else store it in a list for later.
+        When :py:func:`~comgra.recorder.ComgraRecorder.decide_recording_of_batch()`
+        is called it will either discard or execute these functions.
+        :param lam:
+        :return:
+        """
+        assert self.recording_is_active(), "This should have been verified before this function is called"
+        assert not self.sanity_check__recursion_for_delayed_calls, \
+            "Programming error. Functions used with _run_now_or_add_to_delayed_calls() should not be able to call each other."
+        if self.type_of_execution is None:
+            self.list_of_delayed_function_calls.append(lam)
+        else:
+            self.sanity_check__recursion_for_delayed_calls = True
+            lam()
+            self.sanity_check__recursion_for_delayed_calls = False
+
+    @utilities.runtime_analysis_decorator
+    def decide_recording_of_batch(self, type_of_execution):
+        """
+        This function is needed if :py:func:`~comgra.recorder.ComgraRecorder.start_batch` was called with type_of_execution=None.
+        (Else it does nothing and returns immediately.)
+        It sets the missing value for type_of_execution and if that type_of_execution should be recorded
+        on this training step, then it runs all functions that have been delayed so far.
+        :return: None
+        """
+        if not self.recording_is_active():
+            assert not self.list_of_delayed_function_calls, \
+                "If recordings are known to be inactive, no function calls should have been scheduled"
+            return
+        if self.type_of_execution is not None:
+            assert not self.list_of_delayed_function_calls, \
+                ("start_batch() was already called with a type_of_execution, so functions should have been "
+                 "executed immediately.")
+            # Nothing to do in this case, because all functions should have already been executed.
+            return
+        # TODO decide type_of_execution at this point
+        pass  # TODO
+        if type_of_execution is not None:
+            assert type_of_execution != 'any_value', "Don't use 'any_value', it has a special meaning in the GUI."
+            assert not type_of_execution.startswith('__'), type_of_execution
+            assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution)
+        self.type_of_execution = type_of_execution
+        if self.type_of_execution is None:
+            # If there is no valid type_of_execution now, do not execute anything,
+            # even if override__recording_is_active=True
+            # achieve this by overriding recording_is_active()
+            self.override__recording_is_active = False
+            assert not self.recording_is_active()
+        if not self.recording_is_active():
+            self.list_of_delayed_function_calls = None
+            return
+        assert type_of_execution is not None, type_of_execution
+        # If we get here then we should make a recording on this training_step,
+        # so we should execute all functions that were stored in list_of_delayed_function_calls.
+        self.training_step_configuration.type_of_execution = type_of_execution
+        self.sanity_check__recursion_for_delayed_calls = True
+        for lam in self.list_of_delayed_function_calls:
+            lam()
+        self.list_of_delayed_function_calls = None
+        self.sanity_check__recursion_for_delayed_calls = False
 
     @utilities.runtime_analysis_decorator
     def record_current_gradients(self, name_of_loss_group, set_gradients_to_zero_if_not_a_parameter=False):
@@ -639,6 +737,14 @@ class ComgraRecorder:
         """
         if not self.recording_is_active():
             return
+        if self.type_of_execution is None:
+            raise ValueError(
+                "If you set type_of_execution=None in start_batch(), "
+                "decide_recording_of_batch() should be called before record_current_gradients(). "
+                "This is necessary because you may assign multiple gradients to a tensor if you use multiple loss "
+                "functions, and this will result in incorrect recordings of the gradients if "
+                "record_current_gradients() has to delay its execution."
+            )
         assert name_of_loss_group not in self.types_of_tensor_recordings, \
             (name_of_loss_group, self.types_of_tensor_recordings)
         self.types_of_tensor_recordings.append(name_of_loss_group)
@@ -659,6 +765,12 @@ class ComgraRecorder:
         self.current_stage = 'after_iteration'
         if not self.recording_is_active():
             return
+        def function_to_run():
+            self._finish_iteration()
+        self._run_now_or_add_to_delayed_calls(function_to_run)
+
+    @utilities.runtime_analysis_decorator
+    def _finish_iteration(self):
         self.current_type_of_tensor_recording = 'forward'  # This will be used when the parameters get recorded in traverse_graph_backwards
         #
         # Go backwards through the computation graph, starting from outputs, targets, and losses.
@@ -1082,6 +1194,13 @@ class ComgraRecorder:
         self.current_stage = 'inactive'
         if not self.recording_is_active():
             return
+        if self.type_of_execution is None:
+            raise ValueError(
+                "If you set type_of_execution=None in start_batch(), "
+                "decide_recording_of_batch() should be called before finish_batch()."
+            )
+        assert not self.list_of_delayed_function_calls, \
+            "This list should be empty at this point because of decide_recording_of_batch()"
         # Save the TrainingStepConfiguration
         self._save_training_step_configuration()
         # Save the tensors
@@ -1314,36 +1433,55 @@ class ComgraRecorder:
         :param timepoint: The timepoint to use for the x-axis. Defaults to the training_step.
         :param record_even_if_recording_is_inactive: If True, graph values will be recorded even if comgra is not recording tensors on this training_step. This can be useful if you use your own conditions for when to call this function and those conditions rarely coincide with comgra being active. This argument is False by default because checking whether to record requires a GPU-to-CPU transfer, and we don't want to make these unnecessarily often.
         """
-        if not self.recording_is_active() and not (record_even_if_recording_is_inactive and self.comgra_is_active):
-            return
-        if timepoint is None:
-            timepoint = self.training_step
-        stats = self.kpi_graph_excerpt.setdefault(kpi_group, {}).setdefault(self.type_of_execution, {}).setdefault(kpi_name, {
-            'vals': [],
-            'next_timepoint': 0,
-        })
-        if isinstance(val, torch.Tensor):
-            # This is an expensive operation, so only do it if self.recording_is_active()
-            # We don't want to move results from the GPU only to throw them away later in the function
-            val = val.item()
-        if len(stats['vals']) >= self.kpi_graph_history_to_check_for_outliers:
-            history_to_check = [a['val'] for a in stats['vals'][-self.kpi_graph_history_to_check_for_outliers:]]
-            max_ = max(history_to_check)
-            min_ = min(history_to_check)
-            dist = max_ - min_
-            is_outlier = (val > max_ + dist * self.kpi_graph_factor_for_detecting_outliers
-                          or val < min_ - dist * self.kpi_graph_factor_for_detecting_outliers)
-        else:
-            is_outlier = False
-        if timepoint >= stats['next_timepoint'] or is_outlier:
-            assert isinstance(val, numbers.Number)
-            stats['vals'].append({
-                'timepoint': timepoint,
-                'val': val,
+        override__type_of_execution = None
+        def function_to_run():
+            nonlocal timepoint, val
+            if override__type_of_execution is not None:
+                type_of_execution = override__type_of_execution
+            else:
+                type_of_execution = self.type_of_execution
+            if timepoint is None:
+                timepoint = self.training_step
+            assert type_of_execution is not None
+            stats = self.kpi_graph_excerpt.setdefault(kpi_group, {}).setdefault(type_of_execution, {}).setdefault(kpi_name, {
+                'vals': [],
+                'next_timepoint': 0,
             })
-            while timepoint >= stats['next_timepoint']:
-                stats['next_timepoint'] = max([1, stats['next_timepoint'] * self.kpi_graph_exponential_backoff_factor])
-            self.kpi_graph_changed = True
+            if isinstance(val, torch.Tensor):
+                # This is an expensive operation, so only do it if self.recording_is_active()
+                # We don't want to move results from the GPU only to throw them away later in the function
+                val = val.item()
+            if len(stats['vals']) >= self.kpi_graph_history_to_check_for_outliers:
+                history_to_check = [a['val'] for a in stats['vals'][-self.kpi_graph_history_to_check_for_outliers:]]
+                max_ = max(history_to_check)
+                min_ = min(history_to_check)
+                dist = max_ - min_
+                is_outlier = (val > max_ + dist * self.kpi_graph_factor_for_detecting_outliers
+                              or val < min_ - dist * self.kpi_graph_factor_for_detecting_outliers)
+            else:
+                is_outlier = False
+            if timepoint >= stats['next_timepoint'] or is_outlier:
+                assert isinstance(val, numbers.Number)
+                stats['vals'].append({
+                    'timepoint': timepoint,
+                    'val': val,
+                })
+                while timepoint >= stats['next_timepoint']:
+                    stats['next_timepoint'] = max([1, stats['next_timepoint'] * self.kpi_graph_exponential_backoff_factor])
+                self.kpi_graph_changed = True
+        if record_even_if_recording_is_inactive and self.comgra_is_active:
+            if self.type_of_execution is None:
+                utilities.warn_once(
+                    "Warning for comgra recordings: If you set type_of_execution=None in start_batch() "
+                    "and you use record_even_if_recording_is_inactive in record_kpi_in_graph(), "
+                    "then decide_recording_of_batch() should be called before record_kpi_in_graph(). "
+                    "Else there is no valid type_of_execution set and the graph gets a placeholder instead."
+                )
+                override__type_of_execution = 'unknown_type_of_execution'
+                function_to_run()
+        if not self.recording_is_active():
+            return
+        self._run_now_or_add_to_delayed_calls(function_to_run)
 
     @utilities.runtime_analysis_decorator
     def _save_recorded_kpi_graphs_if_needed(self, finalize):
