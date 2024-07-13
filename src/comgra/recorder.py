@@ -244,6 +244,9 @@ class ComgraRecorder:
         :param type_of_execution: An optional string that assigns this recording to a category.
         The GUI allows you to filter by this category.
         If this is set to None, it is treated as uncertain whether recordings should be made until :py:func:`~comgra.recorder.ComgraRecorder.decide_recording_of_batch` is called.
+        This allows for dynamic recordings to be made.
+        However, be aware that it also slows down your code: Some operations need to be done immediately and can't be delayed until after the decision to record is made.
+        This leads to a slowdown. The severity of the slowdown depends on your network. In one of our more complex examples, the experiments took up to 20% longer.
         :param record_all_tensors_per_batch_index_by_default: If True,
         :py:func:`~comgra.recorder.ComgraRecorder.register_tensor` will act as if record_per_batch_index was True by default.
         :param override__recording_is_active: Override decision_maker_for_recordings of :py:obj:`~comgra.recorder.ComgraRecorder`.
