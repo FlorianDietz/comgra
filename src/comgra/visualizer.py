@@ -1172,9 +1172,7 @@ class Visualization:
             elif display_type_radio_buttons == 'Graphs':
                 hide_containers_for_tensors = True
                 children = [
-                    html.Div(self.display_kpi_graphs(
-                        trials_value, tsc.type_of_execution,  # This may not equal type_of_execution, which can be "any_value" because it's a filter
-                    ), className="kpi-graphs-div"),
+                    html.Div(self.display_kpi_graphs(trials_value), className="kpi-graphs-div"),
                 ]
             elif display_type_radio_buttons == 'Visualization':
                 hide_containers_for_tensors = False
@@ -1334,7 +1332,7 @@ class Visualization:
         return ["No Notes have been recorded for this trial."]
 
     @utilities.runtime_analysis_decorator
-    def display_kpi_graphs(self, trials_value, type_of_execution):
+    def display_kpi_graphs(self, trials_value):
         if trials_value not in self.trial_to_kpi_graph_excerpt:
             self.load_kpi_graphs_for_trial(trials_value)
         graph_excerpt = self.trial_to_kpi_graph_excerpt.get(trials_value, None)
