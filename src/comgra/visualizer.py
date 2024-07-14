@@ -873,11 +873,21 @@ class Visualization:
                     'batch_abs_max': "Maximum absolute value over the batch",
                     'batch_std': "STD over the batch",
                     'has_no_batch_dimension': "Has no batch dimension",
-                }.get(a, f"Sample {a}")
+                }.get(a, a)
             )
+            def extract_sorting_key_from_sample_string(sample_string):
+                m = re.match(r'Sample (\d)+(.*)', sample_string)
+                return m[2], int(m[1])
+            order_of_batch_index_options = {
+                'batch_mean': -5,
+                'batch_abs_max': -4,
+                'batch_std': -3,
+                'has_no_batch_dimension': -2,
+            }
             batch_index_options.sort(
-                key=lambda a: -1 if a['value'] in ['batch_mean', 'batch_abs_max', 'batch_std'] else (
-                    -2 if a['value'] == 'has_no_batch_dimension' else a['value']))
+                key=lambda a: ('', order_of_batch_index_options[a['value']]) if a['value'] in order_of_batch_index_options
+                else extract_sorting_key_from_sample_string(a['value'])
+            )
             # Increment or decrement the sample index if the user clicked the buttons.
             idx = [a['value'] for a in batch_index_options].index(batch_index_value)
             if ctx.triggered_id == 'increment-batch-index-button':
@@ -894,8 +904,7 @@ class Visualization:
                 tsc, recordings = self.get_training_step_configuration_and_recordings(trials_value, training_step_value, type_of_execution)
                 iteration_options = list(range(len(tsc.graph_configuration_per_iteration)))
                 iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
-                    iteration_value,
-                    iteration_options,
+                    iteration_value, iteration_options,
                 )
             else:
                 iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
@@ -1141,7 +1150,7 @@ class Visualization:
                     html.Table(
                         [html.Tr([html.Th(col) for col in
                                   ['Trial', 'Training Step', 'Iteration',
-                                   'Step Type',
+                                   'Step Type', 'Batch',
                                    'Node', 'Role',
                                    'Tensor Type', 'Tensor Shape',
                                    ]])] +
@@ -1149,6 +1158,7 @@ class Visualization:
                             html.Td(val) for val in [
                                 trials_value, training_step_value, iteration_value,
                                 tsc.type_of_execution,  # This may not equal type_of_execution, which can be "any_value" because it's a filter
+                                batch_index_value,
                                 cleaned_tensor_name,
                                 cleaned_role_within_tensor,
                                 node.type_of_tensor,

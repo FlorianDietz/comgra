@@ -107,6 +107,7 @@ class ComgraRecorder:
         self.current_stage = 'inactive'
         self.types_of_tensor_recordings = ['forward']
         self.current_type_of_tensor_recording = None
+        self.most_recent_training_step_where_execution_type_was_recorded = collections.defaultdict(lambda: -1)
         #
         # KPI graph recording
         #
@@ -124,6 +125,7 @@ class ComgraRecorder:
         # Per training_step
         #
         self.training_step_configuration: Optional[TrainingStepConfiguration] = None
+        self.batch_indices_categories_and_string_representations_to_record: Optional[List[Tuple[int, str]]] = None
         self.tensor_recordings: Optional[TensorRecordings] = None
         self.mapping_of_tensors_for_extracting_kpis: Dict[Tuple[int, str, Optional[int], Optional[int], str, str, str], Tuple[torch.Tensor, TensorRepresentation]] = {}
         self.training_step = None
@@ -300,6 +302,7 @@ class ComgraRecorder:
         # It empties caches, which allows pytorch to free memory.
         self.list_of_delayed_function_calls = []
         self.training_step_configuration = None
+        self.batch_indices_categories_and_string_representations_to_record = None
         self.tensor_recordings = TensorRecordings()
         self.mapping_of_tensors_for_extracting_kpis = {}
         self.types_of_tensor_recordings = []
@@ -568,8 +571,6 @@ class ComgraRecorder:
     def _store_value_of_tensor(self, tensor: torch.Tensor, tensor_representation: TensorRepresentation):
         tensor_name = tensor_representation.original_reference.tensor_name
         value_dimensions = tensor_representation.value_dimensions
-        batch_size_to_record = self.current_batch_size if self.max_num_batch_size_to_record is None else min(
-            self.current_batch_size, self.max_num_batch_size_to_record)
         if tensor_representation.recording_type == 'single_value':
             self._store_value_of_tensor_helper(
                 'has_no_batch_dimension', tensor_representation.original_reference.iteration,
@@ -622,9 +623,24 @@ class ComgraRecorder:
                         assert len(val.shape) == 1, (val.shape, tensor_representation.original_reference)
                         val1 = val.unsqueeze(dim=0)
                     elif batching_type == 'individual_batch_indices':
+                        max_num_batch_size_to_record = self.current_batch_size if self.max_num_batch_size_to_record is None else min(
+                            self.current_batch_size, self.max_num_batch_size_to_record)
                         assert len(val.shape) == 2 and val.shape[0] == self.current_batch_size, \
-                            (val.shape, self.current_batch_size, batch_size_to_record)
-                        val1 = val[0:batch_size_to_record, :]
+                            (val.shape, self.current_batch_size, max_num_batch_size_to_record)
+                        if self.batch_indices_categories_and_string_representations_to_record is None:
+                            # If no specific samples were requested, just get the first ones
+                            self.batch_indices_categories_and_string_representations_to_record = [(i, "", f"Sample {i}") for i in range(max_num_batch_size_to_record)]
+                        assert 0 < len(self.batch_indices_categories_and_string_representations_to_record) <= max_num_batch_size_to_record
+                        # If the selected samples happen to be the first ones, select them directly for increased performance
+                        if len(set(category for _, category, _ in self.batch_indices_categories_and_string_representations_to_record)) == 1 \
+                                and min(batch_index for batch_index, _, _ in self.batch_indices_categories_and_string_representations_to_record) == 0 \
+                                and max(batch_index for batch_index, _, _ in self.batch_indices_categories_and_string_representations_to_record) == max_num_batch_size_to_record - 1:
+                            val1 = val[0:max_num_batch_size_to_record, :]
+                        else:
+                            indices_to_pick = [batch_index for batch_index, _, _ in self.batch_indices_categories_and_string_representations_to_record]
+                            val1 = val[indices_to_pick, :]
+                        assert val1.shape == (len(self.batch_indices_categories_and_string_representations_to_record), val.shape[1]), \
+                            (val1.shape, (len(self.batch_indices_categories_and_string_representations_to_record), val.shape[1]))
                     else:
                         assert False, batching_type
                     self._store_value_of_tensor_helper(
@@ -688,12 +704,21 @@ class ComgraRecorder:
             self.sanity_check__recursion_for_delayed_calls = False
 
     @utilities.runtime_analysis_decorator
-    def decide_recording_of_batch(self, type_of_execution):
+    def decide_recording_of_batch(self, type_of_execution_and_category_per_sample: List[Tuple[str, str]]):
         """
         This function is needed if :py:func:`~comgra.recorder.ComgraRecorder.start_batch` was called with type_of_execution=None.
         (Else it does nothing and returns immediately.)
         It sets the missing value for type_of_execution and if that type_of_execution should be recorded
         on this training step, then it runs all functions that have been delayed so far.
+        It also selects which indices of the batch should be recorded:
+        Each sample in the batch may be assigned both a type_of_execution and a category.
+        This function will first select one of the type_of_execution values: The least recent one that should be recorded.
+        It will use only samples from the selected type_of_execution.
+        (In this way, it is ensured that samples for each type_of_execution will be recorded regularly)
+        It will then further filter the samples by category and try to include an equal number of samples from each category.
+        :param type_of_execution_and_category_per_sample: A list of tuples.
+        Each item corresponds to one sample in the batch.
+        The first part of the tuple gives the type_of_execution the sample fits best and the second part of the tuple gives the category of the sample.
         :return: None
         """
         if not self.recording_is_active():
@@ -706,8 +731,22 @@ class ComgraRecorder:
                  "executed immediately.")
             # Nothing to do in this case, because all functions should have already been executed.
             return
-        # TODO decide type_of_execution at this point
-        pass  # TODO
+        assert len(type_of_execution_and_category_per_sample) == self.current_batch_size, \
+            (len(type_of_execution_and_category_per_sample), self.current_batch_size)
+        assert all(isinstance(type_of_execution, str) and isinstance(category, str)
+                   for type_of_execution, category in type_of_execution_and_category_per_sample), (
+            type_of_execution_and_category_per_sample)
+        assert None not in self.most_recent_training_step_where_execution_type_was_recorded
+        # Get the least recently used type_of_execution that appears in the batch
+        all_types_of_execution_in_batch_sorted_by_recency_of_recording = sorted(
+            list(set(a[0] for a in type_of_execution_and_category_per_sample)),
+            key=lambda a: (self.most_recent_training_step_where_execution_type_was_recorded[a], a)
+        )
+        type_of_execution = None
+        for toe in all_types_of_execution_in_batch_sorted_by_recency_of_recording:
+            if self.override__recording_is_active or self.decision_maker_for_recordings.is_record_on_this_step(self.training_step, toe):
+                type_of_execution = toe
+                break
         if type_of_execution is not None:
             assert type_of_execution != 'any_value', "Don't use 'any_value', it has a special meaning in the GUI."
             assert not type_of_execution.startswith('__'), type_of_execution
@@ -723,8 +762,31 @@ class ComgraRecorder:
             self.list_of_delayed_function_calls = None
             return
         assert type_of_execution is not None, type_of_execution
-        # If we get here then we should make a recording on this training_step,
-        # so we should execute all functions that were stored in list_of_delayed_function_calls.
+        # If we get here then we should make a recording on this training_step.
+        # First, define which samples to record: Try to get an equal number from every category
+        category_to_batch_indices = collections.defaultdict(list)
+        for i, (toe, category) in enumerate(type_of_execution_and_category_per_sample):
+            if toe == type_of_execution:
+                category_to_batch_indices[category].append(i)
+        max_num_samples_for_any_category = max(len(a) for a in category_to_batch_indices.values())
+        self.batch_indices_categories_and_string_representations_to_record = []
+        i = 0
+        batch_size_to_record = self.current_batch_size if self.max_num_batch_size_to_record is None else min(
+            self.current_batch_size, self.max_num_batch_size_to_record)
+        digits_needed_for_printing_any_batch_size = len(str(self.current_batch_size - 1))
+        while len(self.batch_indices_categories_and_string_representations_to_record) < batch_size_to_record and i < max_num_samples_for_any_category:
+            for category, batch_indices in category_to_batch_indices.items():
+                if i < len(batch_indices) and len(self.batch_indices_categories_and_string_representations_to_record) < batch_size_to_record:
+                    batch_index = batch_indices[i]
+                    string_representation = f"Sample {batch_index:0{digits_needed_for_printing_any_batch_size}d} | {category}"
+                    self.batch_indices_categories_and_string_representations_to_record.append(
+                        (batch_index, category, string_representation)
+                    )
+            i += 1
+        assert 0 < len(self.batch_indices_categories_and_string_representations_to_record) <= batch_size_to_record, \
+            (len(self.batch_indices_categories_and_string_representations_to_record), batch_size_to_record)
+        self.batch_indices_categories_and_string_representations_to_record.sort(key=lambda a: (a[1], a[0]))
+        # Execute all functions that were stored in list_of_delayed_function_calls.
         self.training_step_configuration.type_of_execution = type_of_execution
         self.sanity_check__recursion_for_delayed_calls = True
         for lam in self.list_of_delayed_function_calls:
@@ -1210,6 +1272,8 @@ class ComgraRecorder:
         self._save_tensor_recordings()
         # Save the graph of KPIs, which is independent of the rest of the recordings
         self._save_recorded_kpi_graphs_if_needed(False)
+        # Update
+        self.most_recent_training_step_where_execution_type_was_recorded[self.type_of_execution] = self.training_step
         # Clear caches
         self._reset_caches()
 
@@ -1254,9 +1318,10 @@ class ComgraRecorder:
             file_number += 1
             self.tensor_recordings.recordings = utilities.PseudoDb(attributes=attributes_for_tensor_recordings)
 
-        batch_size_to_record = self.current_batch_size if self.max_num_batch_size_to_record is None else min(
-            self.current_batch_size, self.max_num_batch_size_to_record)
-        all_batch_indices = list(range(batch_size_to_record))
+        batch_size_to_record = len(self.batch_indices_categories_and_string_representations_to_record) if \
+            self.batch_indices_categories_and_string_representations_to_record is not None else \
+            (self.current_batch_size if self.max_num_batch_size_to_record is None else min(
+                self.current_batch_size, self.max_num_batch_size_to_record))
         attributes_for_tensor_recordings = [
             'training_step', 'type_of_tensor_recording', 'batch_aggregation', 'iteration',
             'node_name', 'role_within_node', 'record_type', 'item', 'metadata',
@@ -1289,9 +1354,12 @@ class ComgraRecorder:
             assert training_step == self.training_step
             assert len(tensor.shape) == 2, (tensor.shape, key)
             if batching_type == 'individual_batch_indices':
-                batch_values = all_batch_indices
-                assert tensor.shape[0] == batch_size_to_record, (
-                tensor.shape, self.current_batch_size, batch_size_to_record)
+                batch_values = [
+                    string_representation
+                    for batch_index, category, string_representation
+                    in self.batch_indices_categories_and_string_representations_to_record
+                ]
+                assert tensor.shape[0] == batch_size_to_record, (tensor.shape, self.current_batch_size, batch_size_to_record)
             else:
                 batch_values = [batching_type]
                 assert tensor.shape[0] == 1, (tensor.shape, self.current_batch_size, batch_size_to_record, key)
@@ -1315,8 +1383,8 @@ class ComgraRecorder:
                 neuron_values = [None]
                 assert tensor.shape[1] == 1
             all_tensors_to_combine.append(tensor.reshape(-1))
-            assert tensor.numel() == len(batch_values) * len(neuron_values), (
-            tensor.shape, len(batch_values), len(neuron_values))
+            assert tensor.numel() == len(batch_values) * len(neuron_values), \
+                (tensor.shape, len(batch_values), len(neuron_values))
             assert tensor.numel() == tensor.reshape(-1).numel()
             for batch_value in batch_values:
                 for neuron_value in neuron_values:
@@ -1424,7 +1492,10 @@ class ComgraRecorder:
         return path
 
     @utilities.runtime_analysis_decorator
-    def record_kpi_in_graph(self, kpi_group, kpi_name, val, timepoint=None, record_even_if_recording_is_inactive=False):
+    def record_kpi_in_graph(
+            self, kpi_group, kpi_name, val,
+            timepoint=None, record_even_if_recording_is_inactive=False, override__type_of_execution = None
+    ):
         """
         Create graphs, similar to tensorboard. These can be inspected in their own tab in the GUI. A separate graph is automatically created for each separate type_of_execution. You can also use the parameters of this function to create subgroups.
 
@@ -1435,8 +1506,8 @@ class ComgraRecorder:
         :param val: The value to store. Either a one-element tensor or a number.
         :param timepoint: The timepoint to use for the x-axis. Defaults to the training_step.
         :param record_even_if_recording_is_inactive: If True, graph values will be recorded even if comgra is not recording tensors on this training_step. This can be useful if you use your own conditions for when to call this function and those conditions rarely coincide with comgra being active. This argument is False by default because checking whether to record requires a GPU-to-CPU transfer, and we don't want to make these unnecessarily often.
+        :param override__type_of_execution: Override the type_of_execution parameter that is used to group graphs together.
         """
-        override__type_of_execution = None
         def function_to_run():
             nonlocal timepoint, val
             if override__type_of_execution is not None:
@@ -1474,13 +1545,15 @@ class ComgraRecorder:
                 self.kpi_graph_changed = True
         if record_even_if_recording_is_inactive and self.comgra_is_active:
             if self.type_of_execution is None:
-                utilities.warn_once(
-                    "Warning for comgra recordings: If you set type_of_execution=None in start_batch() "
-                    "and you use record_even_if_recording_is_inactive in record_kpi_in_graph(), "
-                    "then decide_recording_of_batch() should be called before record_kpi_in_graph(). "
-                    "Else there is no valid type_of_execution set and the graph gets a placeholder instead."
-                )
-                override__type_of_execution = 'unknown_type_of_execution'
+                if override__type_of_execution is None:
+                    utilities.warn_once(
+                        "Warning for comgra recordings: If you set type_of_execution=None in start_batch() "
+                        "and you use record_even_if_recording_is_inactive in record_kpi_in_graph(), "
+                        "then decide_recording_of_batch() should be called before record_kpi_in_graph(). "
+                        "Else there is no valid type_of_execution set and the graph gets a placeholder instead. "
+                        "Alternatively, you can use the parameter override__type_of_execution."
+                    )
+                    override__type_of_execution = 'unknown_type_of_execution'
                 function_to_run()
         if not self.recording_is_active():
             return
