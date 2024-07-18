@@ -108,6 +108,7 @@ class ComgraRecorder:
         self.types_of_tensor_recordings = ['forward']
         self.current_type_of_tensor_recording = None
         self.most_recent_training_step_where_execution_type_was_recorded = collections.defaultdict(lambda: -1)
+        self.all_different_types_of_execution_have_been_encountered = False
         #
         # KPI graph recording
         #
@@ -272,9 +273,16 @@ class ComgraRecorder:
         self.current_stage = 'started'
         self.current_type_of_tensor_recording = 'forward'
         self.current_batch_size = current_batch_size
-        self.override__recording_is_active = override__recording_is_active
         self._reset_caches()
         self.sanity_check__recursion_for_delayed_calls = False
+        # If type_of_execution is None, we normally have to wait until the user decides whether to record or not later.
+        # But if all_different_types_of_execution_have_been_encountered then we can also decide early
+        if self.all_different_types_of_execution_have_been_encountered:
+            if override__recording_is_active is None:
+                if not any(self.decision_maker_for_recordings.is_record_on_this_step(self.training_step, toe)
+                           for toe, step in self.most_recent_training_step_where_execution_type_was_recorded.items()):
+                    override__recording_is_active = False
+        self.override__recording_is_active = override__recording_is_active
         if not self.recording_is_active():
             return
         assert self.set_of_top_level_modules, \
@@ -704,6 +712,17 @@ class ComgraRecorder:
             lam()
             self.sanity_check__recursion_for_delayed_calls = False
 
+    def declare_that_all_different_types_of_execution_have_been_encountered(self):
+        """
+        A helper function that can mitigate the slowdown caused by :py:func:`~comgra.recorder.ComgraRecorder.decide_recording_of_batch`.
+        Calling this function tells comgra that no new type_of_execution values will be encountered in the future.
+        (If this turns out to be wrong, it causes an error)
+        This allows comgra to speed things up a bit because it can now skip all pre-recordings that happen before
+        :py:func:`~comgra.recorder.ComgraRecorder.decide_recording_of_batch` if all the type_of_recording values
+        seen so far have recently been recorded.
+        """
+        self.all_different_types_of_execution_have_been_encountered = True
+
     @utilities.runtime_analysis_decorator
     def decide_recording_of_batch(self, type_of_execution: str, category_per_sample: List[str]):
         """
@@ -718,11 +737,15 @@ class ComgraRecorder:
         :param category_per_sample: A list of strings that determine the category of a sample. Each item corresponds to one sample in the batch.
         :return: None
         """
-        if not self.recording_is_active():
-            assert not self.list_of_delayed_function_calls, \
-                "If recordings are known to be inactive, no function calls should have been scheduled"
-            return
-        if self.type_of_execution is not None:
+        if self.type_of_execution is None:
+            assert type_of_execution is not None
+            assert type_of_execution != 'any_value', "Don't use 'any_value', it has a special meaning in the GUI."
+            assert not type_of_execution.startswith('__'), type_of_execution
+            assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution)
+            self.type_of_execution = type_of_execution
+            if self.training_step_configuration is not None:
+                self.training_step_configuration.type_of_execution = type_of_execution
+        else:
             assert self.type_of_execution == type_of_execution, \
                 (f"start_batch() was called with a different type_of_execution than decide_recording_of_batch()\n"
                  f"{self.type_of_execution}, {type_of_execution}")
@@ -731,21 +754,14 @@ class ComgraRecorder:
                  "executed immediately.")
             # Nothing to do in this case, because all functions should have already been executed.
             return
-        assert len(category_per_sample) == self.current_batch_size, \
-            (len(category_per_sample), self.current_batch_size)
-        assert all(isinstance(category, str) for category in category_per_sample), category_per_sample
-        assert None not in self.most_recent_training_step_where_execution_type_was_recorded
-        assert type_of_execution is not None
-        assert type_of_execution != 'any_value', "Don't use 'any_value', it has a special meaning in the GUI."
-        assert not type_of_execution.startswith('__'), type_of_execution
-        assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution)
-        self.type_of_execution = type_of_execution
-        self.training_step_configuration.type_of_execution = type_of_execution
         if not self.recording_is_active():
             self._execute_functions_in_list_of_delayed_function_calls(only_functions_that_mustnt_be_skipped=True)
             return
         # If we get here then we should make a recording on this training_step.
         # First, define which samples to record: Try to get an equal number from every category
+        assert len(category_per_sample) == self.current_batch_size, \
+            (len(category_per_sample), self.current_batch_size)
+        assert all(isinstance(category, str) for category in category_per_sample), category_per_sample
         category_to_batch_indices = collections.defaultdict(list)
         for i, category in enumerate(category_per_sample):
             category_to_batch_indices[category].append(i)
@@ -1259,6 +1275,12 @@ class ComgraRecorder:
         # Save the graph of KPIs, which is independent of the rest of the recordings
         self._save_recorded_kpi_graphs_if_needed(False)
         # Update
+        if self.all_different_types_of_execution_have_been_encountered:
+            if self.type_of_execution not in self.most_recent_training_step_where_execution_type_was_recorded:
+                raise ValueError(
+                    f"declare_that_all_different_types_of_execution_have_been_encountered() was called "
+                    f"too early. The type_of_execution '{self.type_of_execution}' was not encountered before."
+                )
         self.most_recent_training_step_where_execution_type_was_recorded[self.type_of_execution] = self.training_step
         # Clear caches
         self._reset_caches()
