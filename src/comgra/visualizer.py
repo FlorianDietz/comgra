@@ -619,7 +619,7 @@ class Visualization:
                 decrement_training_step, increment_training_step,
                 decrement_iteration, increment_iteration,
                 decrement_batch_index, increment_batch_index,
-                training_step_value, type_of_recording_value, batch_index_value,
+                training_step_value, type_of_recording_value, batch_aggregation_value,
                 iteration_value, role_of_tensor_in_node_value, previous_name_of_selected_node,
                 *lsts,
         ):
@@ -772,7 +772,7 @@ class Visualization:
                 current_params_dict_for_querying_database = {
                     'training_step': training_step_value,
                     'type_of_tensor_recording': type_of_recording_value,
-                    'batch_aggregation': batch_index_value,
+                    'batch_aggregation': batch_aggregation_value,
                     'iteration': iteration_value,
                     'node_name': name_of_selected_node,
                     'role_within_node': role_of_tensor_in_node_value,
@@ -846,7 +846,7 @@ class Visualization:
             # Get the values of the selected record.
             # These overwrite any previously used values and are used from now on.
             #
-            training_step_value, type_of_recording_value, batch_index_value, iteration_value, name_of_selected_node, role_of_tensor_in_node_value, record_type, item, metadata = selected_record_values
+            training_step_value, type_of_recording_value, batch_aggregation_value, iteration_value, name_of_selected_node, role_of_tensor_in_node_value, record_type, item, metadata = selected_record_values
             assert len(db.attributes) == len(selected_record_values)
             current_params_dict_for_querying_database = {
                 k: v for k, v in zip(db.attributes, selected_record_values)
@@ -866,8 +866,8 @@ class Visualization:
             )
             type_of_recording_options.sort(key=lambda a: a['value'])
             # Options for the batch_index
-            batch_index_options, batch_index_value = create_options_and_value_from_list(
-                batch_index_value, possible_attribute_values['batch_aggregation'],
+            batch_aggregation_options, batch_aggregation_value = create_options_and_value_from_list(
+                batch_aggregation_value, possible_attribute_values['batch_aggregation'],
                 label_maker=lambda a: {
                     'batch_mean': "Mean over the batch",
                     'batch_abs_max': "Maximum absolute value over the batch",
@@ -878,24 +878,24 @@ class Visualization:
             def extract_sorting_key_from_sample_string(sample_string):
                 m = re.match(r'Sample (\d)+(.*)', sample_string)
                 return m[2], int(m[1])
-            order_of_batch_index_options = {
+            order_of_batch_aggregation_options = {
                 'batch_mean': -5,
                 'batch_abs_max': -4,
                 'batch_std': -3,
                 'has_no_batch_dimension': -2,
             }
-            batch_index_options.sort(
-                key=lambda a: ('', order_of_batch_index_options[a['value']]) if a['value'] in order_of_batch_index_options
+            batch_aggregation_options.sort(
+                key=lambda a: ('', order_of_batch_aggregation_options[a['value']]) if a['value'] in order_of_batch_aggregation_options
                 else extract_sorting_key_from_sample_string(a['value'])
             )
             # Increment or decrement the sample index if the user clicked the buttons.
-            idx = [a['value'] for a in batch_index_options].index(batch_index_value)
+            idx = [a['value'] for a in batch_aggregation_options].index(batch_aggregation_value)
             if ctx.triggered_id == 'increment-batch-index-button':
-                idx = max(0, min(len(batch_index_options) - 1, idx + 1))
-                batch_index_value = batch_index_options[idx]['value']
+                idx = max(0, min(len(batch_aggregation_options) - 1, idx + 1))
+                batch_aggregation_value = batch_aggregation_options[idx]['value']
             elif ctx.triggered_id == 'decrement-batch-index-button':
-                idx = max(0, min(len(batch_index_options) - 1, idx - 1))
-                batch_index_value = batch_index_options[idx]['value']
+                idx = max(0, min(len(batch_aggregation_options) - 1, idx - 1))
+                batch_aggregation_value = batch_aggregation_options[idx]['value']
             # Options for the iteration
             always_show_all_iterations = True
             if always_show_all_iterations:
@@ -939,7 +939,7 @@ class Visualization:
                       name_of_selected_node,
                       type_of_execution_options, type_of_execution,
                       training_step_min, training_step_max, training_step_marks, training_step_value,
-                      type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value,
+                      type_of_recording_options, type_of_recording_value, batch_aggregation_options, batch_aggregation_value,
                       iteration_min, iteration_max, iteration_marks, iteration_value,
                       role_of_tensor_in_node_options, role_of_tensor_in_node_value,
                   ] + graph_container_visibilities
@@ -965,7 +965,7 @@ class Visualization:
                 display_type_radio_buttons,
                 node_name, trials_value, type_of_execution,
                 training_step_value, type_of_recording_value,
-                batch_index_value, iteration_value, role_of_tensor_in_node_value, _,
+                batch_aggregation_value, iteration_value, role_of_tensor_in_node_value, _,
         ):
             tsc, recordings = self.get_training_step_configuration_and_recordings(trials_value, training_step_value, type_of_execution)
             graph_config = tsc.graph_configuration_per_iteration[iteration_value]
@@ -1053,7 +1053,7 @@ class Visualization:
             for name, val in [
                 ('training_step', training_step_value),
                 ('type_of_tensor_recording', type_of_recording_value),
-                ('batch_aggregation', batch_index_value),
+                ('batch_aggregation', batch_aggregation_value),
                 ('iteration', iteration_value),
                 ('node_name', node_name),
                 ('role_within_node', role_of_tensor_in_node_value),
@@ -1158,7 +1158,7 @@ class Visualization:
                             html.Td(val) for val in [
                                 trials_value, training_step_value, iteration_value,
                                 tsc.type_of_execution,  # This may not equal type_of_execution, which can be "any_value" because it's a filter
-                                batch_index_value,
+                                batch_aggregation_value,
                                 cleaned_tensor_name,
                                 cleaned_role_within_tensor,
                                 node.type_of_tensor,
@@ -1190,7 +1190,7 @@ class Visualization:
                     html.Div(self.create_external_visualization(
                         recordings, type_of_execution,  # Note that type_of_execution can be "any_value" because it's a filter
                         tsc, ngs, db,
-                        training_step_value, type_of_recording_value, batch_index_value, iteration_value, node_name,
+                        training_step_value, type_of_recording_value, batch_aggregation_value, iteration_value, node_name,
                         role_of_tensor_in_node_value,
                     ), className="external-visualization-div"),
                 ]

@@ -9,7 +9,7 @@ from comgra.utilities import PseudoDb
 
 def create_visualization(
         recordings, type_of_execution, tsc: TrainingStepConfiguration, ngs: NodeGraphStructure, db: PseudoDb,
-        training_step_value, type_of_recording_value, batch_index_value, iteration_value,
+        training_step_value, type_of_recording_value, batch_aggregation_value, iteration_value,
         node_name, role_of_tensor_in_node_value,
 ):
     #
@@ -27,7 +27,7 @@ def create_visualization(
         filters = {
             'training_step': training_step_value,
             'type_of_tensor_recording': 'forward',
-            'batch_aggregation': batch_index_value,
+            'batch_aggregation': batch_aggregation_value,
             # 'iteration': iteration_value,
             'node_name': 'node__helper_partial_sums',
             # 'role_within_node': role_of_tensor_in_node_value,
@@ -48,7 +48,7 @@ def create_visualization(
                 int(metadata),
                 result_value
             )
-            for (training_step_value, type_of_recording_value, batch_index_value, iteration_value, name_of_selected_node, role_of_tensor_in_node_value, record_type, item, metadata), result_value
+            for (training_step_value, type_of_recording_value, batch_aggregation_value, iteration_value, name_of_selected_node, role_of_tensor_in_node_value, record_type, item, metadata), result_value
             in list_of_matches
         ]
         num_neurons = 1 + max(neuron for iteration, neuron, val in relevant_data)
@@ -78,9 +78,9 @@ def create_visualization(
     else:
         # If the node node__helper_partial_sums is not selected, we just show an error message instead.
         # We could just always show the graph regardless of the selected node, but there is a minor problem:
-        # The batch_index_value depends on the user's current selection, and it could have a value that is invalid
+        # The batch_aggregation_value depends on the user's current selection, and it could have a value that is invalid
         # for the helper_partial_sums, which would make it ambiguous what we are supposed to display.
-        # (in particular, if a node that represents a network parameter is selected, then batch_index_value will
+        # (in particular, if a node that represents a network parameter is selected, then batch_aggregation_value will
         #  be invalid, because network parameters don't have a batch dimension.)
         # To prevent any confusion, we just display a message in this case.
         example_graph = "Select the node helper_partial_sums to see a visualization for it\n"
@@ -93,7 +93,7 @@ def create_visualization(
         # for each recording, so this filter is already covered implicitly
         'training_step': training_step_value,
         'type_of_tensor_recording': type_of_recording_value,
-        'batch_aggregation': batch_index_value,
+        'batch_aggregation': batch_aggregation_value,
         'iteration': iteration_value,
         'node_name': node_name,
         'role_within_node': role_of_tensor_in_node_value,
