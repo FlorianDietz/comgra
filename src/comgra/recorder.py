@@ -704,20 +704,17 @@ class ComgraRecorder:
             self.sanity_check__recursion_for_delayed_calls = False
 
     @utilities.runtime_analysis_decorator
-    def decide_recording_of_batch(self, type_of_execution_and_category_per_sample: List[Tuple[str, str]]):
+    def decide_recording_of_batch(self, type_of_execution: str, category_per_sample: List[str]):
         """
         This function is needed if :py:func:`~comgra.recorder.ComgraRecorder.start_batch` was called with type_of_execution=None.
         (Else it does nothing and returns immediately.)
         It sets the missing value for type_of_execution and if that type_of_execution should be recorded
         on this training step, then it runs all functions that have been delayed so far.
         It also selects which indices of the batch should be recorded:
-        Each sample in the batch may be assigned both a type_of_execution and a category.
-        This function will first select one of the type_of_execution values: The least recent one that should be recorded.
-        It will use only samples from the selected type_of_execution.
-        (In this way, it is ensured that samples for each type_of_execution will be recorded regularly)
-        It will then further filter the samples by category and try to include an equal number of samples from each category.
-        :param type_of_execution_and_category_per_sample: A list of tuples.
-        Each item corresponds to one sample in the batch.
+        Each sample in the batch may be assigned a category.
+        This function will filter the samples by category and try to include an equal number of samples from each category.
+        :param type_of_execution: The type_of_execution.
+        :param category_per_sample: A list of strings that determine the category of a sample. Each item corresponds to one sample in the batch.
         The first part of the tuple gives the type_of_execution the sample fits best and the second part of the tuple gives the category of the sample.
         :return: None
         """
@@ -731,22 +728,10 @@ class ComgraRecorder:
                  "executed immediately.")
             # Nothing to do in this case, because all functions should have already been executed.
             return
-        assert len(type_of_execution_and_category_per_sample) == self.current_batch_size, \
-            (len(type_of_execution_and_category_per_sample), self.current_batch_size)
-        assert all(isinstance(type_of_execution, str) and isinstance(category, str)
-                   for type_of_execution, category in type_of_execution_and_category_per_sample), (
-            type_of_execution_and_category_per_sample)
+        assert len(category_per_sample) == self.current_batch_size, \
+            (len(category_per_sample), self.current_batch_size)
+        assert all(isinstance(category, str) for category in category_per_sample), category_per_sample
         assert None not in self.most_recent_training_step_where_execution_type_was_recorded
-        # Get the least recently used type_of_execution that appears in the batch
-        all_types_of_execution_in_batch_sorted_by_recency_of_recording = sorted(
-            list(set(a[0] for a in type_of_execution_and_category_per_sample)),
-            key=lambda a: (self.most_recent_training_step_where_execution_type_was_recorded[a], a)
-        )
-        type_of_execution = None
-        for toe in all_types_of_execution_in_batch_sorted_by_recency_of_recording:
-            if self.override__recording_is_active or self.decision_maker_for_recordings.is_record_on_this_step(self.training_step, toe):
-                type_of_execution = toe
-                break
         if type_of_execution is not None:
             assert type_of_execution != 'any_value', "Don't use 'any_value', it has a special meaning in the GUI."
             assert not type_of_execution.startswith('__'), type_of_execution
@@ -755,6 +740,7 @@ class ComgraRecorder:
         if self.type_of_execution is None:
             # If there is no valid type_of_execution now, do not execute anything,
             # even if override__recording_is_active=True
+            # (because there needs to be a valid type_of_execution to use as a name)
             # achieve this by overriding recording_is_active()
             self.override__recording_is_active = False
             assert not self.recording_is_active()
@@ -765,9 +751,8 @@ class ComgraRecorder:
         # If we get here then we should make a recording on this training_step.
         # First, define which samples to record: Try to get an equal number from every category
         category_to_batch_indices = collections.defaultdict(list)
-        for i, (toe, category) in enumerate(type_of_execution_and_category_per_sample):
-            if toe == type_of_execution:
-                category_to_batch_indices[category].append(i)
+        for i, category in enumerate(category_per_sample):
+            category_to_batch_indices[category].append(i)
         max_num_samples_for_any_category = max(len(a) for a in category_to_batch_indices.values())
         self.batch_indices_categories_and_string_representations_to_record = []
         i = 0
