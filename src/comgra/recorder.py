@@ -682,22 +682,23 @@ class ComgraRecorder:
         self._run_now_or_add_to_delayed_calls(function_to_run)
 
     @utilities.runtime_analysis_decorator
-    def _run_now_or_add_to_delayed_calls(self, lam):
+    def _run_now_or_add_to_delayed_calls(self, lam, always_run_this=False):
         """
         If type_of_execution was provided when :py:func:`~comgra.recorder.ComgraRecorder.start_batch()`
         was called, (i.e. if self.type_of_execution is not None)
         then execute the provided function immediately.
         Else store it in a list for later.
-        When :py:func:`~comgra.recorder.ComgraRecorder.decide_recording_of_batch()`
+        When :py:func:`~comgra.recorder.ComgraRecorder.decide_recording_of_batch`
         is called it will either discard or execute these functions.
         :param lam:
+        :param always_run_this: If True, the lambda is always run even if :py:func:`~comgra.recorder.ComgraRecorder.recording_is_active` is False after :py:func:`~comgra.recorder.ComgraRecorder.decide_recording_of_batch` is called.
         :return:
         """
-        assert self.recording_is_active(), "This should have been verified before this function is called"
+        assert self.recording_is_active() or always_run_this, "This should have been verified before this function is called"
         assert not self.sanity_check__recursion_for_delayed_calls, \
             "Programming error. Functions used with _run_now_or_add_to_delayed_calls() should not be able to call each other."
         if self.type_of_execution is None:
-            self.list_of_delayed_function_calls.append(lam)
+            self.list_of_delayed_function_calls.append((lam, always_run_this))
         else:
             self.sanity_check__recursion_for_delayed_calls = True
             lam()
@@ -715,7 +716,6 @@ class ComgraRecorder:
         This function will filter the samples by category and try to include an equal number of samples from each category.
         :param type_of_execution: The type_of_execution.
         :param category_per_sample: A list of strings that determine the category of a sample. Each item corresponds to one sample in the batch.
-        The first part of the tuple gives the type_of_execution the sample fits best and the second part of the tuple gives the category of the sample.
         :return: None
         """
         if not self.recording_is_active():
@@ -723,6 +723,9 @@ class ComgraRecorder:
                 "If recordings are known to be inactive, no function calls should have been scheduled"
             return
         if self.type_of_execution is not None:
+            assert self.type_of_execution == type_of_execution, \
+                (f"start_batch() was called with a different type_of_execution than decide_recording_of_batch()\n"
+                 f"{self.type_of_execution}, {type_of_execution}")
             assert not self.list_of_delayed_function_calls, \
                 ("start_batch() was already called with a type_of_execution, so functions should have been "
                  "executed immediately.")
@@ -732,22 +735,15 @@ class ComgraRecorder:
             (len(category_per_sample), self.current_batch_size)
         assert all(isinstance(category, str) for category in category_per_sample), category_per_sample
         assert None not in self.most_recent_training_step_where_execution_type_was_recorded
-        if type_of_execution is not None:
-            assert type_of_execution != 'any_value', "Don't use 'any_value', it has a special meaning in the GUI."
-            assert not type_of_execution.startswith('__'), type_of_execution
-            assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution)
+        assert type_of_execution is not None
+        assert type_of_execution != 'any_value', "Don't use 'any_value', it has a special meaning in the GUI."
+        assert not type_of_execution.startswith('__'), type_of_execution
+        assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution)
         self.type_of_execution = type_of_execution
-        if self.type_of_execution is None:
-            # If there is no valid type_of_execution now, do not execute anything,
-            # even if override__recording_is_active=True
-            # (because there needs to be a valid type_of_execution to use as a name)
-            # achieve this by overriding recording_is_active()
-            self.override__recording_is_active = False
-            assert not self.recording_is_active()
+        self.training_step_configuration.type_of_execution = type_of_execution
         if not self.recording_is_active():
-            self.list_of_delayed_function_calls = None
+            self._execute_functions_in_list_of_delayed_function_calls(only_functions_that_mustnt_be_skipped=True)
             return
-        assert type_of_execution is not None, type_of_execution
         # If we get here then we should make a recording on this training_step.
         # First, define which samples to record: Try to get an equal number from every category
         category_to_batch_indices = collections.defaultdict(list)
@@ -771,13 +767,16 @@ class ComgraRecorder:
         assert 0 < len(self.batch_indices_categories_and_string_representations_to_record) <= batch_size_to_record, \
             (len(self.batch_indices_categories_and_string_representations_to_record), batch_size_to_record)
         self.batch_indices_categories_and_string_representations_to_record.sort(key=lambda a: (a[1], a[0]))
+        self._execute_functions_in_list_of_delayed_function_calls(only_functions_that_mustnt_be_skipped=False)
+
+    def _execute_functions_in_list_of_delayed_function_calls(self, only_functions_that_mustnt_be_skipped=False):
         # Execute all functions that were stored in list_of_delayed_function_calls.
-        self.training_step_configuration.type_of_execution = type_of_execution
         self.sanity_check__recursion_for_delayed_calls = True
-        for lam in self.list_of_delayed_function_calls:
-            lam()
-        self.list_of_delayed_function_calls = None
+        for lam, always_run_this in self.list_of_delayed_function_calls:
+            if not only_functions_that_mustnt_be_skipped or always_run_this:
+                lam()
         self.sanity_check__recursion_for_delayed_calls = False
+        self.list_of_delayed_function_calls = None
 
     @utilities.runtime_analysis_decorator
     def record_current_gradients(self, name_of_loss_group, set_gradients_to_zero_if_not_a_parameter=False):
@@ -1266,6 +1265,8 @@ class ComgraRecorder:
         """
         Save anything that is still in the buffer.
         """
+        if not self.comgra_is_active:
+            return
         # Save the graph of KPIs, which is independent of the rest of the recordings
         self._save_recorded_kpi_graphs_if_needed(True)
         # Clear caches
@@ -1479,7 +1480,7 @@ class ComgraRecorder:
     @utilities.runtime_analysis_decorator
     def record_kpi_in_graph(
             self, kpi_group, kpi_name, val,
-            timepoint=None, record_even_if_recording_is_inactive=False, override__type_of_execution = None
+            timepoint=None, record_even_if_recording_is_inactive=False,
     ):
         """
         Create graphs, similar to tensorboard. These can be inspected in their own tab in the GUI. A separate graph is automatically created for each separate type_of_execution. You can also use the parameters of this function to create subgroups.
@@ -1491,20 +1492,20 @@ class ComgraRecorder:
         :param val: The value to store. Either a one-element tensor or a number.
         :param timepoint: The timepoint to use for the x-axis. Defaults to the training_step.
         :param record_even_if_recording_is_inactive: If True, graph values will be recorded even if comgra is not recording tensors on this training_step. This can be useful if you use your own conditions for when to call this function and those conditions rarely coincide with comgra being active. This argument is False by default because checking whether to record requires a GPU-to-CPU transfer, and we don't want to make these unnecessarily often.
-        :param override__type_of_execution: Override the type_of_execution parameter that is used to group graphs together.
         """
+        if not self.comgra_is_active:
+            return
+        if not self.recording_is_active() and not record_even_if_recording_is_inactive:
+            return
         def function_to_run():
             nonlocal timepoint, val
-            if override__type_of_execution is not None:
-                type_of_execution = override__type_of_execution
-            else:
-                type_of_execution = self.type_of_execution
             if timepoint is None:
                 timepoint = self.training_step
-            assert type_of_execution is not None
-            stats = self.kpi_graph_excerpt.setdefault(kpi_group, {}).setdefault(type_of_execution, {}).setdefault(kpi_name, {
+            assert self.type_of_execution is not None
+            stats = self.kpi_graph_excerpt.setdefault(kpi_group, {}).setdefault(self.type_of_execution, {}).setdefault(kpi_name, {
                 'vals': [],
                 'next_timepoint': 0,
+                'last_timepoint': -1,
             })
             if isinstance(val, torch.Tensor):
                 # This is an expensive operation, so only do it if self.recording_is_active()
@@ -1519,6 +1520,7 @@ class ComgraRecorder:
                               or val < min_ - dist * self.kpi_graph_factor_for_detecting_outliers)
             else:
                 is_outlier = False
+            assert timepoint > stats['last_timepoint'], f"Must be called with a newer timepoint each time."
             if timepoint >= stats['next_timepoint'] or is_outlier:
                 assert isinstance(val, numbers.Number)
                 stats['vals'].append({
@@ -1527,22 +1529,9 @@ class ComgraRecorder:
                 })
                 while timepoint >= stats['next_timepoint']:
                     stats['next_timepoint'] = max([1, stats['next_timepoint'] * self.kpi_graph_exponential_backoff_factor])
+                    stats['last_timepoint'] = timepoint
                 self.kpi_graph_changed = True
-        if record_even_if_recording_is_inactive and self.comgra_is_active:
-            if self.type_of_execution is None:
-                if override__type_of_execution is None:
-                    utilities.warn_once(
-                        "Warning for comgra recordings: If you set type_of_execution=None in start_batch() "
-                        "and you use record_even_if_recording_is_inactive in record_kpi_in_graph(), "
-                        "then decide_recording_of_batch() should be called before record_kpi_in_graph(). "
-                        "Else there is no valid type_of_execution set and the graph gets a placeholder instead. "
-                        "Alternatively, you can use the parameter override__type_of_execution."
-                    )
-                    override__type_of_execution = 'unknown_type_of_execution'
-                function_to_run()
-        if not self.recording_is_active():
-            return
-        self._run_now_or_add_to_delayed_calls(function_to_run)
+        self._run_now_or_add_to_delayed_calls(function_to_run, always_run_this=record_even_if_recording_is_inactive)
 
     @utilities.runtime_analysis_decorator
     def _save_recorded_kpi_graphs_if_needed(self, finalize):
