@@ -64,56 +64,20 @@ class Demonstration:
         # then you can just store this in a global variable inside the comgra library itself for simplicity,
         # as is done here with 'comgra.my_recorder'.
         comgra.my_recorder = ComgraRecorder(
-            # The root folder for all comgra data
             comgra_root_path=self.comgra_root_path,
-            # All runs of comgra that share the same 'group' will be loaded in the same application
-            # When you run the server.py application by calling "comgra" from the commandline,
-            # the last folder in the --path argument will be the group name.
-            # The different trials in a group can then be selected by their 'trial_id' and compared.
             group=self.comgra_group,
             trial_id=f'trial_{self.current_configuration}',
-            # These parameters can be left empty, but it is recommended to fill them in
-            # if your computation graph is complex.
-            # They ensure that similar module parameters get visually grouped together into the same
-            # column in the dependency graph.
-            # All module parameters whose complete name (including the list of names of modules they are contained in)
-            # match one of these prefixes are grouped together.
             prefixes_for_grouping_module_parameters_visually=[
                 'root_module.subnet_pre',
                 'root_module.subnet_out',
                 'root_module.subnet_mem',
             ],
-            # You can also combine all parameters of a module into a single Node in the dependency graph.
-            # This makes the dependency graph smaller and more compact, and therefore easier to read.
-            # In this example, 2 of our 3 submodules are grouped together visually,
-            # while the last one, root_module.subnet_pre, has all of its parameters combined into a single node.
             prefixes_for_grouping_module_parameters_in_nodes=[
                 'root_module.subnet_pre',
             ],
-            # This parameter determines when and how often Comgra makes a recording.
-            # There are several options for this.
-            # This one is often the most effective one:
-            # At the beginning of each training step, later in this code, you specify what the type of this recording is.
-            # For example, you could differentiate between randomly selected training and training on a specific example
-            # that you would like to inspect in more detail.
-            # The DecisionMakerForRecordingsFrequencyPerType recording type ensures that a recording is made
-            # if the last training of the specified type was at least N training steps ago.
-            # In this way, you make sure that each type gets recorded often enough to be useful,
-            # but not so often that the program slows down and your hard drive gets filled up.
-            # An alternative recorder is DecisionMakerForRecordingsExponentialFalloff, which works similarly,
-            # but records more often at the beginning of training than later on.
-            # In this way you can get detailed information early, for debugging, but don't generate too much data
-            # if you train the network for a longer time.
             decision_maker_for_recordings=DecisionMakerForRecordingsFrequencyPerType(min_training_steps_difference=1000),
-            # Comgra records data both in terms of statistics over the batch dimension and in terms of
-            # individual items in the batch.
-            # If batches are large, this consumes too much memory and slows down the recording.
-            # This number tells comgra only to record the first N items of each batch.
-            # Note that the statistics over the batch that also get recorded are still calculated over the whole batch.
             max_num_batch_size_to_record=5,
-            # Use this to turn comgra off, for when you are done with analysis and want to train your model faster.
             comgra_is_active=True,
-            # An optional feature to record statistics that are more expensive to calculate than others.
             calculate_svd_and_other_expensive_operations_of_parameters=True,
         )
         # Register the modules you are using.

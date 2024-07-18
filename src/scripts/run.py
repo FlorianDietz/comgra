@@ -80,8 +80,8 @@ class Demonstration:
             # if the last training of the specified type was at least N training steps ago.
             # In this way, you make sure that each type gets recorded often enough to be useful,
             # but not so often that the program slows down and your hard drive gets filled up.
-            # An alternative recorder is DecisionMakerForRecordingsExponentialFalloff, which works similarly,
-            # but records more often at the beginning of training than later on.
+            # You can also use the optional parameter exponential_backoff_factor to record
+            # more often at the beginning of training than later on.
             # In this way you can get detailed information early, for debugging, but don't generate too much data
             # if you train the network for a longer time.
             decision_maker_for_recordings=DecisionMakerForRecordingsFrequencyPerType(min_training_steps_difference=1000),

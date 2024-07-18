@@ -1250,6 +1250,8 @@ class ComgraRecorder:
             )
         assert not self.list_of_delayed_function_calls, \
             "This list should be empty at this point because of decide_recording_of_batch()"
+        # Make the recorder remember that we used this type_of_execution
+        self.decision_maker_for_recordings.mark_recording_on_this_step(self.training_step, self.type_of_execution)
         # Save the TrainingStepConfiguration
         self._save_training_step_configuration()
         # Save the tensors
