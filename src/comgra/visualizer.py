@@ -572,60 +572,102 @@ class Visualization:
             self.load_kpi_graphs_for_trial(trials_value)
             return [str(n_clicks)]
 
-        @app.callback(([Output('dummy-for-selecting-a-node', 'className'),
-                        Output('type-of-execution-for-diversity-of-recordings-dropdown', 'options'),
-                        Output('type-of-execution-for-diversity-of-recordings-dropdown', 'value'),
-                        Output('training-step-slider', 'min'),
-                        Output('training-step-slider', 'max'),
-                        Output('training-step-slider', 'marks'),
-                        Output('training-step-slider', 'value'),
-                        Output('type-of-recording-radio-buttons', 'options'),
-                        Output('type-of-recording-radio-buttons', 'value'),
-                        Output('batch-index-dropdown', 'options'),
-                        Output('batch-index-dropdown', 'value'),
-                        Output('iteration-slider', 'min'),
-                        Output('iteration-slider', 'max'),
-                        Output('iteration-slider', 'marks'),
-                        Output('iteration-slider', 'value'),
-                        Output('role-of-tensor-in-node-dropdown', 'options'),
-                        Output('role-of-tensor-in-node-dropdown', 'value')] +
-                       [Output(graph_container_dash_id, 'className')
-                        for graph_container_dash_id
-                        in self.ngs_hash_to_graph_container_dash_id.values()
-                        ]),
-                      ([Input('trials-dropdown', 'value'),
-                        Input('type-of-execution-for-diversity-of-recordings-dropdown', 'value'),
-                        Input('decrement-training-step-button', 'n_clicks'),
-                        Input('increment-training-step-button', 'n_clicks'),
-                        Input('decrement-iteration-button', 'n_clicks'),
-                        Input('increment-iteration-button', 'n_clicks'),
-                        Input('decrement-batch-index-button', 'n_clicks'),
-                        Input('increment-batch-index-button', 'n_clicks'),
-                        Input('training-step-slider', 'value'),
-                        Input('type-of-recording-radio-buttons', 'value'),
-                        Input('batch-index-dropdown', 'value'),
-                        Input('iteration-slider', 'value'),
-                        Input('role-of-tensor-in-node-dropdown', 'value'),
-                        Input('dummy-for-selecting-a-node', 'className'),
-                        Input('navigate-left-button', 'n_clicks_timestamp'),
-                        Input('navigate-right-button', 'n_clicks_timestamp'),
-                        Input('navigate-up-button', 'n_clicks_timestamp'),
-                        Input('navigate-down-button', 'n_clicks_timestamp')] +
-                       [Input(node_dash_id, 'n_clicks_timestamp')
-                        for node_dash_id in self.list_of_unique_node_dash_ids]))
+        @app.callback([Output('dummy-for-selecting-a-node', 'className'),
+                       Output('type-of-execution-for-diversity-of-recordings-dropdown', 'options'),
+                       Output('type-of-execution-for-diversity-of-recordings-dropdown', 'value'),
+                       Output('training-step-slider', 'min'),
+                       Output('training-step-slider', 'max'),
+                       Output('training-step-slider', 'marks'),
+                       Output('training-step-slider', 'value'),
+                       Output('type-of-recording-radio-buttons', 'options'),
+                       Output('type-of-recording-radio-buttons', 'value'),
+                       Output('batch-index-dropdown', 'options'),
+                       Output('batch-index-dropdown', 'value'),
+                       Output('iteration-slider', 'min'),
+                       Output('iteration-slider', 'max'),
+                       Output('iteration-slider', 'marks'),
+                       Output('iteration-slider', 'value'),
+                       Output('role-of-tensor-in-node-dropdown', 'options'),
+                       Output('role-of-tensor-in-node-dropdown', 'value')] +
+                      [Output(graph_container_dash_id, 'className')
+                       for graph_container_dash_id
+                       in self.ngs_hash_to_graph_container_dash_id.values()
+                       ],
+                      [Input('decrement-training-step-button', 'n_clicks'),
+                       Input('increment-training-step-button', 'n_clicks'),
+                       Input('decrement-batch-index-button', 'n_clicks'),
+                       Input('increment-batch-index-button', 'n_clicks'),
+                       Input('decrement-iteration-button', 'n_clicks'),
+                       Input('increment-iteration-button', 'n_clicks'),
+                       Input('training-step-slider', 'value'),
+                       Input('training-step-slider', 'marks'),
+                       Input('batch-index-dropdown', 'value'),
+                       Input('batch-index-dropdown', 'options'),
+                       Input('iteration-slider', 'value'),
+                       Input('iteration-slider', 'marks'),
+                       Input('trials-dropdown', 'value'),
+                       Input('type-of-execution-for-diversity-of-recordings-dropdown', 'value'),
+                       Input('type-of-recording-radio-buttons', 'value'),
+                       Input('role-of-tensor-in-node-dropdown', 'value'),
+                       Input('dummy-for-selecting-a-node', 'className'),
+                       Input('navigate-left-button', 'n_clicks_timestamp'),
+                       Input('navigate-right-button', 'n_clicks_timestamp'),
+                       Input('navigate-up-button', 'n_clicks_timestamp'),
+                       Input('navigate-down-button', 'n_clicks_timestamp')] +
+                      [Input(node_dash_id, 'n_clicks_timestamp')
+                       for node_dash_id in self.list_of_unique_node_dash_ids])
         @utilities.runtime_analysis_decorator
         def update_selectors(
-                trials_value, type_of_execution,
                 decrement_training_step, increment_training_step,
-                decrement_iteration, increment_iteration,
                 decrement_batch_index, increment_batch_index,
-                training_step_value, type_of_recording_value, batch_index_value,
-                iteration_value, role_of_tensor_in_node_value, previous_name_of_selected_node,
+                decrement_iteration, increment_iteration,
+                training_step_value, training_step_marks,
+                batch_aggregation_value, batch_aggregation_options,
+                iteration_value, iteration_marks,
+                trials_value, type_of_execution,
+                type_of_recording_value,
+                role_of_tensor_in_node_value, previous_name_of_selected_node,
                 *lsts,
         ):
             navigation_button_clicks = lsts[0:4]
             clicks_per_node = lsts[4:]
             program_is_initializing = (training_step_value is None)
+            #
+            # Preliminaries: The arrow buttons that increment / decrement values
+            #
+            if not program_is_initializing:
+                # Increment or decrement the training step if the user clicked the buttons.
+                assert all(k == v for k, v in training_step_marks.items())
+                possible_training_step_values = sorted([int(k) for k in training_step_marks.keys()])
+                idx = possible_training_step_values.index(training_step_value)
+                if ctx.triggered_id == 'increment-training-step-button':
+                    idx = max(0, min(len(possible_training_step_values) - 1, idx + 1))
+                    training_step_value = possible_training_step_values[idx]
+                elif ctx.triggered_id == 'decrement-training-step-button':
+                    idx = max(0, min(len(possible_training_step_values) - 1, idx - 1))
+                    training_step_value = possible_training_step_values[idx]
+                # Increment or decrement the sample index if the user clicked the buttons.
+                idx = [a['value'] for a in batch_aggregation_options].index(batch_aggregation_value)
+                if ctx.triggered_id == 'increment-batch-index-button':
+                    idx = max(0, min(len(batch_aggregation_options) - 1, idx + 1))
+                    batch_aggregation_value = batch_aggregation_options[idx]['value']
+                elif ctx.triggered_id == 'decrement-batch-index-button':
+                    idx = max(0, min(len(batch_aggregation_options) - 1, idx - 1))
+                    batch_aggregation_value = batch_aggregation_options[idx]['value']
+                # Increment or decrement the iteration if the user clicked the buttons.
+                assert all(k == v for k, v in iteration_marks.items())
+                possible_iteration_values = sorted([int(k) for k in iteration_marks.keys()])
+                idx = possible_iteration_values.index(iteration_value)
+                if ctx.triggered_id == 'increment-iteration-button':
+                    idx = max(0, min(len(possible_iteration_values) - 1, idx + 1))
+                    iteration_value = possible_iteration_values[idx]
+                elif ctx.triggered_id == 'decrement-iteration-button':
+                    idx = max(0, min(len(possible_iteration_values) - 1, idx - 1))
+                    iteration_value = possible_iteration_values[idx]
+            
+            #
+            # Start working on actual selectors
+            #
 
             def create_slider_data_from_list(value, options_list):
                 assert value in options_list, (value, options_list)
@@ -689,14 +731,6 @@ class Visualization:
                 training_steps[0],
                 training_steps,
             )
-            # Increment or decrement the training step if the user clicked the buttons.
-            idx = training_steps.index(training_step_value)
-            if ctx.triggered_id == 'increment-training-step-button':
-                idx = max(0, min(len(training_steps) - 1, idx + 1))
-                training_step_value = training_steps[idx]
-            elif ctx.triggered_id == 'decrement-training-step-button':
-                idx = max(0, min(len(training_steps) - 1, idx - 1))
-                training_step_value = training_steps[idx]
             # Get the recordings
             tsc, recordings = self.get_training_step_configuration_and_recordings(trials_value, training_step_value, type_of_execution)
             db: utilities.PseudoDb = recordings.recordings
@@ -759,20 +793,20 @@ class Visualization:
                 # which is on the final iteration of each training_step.
                 # When you switch between nodes, switching back to a previously visited one will restore the role
                 # you had selected on that node.
-                # When you switch iteration and it changes nodes, it will NOT switch back to the previously selected
+                # When you switch iteration, and it changes nodes, it will NOT switch back to the previously selected
                 # node when you switch back to this iteration.
                 # This is on purpose, because it seemed like a forceful switch would more often be annoying than
                 # intended.
                 # It is also a technical issue: If I do decide to switch back to nodes, the fallback mechanic needs
                 # to be improved: 'role_within_node' and 'batch_aggregation' both depend on 'node_name',
-                # so if I change latter with fallback then I have to first remove the other two from the filters,
-                # in case the node does not have those values, and then afterwards add them again, in case the node
-                # does have those values and we don't want to change them by accident.
+                # so if I change later with fallback then I have to first remove the other two from the filters,
+                # in case the node does not have those values, and then afterward add them again, in case the node
+                # does have those values, and we don't want to change them by accident.
                 #
                 current_params_dict_for_querying_database = {
                     'training_step': training_step_value,
                     'type_of_tensor_recording': type_of_recording_value,
-                    'batch_aggregation': batch_index_value,
+                    'batch_aggregation': batch_aggregation_value,
                     'iteration': iteration_value,
                     'node_name': name_of_selected_node,
                     'role_within_node': role_of_tensor_in_node_value,
@@ -846,7 +880,8 @@ class Visualization:
             # Get the values of the selected record.
             # These overwrite any previously used values and are used from now on.
             #
-            training_step_value, type_of_recording_value, batch_index_value, iteration_value, name_of_selected_node, role_of_tensor_in_node_value, record_type, item, metadata = selected_record_values
+            (training_step_value, type_of_recording_value, batch_aggregation_value, iteration_value, name_of_selected_node,
+             role_of_tensor_in_node_value, record_type, item, metadata) = selected_record_values
             assert len(db.attributes) == len(selected_record_values)
             current_params_dict_for_querying_database = {
                 k: v for k, v in zip(db.attributes, selected_record_values)
@@ -866,50 +901,41 @@ class Visualization:
             )
             type_of_recording_options.sort(key=lambda a: a['value'])
             # Options for the batch_index
-            batch_index_options, batch_index_value = create_options_and_value_from_list(
-                batch_index_value, possible_attribute_values['batch_aggregation'],
+            batch_aggregation_options, batch_aggregation_value = create_options_and_value_from_list(
+                batch_aggregation_value, possible_attribute_values['batch_aggregation'],
                 label_maker=lambda a: {
                     'batch_mean': "Mean over the batch",
                     'batch_abs_max': "Maximum absolute value over the batch",
                     'batch_std': "STD over the batch",
                     'has_no_batch_dimension': "Has no batch dimension",
-                }.get(a, f"Sample {a}")
+                }.get(a, a)
             )
-            batch_index_options.sort(
-                key=lambda a: -1 if a['value'] in ['batch_mean', 'batch_abs_max', 'batch_std'] else (
-                    -2 if a['value'] == 'has_no_batch_dimension' else a['value']))
-            # Increment or decrement the sample index if the user clicked the buttons.
-            idx = [a['value'] for a in batch_index_options].index(batch_index_value)
-            if ctx.triggered_id == 'increment-batch-index-button':
-                idx = max(0, min(len(batch_index_options) - 1, idx + 1))
-                batch_index_value = batch_index_options[idx]['value']
-            elif ctx.triggered_id == 'decrement-batch-index-button':
-                idx = max(0, min(len(batch_index_options) - 1, idx - 1))
-                batch_index_value = batch_index_options[idx]['value']
+            def extract_sorting_key_from_sample_string(sample_string):
+                m = re.match(r'Sample (\d)+(.*)', sample_string)
+                return m[2], int(m[1])
+            order_of_batch_aggregation_options = {
+                'batch_mean': -5,
+                'batch_abs_max': -4,
+                'batch_std': -3,
+                'has_no_batch_dimension': -2,
+            }
+            batch_aggregation_options.sort(
+                key=lambda a: ('', order_of_batch_aggregation_options[a['value']]) if a['value'] in order_of_batch_aggregation_options
+                else extract_sorting_key_from_sample_string(a['value'])
+            )
             # Options for the iteration
             always_show_all_iterations = True
             if always_show_all_iterations:
                 # Note: These values are only retrieved here and not at the start of this function
                 # because some arguments may be unset during initialization
                 tsc, recordings = self.get_training_step_configuration_and_recordings(trials_value, training_step_value, type_of_execution)
-                iteration_options = list(range(len(tsc.graph_configuration_per_iteration)))
                 iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
-                    iteration_value,
-                    iteration_options,
+                    iteration_value, list(range(len(tsc.graph_configuration_per_iteration))),
                 )
             else:
                 iteration_min, iteration_max, iteration_marks, iteration_value = create_slider_data_from_list(
                     iteration_value, possible_attribute_values['iteration'],
                 )
-            # Increment or decrement the iteration if the user clicked the buttons.
-            possible_iteration_values = sorted(list(iteration_marks.keys()))
-            idx = possible_iteration_values.index(iteration_value)
-            if ctx.triggered_id == 'increment-iteration-button':
-                idx = max(0, min(len(possible_iteration_values) - 1, idx + 1))
-                iteration_value = possible_iteration_values[idx]
-            elif ctx.triggered_id == 'decrement-iteration-button':
-                idx = max(0, min(len(possible_iteration_values) - 1, idx - 1))
-                iteration_value = possible_iteration_values[idx]
             # Options for the role of the tensor
             role_of_tensor_in_node_options, role_of_tensor_in_node_value = create_options_and_value_from_list(
                 role_of_tensor_in_node_value, possible_attribute_values['role_within_node'],
@@ -926,11 +952,17 @@ class Visualization:
             assert len(graph_container_visibilities) == len(self.ngs_hash_to_graph_container_dash_id)
             assert len([a for a in graph_container_visibilities if a == 'active']) == 1, \
                 (ngs_hash, len([a for a in graph_container_visibilities if a == 'active']))
+            # Update the self.last_selected_record_values again, because they may have changed compared to
+            # earlier in this function
+            tmp = (training_step_value, type_of_recording_value, batch_aggregation_value, iteration_value,
+                   name_of_selected_node, role_of_tensor_in_node_value, record_type, item, metadata)
+            assert len(tmp) == len(self.last_selected_record_values)
+            self.last_selected_record_values = tmp
             res = [
                       name_of_selected_node,
                       type_of_execution_options, type_of_execution,
                       training_step_min, training_step_max, training_step_marks, training_step_value,
-                      type_of_recording_options, type_of_recording_value, batch_index_options, batch_index_value,
+                      type_of_recording_options, type_of_recording_value, batch_aggregation_options, batch_aggregation_value,
                       iteration_min, iteration_max, iteration_marks, iteration_value,
                       role_of_tensor_in_node_options, role_of_tensor_in_node_value,
                   ] + graph_container_visibilities
@@ -956,7 +988,7 @@ class Visualization:
                 display_type_radio_buttons,
                 node_name, trials_value, type_of_execution,
                 training_step_value, type_of_recording_value,
-                batch_index_value, iteration_value, role_of_tensor_in_node_value, _,
+                batch_aggregation_value, iteration_value, role_of_tensor_in_node_value, _,
         ):
             tsc, recordings = self.get_training_step_configuration_and_recordings(trials_value, training_step_value, type_of_execution)
             graph_config = tsc.graph_configuration_per_iteration[iteration_value]
@@ -1044,7 +1076,7 @@ class Visualization:
             for name, val in [
                 ('training_step', training_step_value),
                 ('type_of_tensor_recording', type_of_recording_value),
-                ('batch_aggregation', batch_index_value),
+                ('batch_aggregation', batch_aggregation_value),
                 ('iteration', iteration_value),
                 ('node_name', node_name),
                 ('role_within_node', role_of_tensor_in_node_value),
@@ -1141,7 +1173,7 @@ class Visualization:
                     html.Table(
                         [html.Tr([html.Th(col) for col in
                                   ['Trial', 'Training Step', 'Iteration',
-                                   'Step Type',
+                                   'Step Type', 'Batch',
                                    'Node', 'Role',
                                    'Tensor Type', 'Tensor Shape',
                                    ]])] +
@@ -1149,6 +1181,7 @@ class Visualization:
                             html.Td(val) for val in [
                                 trials_value, training_step_value, iteration_value,
                                 tsc.type_of_execution,  # This may not equal type_of_execution, which can be "any_value" because it's a filter
+                                batch_aggregation_value,
                                 cleaned_tensor_name,
                                 cleaned_role_within_tensor,
                                 node.type_of_tensor,
@@ -1172,9 +1205,7 @@ class Visualization:
             elif display_type_radio_buttons == 'Graphs':
                 hide_containers_for_tensors = True
                 children = [
-                    html.Div(self.display_kpi_graphs(
-                        trials_value, tsc.type_of_execution,  # This may not equal type_of_execution, which can be "any_value" because it's a filter
-                    ), className="kpi-graphs-div"),
+                    html.Div(self.display_kpi_graphs(trials_value), className="kpi-graphs-div"),
                 ]
             elif display_type_radio_buttons == 'Visualization':
                 hide_containers_for_tensors = False
@@ -1182,7 +1213,7 @@ class Visualization:
                     html.Div(self.create_external_visualization(
                         recordings, type_of_execution,  # Note that type_of_execution can be "any_value" because it's a filter
                         tsc, ngs, db,
-                        training_step_value, type_of_recording_value, batch_index_value, iteration_value, node_name,
+                        training_step_value, type_of_recording_value, batch_aggregation_value, iteration_value, node_name,
                         role_of_tensor_in_node_value,
                     ), className="external-visualization-div"),
                 ]
@@ -1334,7 +1365,7 @@ class Visualization:
         return ["No Notes have been recorded for this trial."]
 
     @utilities.runtime_analysis_decorator
-    def display_kpi_graphs(self, trials_value, type_of_execution):
+    def display_kpi_graphs(self, trials_value):
         if trials_value not in self.trial_to_kpi_graph_excerpt:
             self.load_kpi_graphs_for_trial(trials_value)
         graph_excerpt = self.trial_to_kpi_graph_excerpt.get(trials_value, None)

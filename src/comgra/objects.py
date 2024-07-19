@@ -338,7 +338,11 @@ class DecisionMakerForRecordings(abc.ABC):
     pass
 
     @abc.abstractmethod
-    def is_record_on_this_iteration(self, training_step, type_of_execution):
+    def is_record_on_this_step(self, training_step, type_of_execution):
+        pass
+
+    @abc.abstractmethod
+    def mark_recording_on_this_step(self, training_step, type_of_execution):
         pass
 
 
@@ -346,8 +350,11 @@ class DecisionMakerForRecordings(abc.ABC):
 class DecisionMakerForRecordingsHardcoded(DecisionMakerForRecordings):
     fixed_training_steps: set[int]
 
-    def is_record_on_this_iteration(self, training_step, type_of_execution):
+    def is_record_on_this_step(self, training_step, type_of_execution):
         return training_step in self.fixed_training_steps
+
+    def mark_recording_on_this_step(self, training_step, type_of_execution):
+        pass
 
 
 @dataclasses.dataclass
@@ -356,7 +363,7 @@ class DecisionMakerForRecordingsFrequencyPerType(DecisionMakerForRecordings):
     exponential_backoff_factor: float = 1.0
     identifier_to_last_recorded_step_and_min_difference: Dict = dataclasses.field(default_factory=dict)
 
-    def is_record_on_this_iteration(self, training_step, type_of_execution):
+    def is_record_on_this_step(self, training_step, type_of_execution):
         if type_of_execution is None:
             return False
         assert self.exponential_backoff_factor >= 1.0, self.exponential_backoff_factor
@@ -366,30 +373,12 @@ class DecisionMakerForRecordingsFrequencyPerType(DecisionMakerForRecordings):
         if last_recorded_step == training_step:
             return True
         if last_recorded_step is None or training_step >= last_recorded_step + min_difference:
-            min_difference = min_difference * self.exponential_backoff_factor
-            self.identifier_to_last_recorded_step_and_min_difference[type_of_execution] = (training_step, min_difference)
             return True
         return False
 
-
-class DecisionMakerForRecordingsExponentialFalloff(DecisionMakerForRecordings):
-    maximum_number_of_recordings: int
-    current_valid_steps: List
-    current_step_size: int = 1
-
-    def __init__(self, maximum_number_of_recordings, starting_step_size):
-        super().__init__()
-        assert maximum_number_of_recordings > 1
-        self.maximum_number_of_recordings = maximum_number_of_recordings
-        self.current_valid_steps = []
-        self.current_step_size = starting_step_size
-
-    def is_record_on_this_iteration(self, training_step, type_of_execution):
-        if self.current_step_size * (self.maximum_number_of_recordings - 1) < training_step:
-            self.current_step_size *= 2
-        self.current_valid_steps = [
-            k for k in self.current_valid_steps
-            if k % self.current_step_size == 0
-        ]
-        assert len(self.current_valid_steps) <= self.maximum_number_of_recordings
-        return (training_step % self.current_step_size) == 0
+    def mark_recording_on_this_step(self, training_step, type_of_execution):
+        last_recorded_step, min_difference = self.identifier_to_last_recorded_step_and_min_difference.get(
+            type_of_execution, (None, self.min_training_steps_difference)
+        )
+        min_difference = min_difference * self.exponential_backoff_factor
+        self.identifier_to_last_recorded_step_and_min_difference[type_of_execution] = (training_step, min_difference)

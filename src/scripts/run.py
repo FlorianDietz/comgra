@@ -80,8 +80,8 @@ class Demonstration:
             # if the last training of the specified type was at least N training steps ago.
             # In this way, you make sure that each type gets recorded often enough to be useful,
             # but not so often that the program slows down and your hard drive gets filled up.
-            # An alternative recorder is DecisionMakerForRecordingsExponentialFalloff, which works similarly,
-            # but records more often at the beginning of training than later on.
+            # You can also use the optional parameter exponential_backoff_factor to record
+            # more often at the beginning of training than later on.
             # In this way you can get detailed information early, for debugging, but don't generate too much data
             # if you train the network for a longer time.
             decision_maker_for_recordings=DecisionMakerForRecordingsFrequencyPerType(min_training_steps_difference=1000),
@@ -125,7 +125,7 @@ class Demonstration:
         for i, (num_iterations, use_for_training, dataloader) in enumerate(self.task_data):
             comgra.my_recorder.add_note(f"Dataset {i}: {num_iterations} iterations, used for training: {use_for_training}, {len(dataloader.dataset):,.0f}")
         # Train the model
-        num_training_steps = 20_500
+        num_training_steps = 20_000
         for training_step in range(num_training_steps):
             # Pick a random dataloader and run a batch of it.
             idx = training_step % len(self.task_data)
@@ -201,8 +201,6 @@ class Demonstration:
             assert memory.shape == (batch_size, self.memory_size)
             # Apply the loss on the last iteration only
             if iteration == num_iterations - 1:
-                # Tell comgra that we are now performing a backward pass and register some more tensors
-                comgra.my_recorder.start_backward_pass()
                 comgra.my_recorder.register_tensor(f"target", target_tensor, is_target=True)
                 # We calculate and register some helper tensors:
                 # The partial sums of the inputs up to some iteration.

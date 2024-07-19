@@ -15,7 +15,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/src/scripts/server.py" />
-    <option name="PARAMETERS" value="--path &quot;/media/remote/ExperimentsVolume/erg/comgra_data/debugging0&quot; --port 9050 --visualization-file &quot;$PROJECT_DIR$/../erg/erg/architectures/comgra_visualization__interactive_2d_classification.py&quot;" />
+    <option name="PARAMETERS" value="--path &quot;/media/remote/ExperimentsVolume7/erg/comgra_data/debugging0&quot; --port 9050 --visualization-file &quot;$PROJECT_DIR$/../erg/erg/architectures/comgra_visualization__interactive_2d_classification.py&quot;" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />
