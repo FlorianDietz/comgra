@@ -759,15 +759,15 @@ class Visualization:
                 # which is on the final iteration of each training_step.
                 # When you switch between nodes, switching back to a previously visited one will restore the role
                 # you had selected on that node.
-                # When you switch iteration and it changes nodes, it will NOT switch back to the previously selected
+                # When you switch iteration, and it changes nodes, it will NOT switch back to the previously selected
                 # node when you switch back to this iteration.
                 # This is on purpose, because it seemed like a forceful switch would more often be annoying than
                 # intended.
                 # It is also a technical issue: If I do decide to switch back to nodes, the fallback mechanic needs
                 # to be improved: 'role_within_node' and 'batch_aggregation' both depend on 'node_name',
-                # so if I change latter with fallback then I have to first remove the other two from the filters,
-                # in case the node does not have those values, and then afterwards add them again, in case the node
-                # does have those values and we don't want to change them by accident.
+                # so if I change later with fallback then I have to first remove the other two from the filters,
+                # in case the node does not have those values, and then afterward add them again, in case the node
+                # does have those values, and we don't want to change them by accident.
                 #
                 current_params_dict_for_querying_database = {
                     'training_step': training_step_value,
