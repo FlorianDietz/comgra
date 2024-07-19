@@ -52,17 +52,6 @@ class Demonstration:
         ).to(self.device)
         self.criterion = torch.nn.CrossEntropyLoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-4)
-        # Initialize comgra
-        # This command tells comgra to permanently register all parameters of a given module.
-        # Note:
-        # Comgra uses a ComgraRecorder object that needs to be available in all code blocks where
-        # you want to access comgra.
-        # (Comgra is object-based instead of static
-        # so that you can use multithreading and record several runs in parallel.)
-        # If you don't want to pass a new parameter for this through all your modules,
-        # and you are not using multithreading anyway,
-        # then you can just store this in a global variable inside the comgra library itself for simplicity,
-        # as is done here with 'comgra.my_recorder'.
         comgra.my_recorder = ComgraRecorder(
             comgra_root_path=self.comgra_root_path,
             group=self.comgra_group,
@@ -80,12 +69,7 @@ class Demonstration:
             comgra_is_active=True,
             calculate_svd_and_other_expensive_operations_of_parameters=True,
         )
-        # Register the modules you are using.
-        # This recursively goes through all contained modules and all their weight parameters
-        # and registers them so that they get recorded along with the other tensors.
         comgra.my_recorder.track_module("root_module", self.model)
-        # Record information about the training and testing data in comgra
-        # These are just simple text notes that can be viewed in the "Notes" tab of the GUI.
         comgra.my_recorder.add_note(f"Total training data: {sum([len(dataloader.dataset) for _, use_for_training, dataloader in self.task_data if use_for_training]):,.0f}")
         comgra.my_recorder.add_note(f"Total test data: {sum([len(dataloader.dataset) for _, use_for_training, dataloader in self.task_data if not use_for_training]):,.0f}")
         for i, (num_iterations, use_for_training, dataloader) in enumerate(self.task_data):
@@ -106,57 +90,21 @@ class Demonstration:
         batch_size = self.batch_size
         assert input_tensor.shape == (batch_size, num_iterations, 5), input_tensor.shape
         assert target_tensor.shape == (batch_size, 5), target_tensor.shape
-        # Each time a new training step is started, call this function.
-        # Comgra will automatically decide whether to make a recording based on
-        # decision_maker_for_recordings and override__recording_is_active
         comgra.my_recorder.start_batch(
             training_step,
             batch_size,
-            # This is the string that is used by DecisionMakerForRecordingsFrequencyPerType
-            # to decide what type of thing is being recorded here.
-            # The string depends on the number of iterations, which will ensure that recordings for each possible
-            # number of iterations are made regularly, even if some of them occurred less often than others.
             type_of_execution=f'{num_iterations:02d}_iterations',
-            # If this is set to False, only statistics are stored by default whenever you call register_tensor() later,
-            # which means less data to be stored and processed.
-            # You can still use record_per_batch_index=True with register_tensor() for the tensors for
-            # which you want to see all details.
             record_all_tensors_per_batch_index_by_default=True,
-            # None = use decision_maker_for_recordings to decide whether to record (default)
-            # True = record
-            # False = don't record
-            # Important: Set this to False when you are running the network in evaluation mode,
-            # as torch will not generate any computation graphs in this case, so comgra can't work.
             override__recording_is_active=None,
         )
-        # Initialize the memory
-        # Register it in comgra as part of a node called 'memory'.
-        # This is a hidden state of the network, not an input or parameter, so we use is_initial_value=True and register
-        # it before we start the first iteration.
         memory = torch.zeros((batch_size, self.memory_size), device=self.device)
         comgra.my_recorder.register_tensor(f"initial_memory", memory, node_name='memory', is_initial_value=True)
-        # Iterate
         for iteration in range(num_iterations):
             input_for_this_iteration = input_tensor[:, iteration, :]
             # Tell comgra that an iteration has started.
             comgra.my_recorder.start_iteration()
-            # Record the input of the iteration.
-            # Note that each register_tensor() call uses a different type: is_input, is_target, etc.
-            # Each of these will be colored differently in the visualization.
-            # By default, this records the values of all neurons in the tensor,
-            # which can be costly for performance if the tensor is very large.
-            # You can also specify recording_type='kpis' to record only KPIs instead of all neurons.
-            # KPIs are mean(), abs().mean(), std(), and abs().max()
             comgra.my_recorder.register_tensor(f"input", input_for_this_iteration, is_input=True)
             x = torch.cat([input_for_this_iteration, memory], dim=1)
-            # Forward pass.
-            # Note that this produces two tensors on each iteration: An output and a memory.
-            # You can check the comgra GUI to see that the output only has non-zero gradients on the last iteration,
-            # while the memory has non-zero gradients on all iterations except the last.
-            # We also apply a sigmoid to the output, which is useful for illustrative purposes.
-            # You can see that the neurons add up to 1 in the GUI.
-            # Note that we store the memory in a node called 'memory', the same as 'initial_memory' above,
-            # because they both refer to the same hidden state and this way the GUI will combine them when appropriate.
             output, memory = self.model(x)
             output = torch.sigmoid(output)
             comgra.my_recorder.register_tensor(f"output", output)
@@ -216,12 +164,6 @@ class Demonstration:
             # Apply the loss on the last iteration only
             #
             if iteration == 2:
-                # We calculate and register some helper tensors:
-                # The partial sums of the inputs up to some iteration.
-                # The Node 'helper_partial_sums' in the visualization will have several different values,
-                # selectable through the dropdown "Role of tensor".
-                # Having information like this easily accessible
-                # right next to the target in the GUI can help you with debugging.
                 for i in range(0, num_iterations):
                     helper_partial_sums = input_tensor[:, :i+1, :].sum(dim=1).detach()
                     comgra.my_recorder.register_tensor(
@@ -279,14 +221,6 @@ class Demonstration:
                 comgra.my_recorder.register_tensor(f"loss", loss, is_loss=True)
                 accuracy = (output.argmax(dim=1).eq(target_tensor.argmax(dim=1))).float().mean()
                 accuracy_first_ten = (output[:10, :].argmax(dim=1).eq(target_tensor[:10, :].argmax(dim=1))).float().mean()
-                # Create graphs.
-                # A separate graph is automatically created for each separate type_of_execution.
-                # You can also use the second parameter to create subgroups. Here we measure accuracy twice,
-                # once for all data and once for only the first ten elements of the batch
-                # (this is not a useful way to split, it's just for demonstration).
-                # The recording of graphs saves memory by using exponential falloff to determine when to save:
-                # It saves with a high frequency early on, then waits longer and longer.
-                # If an outlier is encountered, it ignores this rule and records the outlier anyway.
                 comgra.my_recorder.record_kpi_in_graph(
                     "loss", f"", loss,
                     timepoint=training_step,  # The timepoint uses the training_step by default
@@ -297,15 +231,9 @@ class Demonstration:
                 comgra.my_recorder.record_kpi_in_graph(
                     "accuracy", f"first_ten", accuracy_first_ten,
                 )
-                # We skip the update step for some data, because we want to see how that affects network values.
-                # (We unfortunately can not use torch.no_grad() if we want to record data in comgra,
-                # because the computation graph needs to be calculated for comgra to work.)
                 if update_the_model_parameters:
                     self.optimizer.step()
-                # This command causes comgra to record all losses that are currently on any registered tensors,
-                # or on any module parameter registered through comgra.my_recorder.track_module()
                 comgra.my_recorder.record_current_gradients(f"gradients")
-                # We can make use of comgra's smart decision-making which training steps to record for our own logging
                 if comgra.my_recorder.recording_is_active():
                     note = ""
                     if num_iterations == 1:
@@ -315,16 +243,9 @@ class Demonstration:
                              f"{'(training)' if update_the_model_parameters else ' (testing)'}  -  "
                              f"Loss = {loss.item():10.6f}  -  "
                              f"Accuracy on batch = {accuracy:2.3f}")
-                    # Make a quick note of the console output in comgra as well,
-                    # just so the information is all in one place.
-                    # This feature is also helpful for recording debug messages.
                     print(note)
                     comgra.my_recorder.add_note(note)
-            # Tell comgra that the iteration has finished.
             comgra.my_recorder.finish_iteration()
-        # Finish a batch.
-        # This is the counterpart to start_batch.
-        # All tensors registered by comgra will be serialized at this point.
         comgra.my_recorder.finish_batch()
 
     def generate_task_data(self):
