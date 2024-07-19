@@ -732,7 +732,7 @@ class ComgraRecorder:
         on this training step, then it runs all functions that have been delayed so far.
         It also selects which indices of the batch should be recorded:
         Each sample in the batch may be assigned a category.
-        This function will filter the samples by category and try to include an equal number of samples from each category.
+        Comgra will try to record an equal number of samples from each category.
         :param type_of_execution: The type_of_execution.
         :param category_per_sample: A list of strings that determine the category of a sample. Each item corresponds to one sample in the batch.
         :return: None

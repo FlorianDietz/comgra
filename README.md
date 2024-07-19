@@ -13,8 +13,8 @@
   - [Finding the Bug](#finding-the-bug)
 - [Other Features](#other-features)
 - [Custom Visualization](#custom-visualization)
+- [Dynamic Recordings](#dynamic-recordings)
 - [Known Issues](#known-issues)
-- [Future Development: Dynamic Recordings](#future-development-dynamic-recordings)
 - [Future Development: Anomaly Detection and Correlation Analysis](#future-development-anomaly-detection-and-correlation-analysis)
 
 ## Overview
@@ -363,6 +363,31 @@ The file `scripts/example_custom_visualization.py` results in the following visu
 | -
 
 
+## Dynamic Recordings
+
+
+By default, you have to decide at the beginning of a training step whether you want comgra to record it. However. it can happen that you only know at the end of a training step if the step was interesting enough to be worth recording, or if any particular part of the batch was more interesting than the rest.
+
+We therefore provide an optional feature to decide retroactively, at the end of the batch, if you want to record, and what parts of the batch you want to record. This could e.g. help with debugging by automatically finding and recording the very first step where gradients start going out of bounds.
+
+Combine this with anomaly detection and comgra will be able to extract the most interesting and informative samples for you and make them easily accessible using selectors.
+
+To use Dynamic Recordings, simply give `None` as the value for `type_of_execution` in the `start_batch()` function. Then, at the end of the batch but before you call `finish_batch()`, call `decide_recording_of_batch()`. This function takes the actual value of `type_of_execution` und which the recording should be saved (if you provide `None` again, the recording will be skipped). It also takes an argument `category_per_sample`, which selects which indices of the batch should be recorded: Each sample in the batch may be assigned a category. Comgra will try to record an equal number of samples from each category.
+
+
+Note that Dynamic Recordings are not used by default because they are more computationally expensive.
+
+<details>
+  <summary><b>Click here to expand: About the slowdown</b></summary>
+
+  When Dynamic Recordings are used, comgra has to apply .requires_grad to all tensors in advance even if it later finds out that no recording is necessary, and this increases runtime.
+
+  If you are using a limited number of different `type_of_execution` values to categorize your batches, then you can mitigate this problem with the function `declare_that_all_different_types_of_execution_have_been_encountered()`, which enables comgra to realize that many training steps will not be recorded anyway since all possible `type_of_execution` they could be assigned to are too recent.
+
+  Additionally, Dynamic Recordings may be slower than normal recordings because of additional code on the user's side if you make use of `category_per_sample`: In order to assign a category to each sample in a batch, it is necessary to transfer data from GPU to CPU, and doing this on every training step is costly. This problem can be mitigated by only running this part of your code if `recording_is_active()` returns True.
+</details>
+
+
 ## Known Issues
 
 
@@ -383,16 +408,6 @@ comgra.my_recorder.add_tensor_connection("my_tensor", b)
 ```
 
 You should also be aware that `requires_grad` is necessary but not sufficient for `add_tensor_connection()` to work: It's possible that a tensor is built from two tensors, one of which has `requires_grad` and the other does not. Comgra won't automatically record the second one in this case and will not notice that anything is amiss. Use `add_tensor_connection()` to manually add connections for these cases.
-
-
-## Future Development: Dynamic Recordings
-
-
-Currently, you have to decide at the beginning of a training step whether you want comgra to record it. However. it can happen that you only know at the end of a training step if the step was interesting enough to be worth recording, or if any particular part of the batch was more interesting than the rest.
-
-We therefore want to make it possible to decide retroactively, at the end of the batch, if you want to record, and what parts of the batch you want to record. This could e.g. help with debugging by automatically finding and recording the very first step where gradients start going out of bounds.
-
-Combine this with anomaly detection and comgra will be able to extract the most interesting and informative samples for you and make them easily accessible using selectors.
 
 
 ## Future Development: Anomaly Detection and Correlation Analysis
