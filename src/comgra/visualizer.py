@@ -128,8 +128,12 @@ class Visualization:
         assert path.exists(), path
         assets_path = Path(__file__).absolute().parent.parent / 'assets'
         assert assets_path.exists(), "If this fails, files have been moved."
-        self.app = CustomDash(__name__, assets_folder=str(assets_path),
-                              external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP])
+        self.app = CustomDash(
+            __name__,
+            assets_folder=str(assets_path),
+            external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP],
+            title=self.path.name,
+        )
         self.ngs_hash_to_ngs: Dict[str, NodeGraphStructure] = {}
         self.ngs_hash_to_node_to_corners: Dict[str, Dict[str, Tuple[int, int, int, int]]] = {}
         self.ngs_hash_to_grid_of_nodes: Dict[str, List[List[str]]] = {}
