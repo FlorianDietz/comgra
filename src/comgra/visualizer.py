@@ -1508,6 +1508,11 @@ class Visualization:
         return html.Div(children=[
             content_div,
         ], style={
+            # TODO improve this. The DIV should always fill the remainder of the screen.
+            #  This is difficult to do when you are writing code that doesn't know
+            #  the height of other elements on screen.
+            'height': 'calc(100vh - 100px)',
+            'overflow-y': 'auto',
         })
 
     @utilities.runtime_analysis_decorator
