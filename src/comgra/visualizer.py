@@ -443,16 +443,34 @@ class Visualization:
             html.Div(id='dummy-placeholder-output-for-restarting-2'),  # This dummy is necessary for Dash not to complain
             html.Div(id='controls-selectors-container', children=[
                 dbc.Row([
-                    dbc.Col(html.Label("Trial"), width=2),
+                    dbc.Col(html.Label("Trial"), width=1),
+                    dbc.Col(html.Div([
+                        html.Button(html.I(className="bi bi-arrow-left"), id='decrement-trial-button',
+                                    className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-right"), id='increment-trial-button',
+                                    className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                    ], className='buttons-for-selecting-filters'), width=1),
                     dbc.Col(dcc.Dropdown(id='trials-dropdown', options=[], value=None), width=9),
                 ], className="display-even-when-kpi-graphs-are-selected"),
                 dbc.Row([
-                    dbc.Col(html.Label("Type of recording"), width=2),
+                    dbc.Col(html.Label("Recording type"), width=1),
+                    dbc.Col(html.Div([
+                        html.Button(html.I(className="bi bi-arrow-left"), id='decrement-type-of-recording-button',
+                                    className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-right"), id='increment-type-of-recording-button',
+                                    className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                    ], className='buttons-for-selecting-filters'), width=1),
                     dbc.Col(dcc.RadioItems(id='type-of-recording-radio-buttons', options=[], value=None, inline=True),
                             width=9),
                 ]),
                 dbc.Row([
-                    dbc.Col(html.Label("Type of training step"), width=2),
+                    dbc.Col(html.Label("Training step type"), width=1),
+                    dbc.Col(html.Div([
+                        html.Button(html.I(className="bi bi-arrow-left"), id='decrement-type-of-training-step-button',
+                                    className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-right"), id='increment-type-of-training-step-button',
+                                    className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                    ], className='buttons-for-selecting-filters'), width=1),
                     dbc.Col(dcc.Dropdown(id='type-of-execution-for-diversity-of-recordings-dropdown', options=[],
                                          value=None), width=9),
                 ]),
@@ -487,7 +505,13 @@ class Visualization:
                     dbc.Col(dcc.Dropdown(id='batch-index-dropdown', options=[], value=None), width=9),
                 ]),
                 dbc.Row([
-                    dbc.Col(html.Label("Role of tensor"), width=2),
+                    dbc.Col(html.Label("Role of tensor"), width=1),
+                    dbc.Col(html.Div([
+                        html.Button(html.I(className="bi bi-arrow-left"), id='decrement-role-of-tensor-button',
+                                    className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                        html.Button(html.I(className="bi bi-arrow-right"), id='increment-role-of-tensor-button',
+                                    className='btn btn-outline-secondary btn-xs', n_clicks=0),
+                    ], className='buttons-for-selecting-filters'), width=1),
                     dbc.Col(dcc.Dropdown(id='role-of-tensor-in-node-dropdown', options=[], value=None), width=9),
                 ]),
             ]),
@@ -523,27 +547,47 @@ class Visualization:
         @app.callback([Output('trials-dropdown', 'options'),
                        Output('trials-dropdown', 'value'),
                        Output('restart-button', 'n_clicks')],
-                      [Input('refresh-button', 'n_clicks')])
+                      [Input('refresh-button', 'n_clicks'),
+                       Input('trials-dropdown', 'value'),
+                       Input('trials-dropdown', 'options'),
+                       Input('decrement-trial-button', 'n_clicks'),
+                       Input('increment-trial-button', 'n_clicks'),])
         @utilities.runtime_analysis_decorator
-        def refresh_all_data(n_clicks):
-            # Reset caches
-            self.cache_for_training_step_configuration_and_recordings = {}
-            self.trial_to_kpi_graph_excerpt = {}
-            # If any graphs changed, a complete refresh is required, so trigger the restart-button
-            # Do NOT do this in debug mode, because that interferes with the restart ability of Dash
-            # because it also enables use_reloader.
+        def refresh_all_data_or_update_trial_selectors(
+                refresh_button_clicks, trials_value, trials_options,
+                decrement_trials, increment_trials,
+        ):
+            program_is_initializing = (trials_value is None)
             server_restart_required = False
-            for ngs_file in (self.path / 'node_graph_structure').iterdir():
-                node_graph_hash = ngs_file.stem
-                if node_graph_hash not in self.ngs_hash_to_ngs:
-                    if not self.debug_mode:
-                        server_restart_required = True
-            # Load the list of trials
-            trials_folder = self.path / 'trials'
-            subfolders = [a for a in trials_folder.iterdir() if a.is_dir()]
-            options = [{'label': a.name, 'value': a.name} for a in subfolders]
-            options.sort(key=lambda a: a['label'])
-            return options, options[0]['value'], (1 if server_restart_required else 0)
+            # Increment or decrement the trials dropdown if the user clicked the buttons.
+            if not program_is_initializing:
+                idx = [a['value'] for a in trials_options].index(trials_value)
+                if ctx.triggered_id == 'increment-trial-button':
+                    idx = max(0, min(len(trials_options) - 1, idx + 1))
+                    trials_value = trials_options[idx]['value']
+                elif ctx.triggered_id == 'decrement-trial-button':
+                    idx = max(0, min(len(trials_options) - 1, idx - 1))
+                    trials_value = trials_options[idx]['value']
+            # Reload stuff if the user clicked the button or if we are initializing
+            if ctx.triggered_id == 'refresh-button' or program_is_initializing:
+                # Reset caches
+                self.cache_for_training_step_configuration_and_recordings = {}
+                self.trial_to_kpi_graph_excerpt = {}
+                # If any graphs changed, a complete refresh is required, so trigger the restart-button
+                # Do NOT do this in debug mode, because that interferes with the restart ability of Dash
+                # because it also enables use_reloader.
+                for ngs_file in (self.path / 'node_graph_structure').iterdir():
+                    node_graph_hash = ngs_file.stem
+                    if node_graph_hash not in self.ngs_hash_to_ngs:
+                        if not self.debug_mode:
+                            server_restart_required = True
+                # Load the list of trials
+                trials_folder = self.path / 'trials'
+                subfolders = [a for a in trials_folder.iterdir() if a.is_dir()]
+                trials_options = [{'label': a.name, 'value': a.name} for a in subfolders]
+                trials_options.sort(key=lambda a: a['label'])
+                trials_value = trials_options[0]['value']
+            return trials_options, trials_value, (1 if server_restart_required else 0)
 
         app.clientside_callback(
             """
@@ -597,12 +641,18 @@ class Visualization:
                        for graph_container_dash_id
                        in self.ngs_hash_to_graph_container_dash_id.values()
                        ],
-                      [Input('decrement-training-step-button', 'n_clicks'),
+                      [Input('decrement-type-of-training-step-button', 'n_clicks'),
+                       Input('increment-type-of-training-step-button', 'n_clicks'),
+                       Input('decrement-training-step-button', 'n_clicks'),
                        Input('increment-training-step-button', 'n_clicks'),
                        Input('decrement-batch-index-button', 'n_clicks'),
                        Input('increment-batch-index-button', 'n_clicks'),
                        Input('decrement-iteration-button', 'n_clicks'),
                        Input('increment-iteration-button', 'n_clicks'),
+                       Input('decrement-role-of-tensor-button', 'n_clicks'),
+                       Input('increment-role-of-tensor-button', 'n_clicks'),
+                       Input('decrement-type-of-recording-button', 'n_clicks'),
+                       Input('increment-type-of-recording-button', 'n_clicks'),
                        Input('training-step-slider', 'value'),
                        Input('training-step-slider', 'marks'),
                        Input('batch-index-dropdown', 'value'),
@@ -611,8 +661,11 @@ class Visualization:
                        Input('iteration-slider', 'marks'),
                        Input('trials-dropdown', 'value'),
                        Input('type-of-execution-for-diversity-of-recordings-dropdown', 'value'),
+                       Input('type-of-execution-for-diversity-of-recordings-dropdown', 'options'),
                        Input('type-of-recording-radio-buttons', 'value'),
+                       Input('type-of-recording-radio-buttons', 'options'),
                        Input('role-of-tensor-in-node-dropdown', 'value'),
+                       Input('role-of-tensor-in-node-dropdown', 'options'),
                        Input('dummy-for-selecting-a-node', 'className'),
                        Input('navigate-left-button', 'n_clicks_timestamp'),
                        Input('navigate-right-button', 'n_clicks_timestamp'),
@@ -622,15 +675,20 @@ class Visualization:
                        for node_dash_id in self.list_of_unique_node_dash_ids])
         @utilities.runtime_analysis_decorator
         def update_selectors(
+                decrement_type_of_training_step, increment_type_of_training_step,
                 decrement_training_step, increment_training_step,
                 decrement_batch_index, increment_batch_index,
                 decrement_iteration, increment_iteration,
+                decrement_role_of_tensor, increment_role_of_tensor,
+                decrement_type_of_recording, increment_type_of_recording,
                 training_step_value, training_step_marks,
                 batch_aggregation_value, batch_aggregation_options,
                 iteration_value, iteration_marks,
-                trials_value, type_of_execution,
-                type_of_recording_value,
-                role_of_tensor_in_node_value, previous_name_of_selected_node,
+                trials_value,
+                type_of_execution, type_of_execution_options,
+                type_of_recording_value, type_of_recording_options,
+                role_of_tensor_in_node_value, role_of_tensor_in_node_options,
+                previous_name_of_selected_node,
                 *lsts,
         ):
             navigation_button_clicks = lsts[0:4]
@@ -640,6 +698,14 @@ class Visualization:
             # Preliminaries: The arrow buttons that increment / decrement values
             #
             if not program_is_initializing:
+                # Increment or decrement the type of training step if the user clicked the buttons.
+                idx = [a['value'] for a in type_of_execution_options].index(type_of_execution)
+                if ctx.triggered_id == 'increment-type-of-training-step-button':
+                    idx = max(0, min(len(type_of_execution_options) - 1, idx + 1))
+                    type_of_execution = type_of_execution_options[idx]['value']
+                elif ctx.triggered_id == 'decrement-type-of-training-step-button':
+                    idx = max(0, min(len(type_of_execution_options) - 1, idx - 1))
+                    type_of_execution = type_of_execution_options[idx]['value']
                 # Increment or decrement the training step if the user clicked the buttons.
                 assert all(k == v for k, v in training_step_marks.items())
                 possible_training_step_values = sorted([int(k) for k in training_step_marks.keys()])
@@ -668,6 +734,22 @@ class Visualization:
                 elif ctx.triggered_id == 'decrement-iteration-button':
                     idx = max(0, min(len(possible_iteration_values) - 1, idx - 1))
                     iteration_value = possible_iteration_values[idx]
+                # Increment or decrement the role of the tensor if the user clicked the buttons.
+                idx = [a['value'] for a in role_of_tensor_in_node_options].index(role_of_tensor_in_node_value)
+                if ctx.triggered_id == 'increment-role-of-tensor-button':
+                    idx = max(0, min(len(role_of_tensor_in_node_options) - 1, idx + 1))
+                    role_of_tensor_in_node_value = role_of_tensor_in_node_options[idx]['value']
+                elif ctx.triggered_id == 'decrement-role-of-tensor-button':
+                    idx = max(0, min(len(role_of_tensor_in_node_options) - 1, idx - 1))
+                    role_of_tensor_in_node_value = role_of_tensor_in_node_options[idx]['value']
+                # Increment or decrement the type of the recordings if the user clicked the buttons.
+                idx = [a['value'] for a in type_of_recording_options].index(type_of_recording_value)
+                if ctx.triggered_id == 'increment-type-of-recording-button':
+                    idx = max(0, min(len(type_of_recording_options) - 1, idx + 1))
+                    type_of_recording_value = type_of_recording_options[idx]['value']
+                elif ctx.triggered_id == 'decrement-type-of-recording-button':
+                    idx = max(0, min(len(type_of_recording_options) - 1, idx - 1))
+                    type_of_recording_value = type_of_recording_options[idx]['value']
             
             #
             # Start working on actual selectors
