@@ -1,6 +1,8 @@
-@misc{dietz2022comgra,
-    title = {Comgra},
-    author = {Florian Dietz},
-    year = {2022},
-    howpublished = {\url{https://github.com/FlorianDietz/comgra}},
+@inproceedings{
+    dietz2024comgra,
+    title={Comgra: A Tool for Analyzing and Debugging Neural Networks},
+    author={Florian Dietz},
+    booktitle={ICML 2024 Workshop on Mechanistic Interpretability},
+    year={2024},
+    url={https://openreview.net/forum?id=TcMmriVrgs}
 }
