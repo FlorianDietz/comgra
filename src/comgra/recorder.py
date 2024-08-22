@@ -239,6 +239,7 @@ class ComgraRecorder:
             type_of_execution='main_execution_type',
             record_all_tensors_per_batch_index_by_default=True,
             override__recording_is_active=None,
+            suppress_warnings=False,
     ):
         """
         Start a new recording for a new training step. Each recording can consist of multiple iterations.
@@ -303,7 +304,11 @@ class ComgraRecorder:
             tensor_name = parameter.full_unique_name
             node_name = next(
                 (a for a in self.prefixes_for_grouping_module_parameters_in_nodes if tensor_name.startswith(a)), None)
-            self.register_tensor(tensor_name, tensor, is_parameter=True, node_name=node_name)
+            if tensor.requires_grad:
+                self.register_tensor(tensor_name, tensor, is_parameter=True, node_name=node_name)
+            else:
+                if not suppress_warnings:
+                    utilities.warn_once(f"Comgra: Skipping parameter '{tensor_name}' because it does not require a gradient. Type: {type(tensor)}")
 
     def _reset_caches(self):
         # Note that this method should be called both before and after each training step.
@@ -822,7 +827,7 @@ class ComgraRecorder:
                 tensor.grad = None
 
     @utilities.runtime_analysis_decorator
-    def finish_iteration(self):
+    def finish_iteration(self, suppress_errors_about_missing_leaf_tensors=False):
         """
         Tell comgra that the iteration has ended. Should be called after :py:func:`~comgra.recorder.ComgraRecorder.start_iteration` but before :py:func:`~comgra.recorder.ComgraRecorder.finish_batch`.
         """
@@ -831,11 +836,11 @@ class ComgraRecorder:
         if not self.recording_is_active():
             return
         def function_to_run():
-            self._finish_iteration()
+            self._finish_iteration(suppress_errors_about_missing_leaf_tensors)
         self._run_now_or_add_to_delayed_calls(function_to_run)
 
     @utilities.runtime_analysis_decorator
-    def _finish_iteration(self):
+    def _finish_iteration(self, suppress_errors_about_missing_leaf_tensors):
         self.current_type_of_tensor_recording = 'forward'  # This will be used when the parameters get recorded in traverse_graph_backwards
         #
         # Go backwards through the computation graph, starting from outputs, targets, and losses.
@@ -1047,7 +1052,8 @@ class ComgraRecorder:
                     "while computation_step_to_tensor is used for intermediate values."
                 t = computation_step_to_tensor[step_to_follow]
             if hasattr(step_to_follow, 'variable'):
-                assert (step_to_follow.variable in self.parameter_to_representation
+                assert (suppress_errors_about_missing_leaf_tensors
+                        or step_to_follow.variable in self.parameter_to_representation
                         or step_to_follow.variable in self.tensor_to_list_of_references
                         or step_to_follow.variable in self.tensors_that_were_manually_marked_to_require_grad_but_dont_need_to_be_recorded), \
                     ("Backpropagation encountered a leaf tensor that has not been registered. "
@@ -1378,17 +1384,14 @@ class ComgraRecorder:
                 shape_without_batch_dimension = list(tensor_representation.shape)
                 del shape_without_batch_dimension[tensor_representation.index_of_batch_dimension]
 
-                def rec_helper(buffer):
-                    if len(buffer) == len(shape_without_batch_dimension):
-                        neuron_values.append(', '.join(map(str, buffer)))
+                def rec_helper(buffer, idx):
+                    if idx == len(shape_without_batch_dimension):
+                        neuron_values.append(', '.join([str(a) for a in buffer]))
                         return
-                    buffer.append(None)
-                    for j in range(shape_without_batch_dimension[len(buffer) - 1]):
-                        buffer[-1] = j
-                        rec_helper(buffer)
-                    del buffer[:-1]
-
-                rec_helper([])
+                    for j in range(shape_without_batch_dimension[idx]):
+                        buffer[idx] = j
+                        rec_helper(buffer, idx + 1)
+                rec_helper([None for _ in range(len(shape_without_batch_dimension))], 0)
             else:
                 neuron_values = [None]
                 assert tensor.shape[1] == 1

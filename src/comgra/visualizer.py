@@ -318,7 +318,10 @@ class Visualization:
             grid_of_nodes.append(list_of_nodes_for_grid)
             left = int(vp.padding_left + i * (1 + vp.ratio_of_space_between_nodes_to_node_size) * width_per_box)
             right = int(left + width_per_box)
-            common_prefix = os.path.commonprefix(nodes)
+            if len(nodes) > 1:
+                common_prefix = os.path.commonprefix(nodes)
+            else:
+                common_prefix = 'node__'
             if '.' in common_prefix:
                 common_prefix = common_prefix[:common_prefix.rindex('.') + 1]
             else:
@@ -327,7 +330,7 @@ class Visualization:
             def get_appropriate_font_size_for_text_in_node(width, text):
                 # Note: This formula was determined experimentally to be "good enough".
                 # Low-priority task: Replace it with a better, CSS-based solution.
-                return max(1, min(20, int(width / len(text) * 1.7)))
+                return max(1, min(20, int(width / len(text) * 1.7) if text else 10000))
 
             if common_prefix != 'node__':
                 # Display the prefix common to the names of all items in this stack
