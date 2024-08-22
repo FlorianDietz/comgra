@@ -263,10 +263,6 @@ class ComgraRecorder:
         assert self.training_step is None or training_step > self.training_step, \
             f"The training_step should increase monotonically."
         self.training_step = training_step
-        if type_of_execution is not None:
-            assert type_of_execution != 'any_value', "Don't use 'any_value', it has a special meaning in the GUI."
-            assert not type_of_execution.startswith('__'), type_of_execution
-            assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution)
         self.type_of_execution = type_of_execution
         self.iteration = None
         self.record_all_tensors_per_batch_index_by_default = record_all_tensors_per_batch_index_by_default
@@ -288,6 +284,10 @@ class ComgraRecorder:
             return
         assert self.set_of_top_level_modules, \
             "No modules have been defined yet. Use track_module() on your modules before starting a recording."
+        if type_of_execution is not None:
+            assert type_of_execution != 'any_value', "Don't use 'any_value', it has a special meaning in the GUI."
+            assert not type_of_execution.startswith('__'), type_of_execution
+            assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution)
         #
         # Note:
         # The below code is run immediately, even if type_of_execution is None.
