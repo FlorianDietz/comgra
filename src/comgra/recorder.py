@@ -53,7 +53,7 @@ class ComgraRecorder:
         :param calculate_svd_and_other_expensive_operations_of_parameters: An optional feature to record statistics that are more expensive to calculate than others.
         """
         comgra_root_path = Path(comgra_root_path).resolve()
-        assert comgra_root_path.exists(), comgra_root_path
+        assert (not comgra_is_active) or comgra_root_path.exists(), comgra_root_path
         self.comgra_is_active = comgra_is_active
         self.trial_id = trial_id
         self.group_path = comgra_root_path / group
