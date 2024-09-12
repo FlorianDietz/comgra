@@ -3,6 +3,7 @@ import collections
 import importlib
 import os.path
 from dataclasses import dataclass
+import datetime
 import gzip
 import json
 import math
@@ -587,7 +588,13 @@ class Visualization:
                 # Load the list of trials
                 trials_folder = self.path / 'trials'
                 subfolders = [a for a in trials_folder.iterdir() if a.is_dir()]
-                trials_options = [{'label': a.name, 'value': a.name} for a in subfolders]
+                trials_options = [
+                    {
+                        'label': f"{datetime.datetime.fromtimestamp((trials_folder / a.name).stat().st_ctime).strftime('%Y-%m-%d %H:%M:%S')}  -  {a.name}",
+                        'value': a.name
+                    }
+                    for a in subfolders
+                ]
                 trials_options.sort(key=lambda a: a['label'])
                 trials_value = trials_options[0]['value']
             return trials_options, trials_value, (1 if server_restart_required else 0)
@@ -1481,20 +1488,18 @@ class Visualization:
             for type_of_execution, b in a.items():
                 for kpi_name, stats in b.items():
                     vals = stats['vals']
-                    xs = []
-                    ys = []
-                    for val in vals:
-                        x = val['timepoint']
-                        y = val['val']
-                        xs.append(x)
-                        ys.append(y)
                     name = f"{kpi_name}__{type_of_execution}" if kpi_name else type_of_execution
                     plots.append(go.Scatter(
-                        x=xs, y=ys,
+                        x=[val['timepoint'] for val in vals],
+                        y=[val['val'] for val in vals],
+                        text=[
+                            f"{datetime.timedelta(seconds=int(val.get('wall_clock_time', 0)))}"
+                            f" - {name}"
+                            for val in vals
+                        ],
                         name=name,
                         mode="lines+markers",
                         textposition="bottom center",
-                        text=name,
                         marker=dict(color=colors_by_type_of_execution[type_of_execution]),
                         line=dict(color=colors_by_kpi_name[kpi_name]),
                     ))

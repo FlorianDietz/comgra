@@ -1,5 +1,6 @@
 import collections
 import dataclasses
+import datetime
 import functools
 import gzip
 import json
@@ -109,6 +110,7 @@ class ComgraRecorder:
         self.current_type_of_tensor_recording = None
         self.most_recent_training_step_where_execution_type_was_recorded = collections.defaultdict(lambda: -1)
         self.all_different_types_of_execution_have_been_encountered = False
+        self.time_of_initialization = datetime.datetime.now()
         #
         # KPI graph recording
         #
@@ -143,6 +145,7 @@ class ComgraRecorder:
         self.current_batch_size = None
         self.override__recording_is_active = None
         self.sanity_check__recursion_for_delayed_calls = None
+        self.start_of_training_step = None
 
     def recording_is_active(self):
         """
@@ -288,6 +291,7 @@ class ComgraRecorder:
             assert type_of_execution != 'any_value', "Don't use 'any_value', it has a special meaning in the GUI."
             assert not type_of_execution.startswith('__'), type_of_execution
             assert re.match(r'^[a-zA-Z0-9-_]+$', type_of_execution)
+        self.start_of_training_step = datetime.datetime.now()
         #
         # Note:
         # The below code is run immediately, even if type_of_execution is None.
@@ -1547,12 +1551,13 @@ class ComgraRecorder:
                               or val < min_ - dist * self.kpi_graph_factor_for_detecting_outliers)
             else:
                 is_outlier = False
-            assert timepoint > stats['last_timepoint'], f"Must be called with a newer timepoint each time."
+            assert timepoint > stats['last_timepoint'], f"Must be called with a newer timepoint each time.\n{kpi_group=}\n{kpi_name=}"
             if timepoint >= stats['next_timepoint'] or is_outlier:
                 assert isinstance(val, numbers.Number)
                 stats['vals'].append({
                     'timepoint': timepoint,
                     'val': val,
+                    'wall_clock_time': (self.start_of_training_step - self.time_of_initialization).total_seconds(),
                 })
                 while timepoint >= stats['next_timepoint']:
                     stats['next_timepoint'] = max([1, stats['next_timepoint'] * self.kpi_graph_exponential_backoff_factor])
