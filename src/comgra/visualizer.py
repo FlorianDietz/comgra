@@ -588,9 +588,18 @@ class Visualization:
                 # Load the list of trials
                 trials_folder = self.path / 'trials'
                 subfolders = [a for a in trials_folder.iterdir() if a.is_dir()]
+
+                def get_time_from_timemarker_file(trial_folder):
+                    for file in trial_folder.iterdir():
+                        match = re.match(r'timemarker-.*-(\d+)\.txt', file.name)
+                        if match:
+                            ticks = int(match.group(1))
+                            date = datetime.datetime.fromtimestamp(ticks)
+                            return date.strftime('%Y-%m-%d %H:%M:%S')
+                    return '[Unknown time]'
                 trials_options = [
                     {
-                        'label': f"{datetime.datetime.fromtimestamp((trials_folder / a.name).stat().st_ctime).strftime('%Y-%m-%d %H:%M:%S')}  -  {a.name}",
+                        'label': f"{get_time_from_timemarker_file(trials_folder / a.name)}  -  {a.name}",
                         'value': a.name
                     }
                     for a in subfolders

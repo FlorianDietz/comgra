@@ -65,6 +65,10 @@ class ComgraRecorder:
             shutil.rmtree(self.trial_path, ignore_errors=True)
             self.recordings_path.mkdir(parents=True, exist_ok=True)
             self.configurations_path.mkdir(parents=True, exist_ok=True)
+            now = datetime.datetime.now()
+            timemarker_file = self.trial_path / f'timemarker-{now.isoformat()}-{int(now.timestamp())}.txt'
+            with open(timemarker_file, 'w') as f:
+                f.write("")
         self.type_of_serialization = type_of_serialization
         self.calculate_svd_and_other_expensive_operations_of_parameters = calculate_svd_and_other_expensive_operations_of_parameters
         self.prefixes_for_grouping_module_parameters_visually = list(prefixes_for_grouping_module_parameters_visually or [''])
