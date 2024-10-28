@@ -1,7 +1,7 @@
 @inproceedings{
     dietz2024comgra,
     title={Comgra: A Tool for Analyzing and Debugging Neural Networks},
-    author={Florian Dietz},
+    author={Florian Dietz, Sophie Fellenz, Dietrich Klakow, Marius Kloft},
     booktitle={ICML 2024 Workshop on Mechanistic Interpretability},
     year={2024},
     url={https://openreview.net/forum?id=TcMmriVrgs}
