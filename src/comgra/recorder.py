@@ -238,7 +238,13 @@ class ComgraRecorder:
         :param module: A pytorch module.
         :return: The name of the module, as specified by :py:func:`~comgra.recorder.ComgraRecorder.track_module`.
         """
-        return self.module_to_name[module]
+        res = self.module_to_name.get(module, None)
+        if res:
+            return res
+        if not self.comgra_is_active:
+            return "(comgra is deactivated)"
+        raise ValueError(f"The module has not been registered. "
+                         f"Use ComgraRecorder.track_module() on it or a parent module of it")
 
     @utilities.runtime_analysis_decorator
     def start_batch(
@@ -341,6 +347,7 @@ class ComgraRecorder:
             is_input=False, is_parameter=False, is_target=False, is_loss=False,
             recording_type=None, record_per_batch_index=None,
             node_name=None, role_within_node=None, is_initial_value=False,
+            suppress_warnings=False,
     ):
         """
         Register a tensor. Each tensor registered in this way will either become its own node in the GUI, or is assigned to part of a node.
@@ -437,6 +444,12 @@ class ComgraRecorder:
                 items_to_record = ['mean', 'abs_mean', 'std', 'abs_max', 'svd']
             elif recording_type == 'neuron':
                 items_to_record = ['mean', 'abs_mean', 'std', 'abs_max', 'neuron']
+                if not suppress_warnings and tensor.numel() > 1000:
+                    utilities.warn_once(
+                        f"Comgra: Warning: The tensor '{tensor_name}' has a lot of elements "
+                        f"and may slow down recordings. Use recording_type='kpis' to avoid this. "
+                        f"Shape: {tensor.shape}, number of elements: {tensor.numel()}"
+                    )
             elif recording_type == 'single_value':
                 items_to_record = ['single_value']
             else:
@@ -1515,7 +1528,7 @@ class ComgraRecorder:
     @utilities.runtime_analysis_decorator
     def record_kpi_in_graph(
             self, kpi_group, kpi_name, val,
-            timepoint=None, record_even_if_recording_is_inactive=False,
+            timepoint=None, record_even_if_recording_is_inactive=False, note=None,
     ):
         """
         Create graphs, similar to tensorboard. These can be inspected in their own tab in the GUI. A separate graph is automatically created for each separate type_of_execution. You can also use the parameters of this function to create subgroups.
@@ -1527,6 +1540,7 @@ class ComgraRecorder:
         :param val: The value to store. Either a one-element tensor or a number.
         :param timepoint: The timepoint to use for the x-axis. Defaults to the training_step.
         :param record_even_if_recording_is_inactive: If True, graph values will be recorded even if comgra is not recording tensors on this training_step. This can be useful if you use your own conditions for when to call this function and those conditions rarely coincide with comgra being active. This argument is False by default because checking whether to record requires a GPU-to-CPU transfer, and we don't want to make these unnecessarily often.
+        :param note: A textual note that is added to the visualization. It appears when hovering over the datapoint in the graph.
         """
         if not self.comgra_is_active:
             return
@@ -1562,6 +1576,7 @@ class ComgraRecorder:
                     'timepoint': timepoint,
                     'val': val,
                     'wall_clock_time': (self.start_of_training_step - self.time_of_initialization).total_seconds(),
+                    'note': None if note is None else str(note),
                 })
                 while timepoint >= stats['next_timepoint']:
                     stats['next_timepoint'] = max([1, stats['next_timepoint'] * self.kpi_graph_exponential_backoff_factor])

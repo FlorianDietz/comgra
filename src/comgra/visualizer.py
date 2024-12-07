@@ -438,7 +438,20 @@ class Visualization:
                              ], id='navigation-buttons', width=4),
                     dbc.Col(html.Button('Refresh graphs', id='refresh-kpi-graphs-button', n_clicks=0), width=1),
                     dbc.Col(html.Button('Reload data', id='refresh-button', n_clicks=0), width=1),
-                    dbc.Col(html.Button('Restart server', id='restart-button', n_clicks=0), width=1),
+                    dbc.Col(html.Button([
+                        html.Span(
+                            "Restart server",
+                            id='restart-server-tooltip-target',
+                            style={
+                                'textDecoration': 'underline',
+                                'cursor': 'pointer',
+                            },
+                        ),
+                        dbc.Tooltip(
+                            f"Restarting the server completely is necessary whenever you run experiments that create new, previously unseen graph layouts, since these need to be loaded when the GUI first initializes. The server prints the number of different graph layouts in the console when it starts up. ; Also, be warned that the GUI can get cluttered with many different graph layouts if you never reset the folder. This increases the time for comgra to load at startup and may slow down the GUI. This is a limitation we are working on.{' WARNING: YOU ARE RUNNING THE COMGRA SERVER RUNS IN DEBUG MODE. THIS PREVENTS AUTOMATIC RESTARTS FROM WORKING CORRECTLY.' if self.debug_mode else ''}",
+                            id='restart-server-tooltip', target='restart-server-tooltip-target'
+                        ),
+                    ], id='restart-button', n_clicks=0), width=1),
                 ]),
             ]),
             html.Div(id='dummy-placeholder-output-for-updating-graphs'),  # This dummy stores some data
@@ -1316,7 +1329,7 @@ class Visualization:
                 hide_containers_for_tensors = False
                 children = [
                     html.Div(self.create_external_visualization(
-                        recordings, type_of_execution,  # Note that type_of_execution can be "any_value" because it's a filter
+                        self, recordings, type_of_execution,  # Note that type_of_execution can be "any_value" because it's a filter
                         tsc, ngs, db,
                         training_step_value, type_of_recording_value, batch_aggregation_value, iteration_value, node_name,
                         role_of_tensor_in_node_value,
@@ -1503,7 +1516,7 @@ class Visualization:
                         y=[val['val'] for val in vals],
                         text=[
                             f"{datetime.timedelta(seconds=int(val.get('wall_clock_time', 0)))}"
-                            f" - {name}"
+                            f" - {name}{'' if val.get('note') is None else (' - ' + val.get('note'))}"
                             for val in vals
                         ],
                         name=name,
@@ -1531,6 +1544,12 @@ class Visualization:
             'height': 'calc(100vh - 100px)',
             'overflow-y': 'auto',
         })
+
+    def load_all_kpi_graphs(self):
+        trials_path = self.path / 'trials'
+        for trial_path in trials_path.iterdir():
+            if trial_path.is_dir():
+                self.load_kpi_graphs_for_trial(trial_path.name)
 
     @utilities.runtime_analysis_decorator
     def load_kpi_graphs_for_trial(self, trials_value):

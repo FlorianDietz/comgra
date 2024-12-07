@@ -210,7 +210,7 @@ The Graphs tab shows KPIs we logged with `record_kpi_in_graph()`. This visualiza
 
 The Network tab shows a recursive breakdown of all network parameters, in tree form. We can see that none of the submodules has such a small number of parameters that it could form a bottleneck, which rules out one kind of bug.
 
-There is also a "Visualization" tab. This is an advanced feature described under [Custom Visualization](#custom-visualization). It is not relevant for this tutorial.
+There is also a "Visualization" tab. This is an advanced feature described under [Custom Visualization](#custom-visualization).
 
 Next, let's click the "Tensors" button and start the main analysis.
 

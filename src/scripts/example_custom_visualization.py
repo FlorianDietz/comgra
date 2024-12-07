@@ -3,12 +3,14 @@ from dash import dcc, html
 import dash_svg
 import plotly.graph_objs as go
 
-from comgra.objects import TrainingStepConfiguration, NodeGraphStructure
+from comgra.objects import TensorRecordings, TrainingStepConfiguration, NodeGraphStructure
 from comgra.utilities import PseudoDb
+from comgra.visualizer import Visualization
 
 
 def create_visualization(
-        recordings, type_of_execution, tsc: TrainingStepConfiguration, ngs: NodeGraphStructure, db: PseudoDb,
+        visualization: Visualization, recordings: TensorRecordings, type_of_execution: str,
+        tsc: TrainingStepConfiguration, ngs: NodeGraphStructure, db: PseudoDb,
         training_step_value, type_of_recording_value, batch_aggregation_value, iteration_value,
         node_name, role_of_tensor_in_node_value,
 ):
